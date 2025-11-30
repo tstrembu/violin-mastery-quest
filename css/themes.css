@@ -1,0 +1,160 @@
+/* ========================================================
+   VMQ THEMES - Dark Mode & Theme Variants
+   Load last - overrides base and components
+   ===================================================== */
+
+/* Dark Mode */
+[data-theme="dark"] {
+  /* Brand Colors */
+  --primary: #6ba3e8;
+  --primary-dark: #4a90e2;
+  --primary-light: #8bb9ed;
+  
+  /* Semantic Colors */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
+  
+  /* Neutrals */
+  --bg: #0f172a;
+  --card: #1e293b;
+  --border: #334155;
+  --ink: #f1f5f9;
+  --ink-light: #cbd5e1;
+  --ink-lighter: #94a3b8;
+  
+  /* Shadows (darker) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+}
+
+/* Dark mode adjustments for specific components */
+[data-theme="dark"] .btn-secondary {
+  background: var(--card);
+  color: var(--ink);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .btn-secondary:hover:not(:disabled) {
+  background: #334155;
+}
+
+[data-theme="dark"] .btn-option:hover:not(:disabled) {
+  background: #1e293b;
+  border-color: var(--primary);
+}
+
+[data-theme="dark"] .mastery-item-bar {
+  background: #334155;
+}
+
+[data-theme="dark"] .feedback-success {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border-color: var(--success);
+}
+
+[data-theme="dark"] .feedback-error {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border-color: var(--error);
+}
+
+[data-theme="dark"] .feedback-info {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border-color: var(--info);
+}
+
+[data-theme="dark"] .feedback-warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border-color: var(--warning);
+}
+
+/* High Contrast Mode (Accessibility) */
+[data-theme="high-contrast"] {
+  --primary: #0066cc;
+  --primary-dark: #004d99;
+  --success: #007700;
+  --warning: #cc7700;
+  --error: #cc0000;
+  --info: #0066cc;
+  
+  --bg: #ffffff;
+  --card: #ffffff;
+  --border: #000000;
+  --ink: #000000;
+  --ink-light: #333333;
+  --ink-lighter: #666666;
+}
+
+[data-theme="high-contrast"] .btn-primary,
+[data-theme="high-contrast"] .btn-accent,
+[data-theme="high-contrast"] .btn-danger {
+  border: 2px solid #000000;
+}
+
+[data-theme="high-contrast"] .mode-card,
+[data-theme="high-contrast"] .stat-card {
+  border: 2px solid #000000;
+}
+
+/* Print Styles */
+@media print {
+  :root {
+    --bg: white;
+    --card: white;
+    --border: #000000;
+    --ink: #000000;
+  }
+
+  .btn-back,
+  .settings-btn,
+  .toast,
+  .mode-header,
+  .mastery-overlay {
+    display: none !important;
+  }
+
+  .mode-container {
+    min-height: auto;
+  }
+
+  * {
+    box-shadow: none !important;
+  }
+}
+
+/* Large Font Mode (Accessibility) */
+[data-font-size="large"] {
+  --font-size-sm: 1rem;
+  --font-size-base: 1.125rem;
+  --font-size-lg: 1.25rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 1.75rem;
+  --font-size-3xl: 2.25rem;
+  --font-size-4xl: 3rem;
+}
+
+/* Compact Mode (More content on screen) */
+[data-layout="compact"] {
+  --space-xs: 2px;
+  --space-sm: 4px;
+  --space-md: 8px;
+  --space-lg: 12px;
+  --space-xl: 16px;
+  --space-2xl: 24px;
+}
+
+[data-layout="compact"] .mode-content {
+  padding: var(--space-md);
+}
+
+[data-layout="compact"] .flashcard,
+[data-layout="compact"] .vocab-term-card {
+  padding: var(--space-lg);
+  margin: var(--space-md) auto;
+}
