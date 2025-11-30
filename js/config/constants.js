@@ -497,7 +497,7 @@ export const BIELER_VOCAB = [
 // -------------------- FINGERBOARD DATA --------------------
 
 export const FINGERBOARD_CONFIG = {
-  strings: ['E', 'A', 'D', 'G'],
+  strings: ['G', 'D', 'A', 'E'],  // ✅ CORRECTED: Left to right from violinist's perspective
   stringMidi: { G: 55, D: 62, A: 69, E: 76 },  // Open string MIDI values
   positions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
   fingers: [1, 2, 3, 4]
