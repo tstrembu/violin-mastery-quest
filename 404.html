@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Redirecting...</title>
+  <script>
+    // Redirect to root with original path preserved as hash
+    // GitHub Pages serves this for any 404, so we redirect to the SPA
+    const path = window.location.pathname.replace('/violin-mastery-quest/', '');
+    const hash = window.location.hash;
+    window.location.replace('/violin-mastery-quest/' + (hash || ''));
+  </script>
+</head>
+<body>
+  <p>Redirecting to Violin Mastery Quest...</p>
+</body>
+</html>
