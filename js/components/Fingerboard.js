@@ -1,6 +1,6 @@
-// ========================================================
+// ============================================================
 // VMQ FINGERBOARD - SVG Fingerboard Visualization
-// ========================================================
+// ============================================================
 
 const { createElement: h, useState } = React;
 import { FINGERBOARD_CONFIG, midiToNoteName } from '../config/constants.js';
@@ -13,10 +13,14 @@ export function Fingerboard({ onBack }) {
 
   /**
    * Get note for a specific position
+   * @param {string} stringName - String name (G, D, A, or E)
+   * @param {number} position - Position number (1-10)
+   * @param {number} finger - Finger number (1-4)
+   * @returns {string} Note name
    */
   function getNote(stringName, position, finger) {
     const openMidi = stringMidi[stringName];
-    const semitones = (position - 1) * 2 + (finger - 1); // Simplified
+    const semitones = (position - 1) * 2 + (finger - 1); // Simplified position model
     return midiToNoteName(openMidi + semitones);
   }
 
@@ -39,7 +43,11 @@ export function Fingerboard({ onBack }) {
   return h('div', { className: 'mode-container fingerboard-mode' },
     // Header
     h('header', { className: 'mode-header' },
-      h('button', { className: 'btn-back', onClick: onBack }, '← Back'),
+      h('button', { 
+        className: 'btn-back', 
+        onClick: onBack,
+        'aria-label': 'Back to main menu'
+      }, '← Back'),
       h('h2', null, '🎯 Fingerboard Reference')
     ),
 
@@ -52,7 +60,9 @@ export function Fingerboard({ onBack }) {
             h('button', {
               key: pos,
               className: `btn-position ${pos === selectedPosition ? 'active' : ''}`,
-              onClick: () => handlePositionClick(pos)
+              onClick: () => handlePositionClick(pos),
+              'aria-label': `Position ${pos}`,
+              'aria-pressed': pos === selectedPosition
             }, pos)
           )
         )
@@ -62,11 +72,13 @@ export function Fingerboard({ onBack }) {
       h('svg', {
         className: 'fingerboard-svg',
         viewBox: '0 0 400 600',
-        xmlns: 'http://www.w3.org/2000/svg'
+        xmlns: 'http://www.w3.org/2000/svg',
+        role: 'img',
+        'aria-label': 'Violin fingerboard diagram showing notes in each position'
       },
-        // Strings
+        // Strings (G, D, A, E from left to right)
         strings.map((stringName, stringIdx) => {
-          const x = 100 + stringIdx * 70;
+          const x = 100 + stringIdx * 70; // Left to right: G=100, D=170, A=240, E=310
           return h('g', { key: stringName },
             // String line
             h('line', {
@@ -75,13 +87,14 @@ export function Fingerboard({ onBack }) {
               stroke: '#666',
               strokeWidth: 2
             }),
-            // String label
+            // String label at top
             h('text', {
               x, y: 30,
               textAnchor: 'middle',
               fontSize: 16,
+              fontWeight: 'bold',
               fill: '#333'
-            }, `${stringName} string`)
+            }, `${stringName}`)
           );
         }),
 
@@ -103,13 +116,16 @@ export function Fingerboard({ onBack }) {
                 stroke: '#333',
                 strokeWidth: 1,
                 style: { cursor: 'pointer' },
-                onClick: () => handleNoteClick(stringName, finger)
+                onClick: () => handleNoteClick(stringName, finger),
+                role: 'button',
+                'aria-label': `Finger ${finger} on ${stringName} string, note ${note}`
               }),
               // Finger number
               h('text', {
                 x, y: y + 5,
                 textAnchor: 'middle',
                 fontSize: 12,
+                fontWeight: 'bold',
                 fill: '#000',
                 style: { pointerEvents: 'none' }
               }, finger),
@@ -127,7 +143,11 @@ export function Fingerboard({ onBack }) {
       ),
 
       // Info display
-      highlightedNote && h('div', { className: 'fingerboard-info' },
+      highlightedNote && h('div', { 
+        className: 'fingerboard-info',
+        role: 'status',
+        'aria-live': 'polite'
+      },
         h('p', null,
           `Position ${selectedPosition}, Finger ${highlightedNote.finger} on ${highlightedNote.string} string: `,
           h('strong', null, highlightedNote.note)
@@ -135,7 +155,7 @@ export function Fingerboard({ onBack }) {
       ),
 
       h('div', { className: 'fingerboard-hint' },
-        'Tap any circle to see the note name'
+        'Tap any circle to see the note name. Strings shown from violinist\'s perspective: G (left) to E (right).'
       )
     )
   );
