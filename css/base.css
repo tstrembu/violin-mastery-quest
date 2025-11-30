@@ -1,0 +1,181 @@
+/* ========================================================
+   VMQ BASE STYLES - Variables, Resets, Typography
+   Load first - defines design tokens
+   ===================================================== */
+
+/* CSS Variables */
+:root {
+  /* Brand Colors */
+  --primary: #4a90e2;
+  --primary-dark: #357abd;
+  --primary-light: #6ba3e8;
+  
+  /* Semantic Colors */
+  --success: #009e73;
+  --warning: #e69f00;
+  --error: #d55e00;
+  --info: #56b4e9;
+  
+  /* Neutrals */
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --ink: #0f172a;
+  --ink-light: #475569;
+  --ink-lighter: #94a3b8;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  
+  /* Border Radius */
+  --radius: 8px;
+  --radius-sm: 4px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+  
+  /* Spacing Scale */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  
+  /* Typography */
+  --font-main: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+  
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 2rem;
+  --font-size-4xl: 2.5rem;
+  
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.3s ease;
+  
+  /* Z-index Scale */
+  --z-base: 1;
+  --z-dropdown: 100;
+  --z-overlay: 1000;
+  --z-modal: 1100;
+  --z-toast: 2000;
+}
+
+/* Box Sizing Reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* HTML & Body */
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-main);
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--bg);
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+/* App Root */
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+.app {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* Typography Hierarchy */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.2;
+  margin-bottom: 0.5em;
+  color: var(--ink);
+}
+
+h1 { font-size: var(--font-size-3xl); }
+h2 { font-size: var(--font-size-2xl); }
+h3 { font-size: var(--font-size-xl); }
+h4 { font-size: var(--font-size-lg); }
+h5 { font-size: var(--font-size-base); }
+h6 { font-size: var(--font-size-sm); }
+
+p {
+  margin-bottom: 1rem;
+}
+
+/* Links */
+a {
+  color: var(--primary);
+  text-decoration: none;
+  transition: color var(--transition-base);
+}
+
+a:hover {
+  color: var(--primary-dark);
+}
+
+/* Lists */
+ul, ol {
+  list-style-position: inside;
+}
+
+/* Strong & Emphasis */
+strong, b {
+  font-weight: 600;
+}
+
+em, i {
+  font-style: italic;
+}
+
+/* Code */
+code, pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* Focus Styles (Accessibility) */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Selection */
+::selection {
+  background: var(--primary-light);
+  color: white;
+}
+
+/* Reduced Motion (Accessibility) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
