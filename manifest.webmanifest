@@ -1,0 +1,26 @@
+{
+  "name": "Violin Mastery Quest",
+  "short_name": "VMQ",
+  "description": "Adaptive violin practice with spaced repetition",
+  "start_url": "/violin-mastery-quest/",
+  "scope": "/violin-mastery-quest/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4a90e2",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/violin-mastery-quest/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/violin-mastery-quest/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["education", "music"]
+}
