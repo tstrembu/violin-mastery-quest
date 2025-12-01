@@ -11,12 +11,9 @@ export const NOTES = [
 ];
 
 export const NATURAL_NOTES = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
-
 export const SHARP_NOTES = ['C#', 'D#', 'F#', 'G#', 'A#'];
-
 export const FLAT_NOTES = ['Db', 'Eb', 'Gb', 'Ab', 'Bb'];
 
-// Note name normalization for input matching
 export const NOTE_ALIASES = {
   'c': 'C', 'c#': 'C#', 'c sharp': 'C#', 'csharp': 'C#', 'c♯': 'C#',
   'db': 'Db', 'd flat': 'Db', 'dflat': 'Db', 'd♭': 'Db',
@@ -109,19 +106,17 @@ export const INTERVAL_DEFINITIONS = [
   }
 ];
 
-// Root notes for interval generation (first position range)
 export const ROOT_NOTES = [
-  { note: 'G', midi: 55 },  // Open G string
+  { note: 'G', midi: 55 },
   { note: 'A', midi: 57 },
   { note: 'B', midi: 59 },
-  { note: 'C', midi: 60 },  // Middle C
+  { note: 'C', midi: 60 },
   { note: 'D', midi: 62 },
   { note: 'E', midi: 64 },
   { note: 'F', midi: 65 },
   { note: 'G', midi: 67 }
 ];
 
-// MIDI to frequency conversion
 export function midiToFreq(midi) {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
@@ -129,7 +124,6 @@ export function midiToFreq(midi) {
 // -------------------- RHYTHM PATTERNS --------------------
 
 export const RHYTHM_PATTERNS = [
-  // Elementary (Suzuki Book 1-2)
   {
     id: 'quarters',
     pattern: '♩ ♩ ♩ ♩',
@@ -154,8 +148,6 @@ export const RHYTHM_PATTERNS = [
     difficulty: 'easy',
     bpmRange: [60, 100]
   },
-  
-  // Intermediate (Suzuki Book 3-5)
   {
     id: 'dotted-1',
     pattern: '♩. ♪',
@@ -180,13 +172,11 @@ export const RHYTHM_PATTERNS = [
     difficulty: 'medium',
     bpmRange: [80, 120]
   },
-  
-  // Advanced
   {
     id: 'triplet',
     pattern: '♪♪♪',
     description: 'Eighth note triplet',
-    appearsIn: 'Kreutzer études, orchestra',
+    appearsIn: 'Kreutzer études, orchestra',
     difficulty: 'hard',
     bpmRange: [60, 140]
   },
@@ -208,14 +198,12 @@ export const RHYTHM_PATTERNS = [
   }
 ];
 
-// -------------------- KEY SIGNATURES (Cooper's Guide) --------------------
+// -------------------- KEY SIGNATURES --------------------
 
-// Sharp and flat orders
-export const SHARP_ORDER = ['F', 'C', 'G', 'D', 'A', 'E', 'B'];  // Father Charles Goes Down And Ends Battle
-export const FLAT_ORDER = ['B', 'E', 'A', 'D', 'G', 'C', 'F'];   // Battle Ends And Down Goes Charles Father
+export const SHARP_ORDER = ['F', 'C', 'G', 'D', 'A', 'E', 'B'];
+export const FLAT_ORDER = ['B', 'E', 'A', 'D', 'G', 'C', 'F'];
 
 export const KEY_SIGNATURES = [
-  // Level 1 - Everyday keys
   {
     id: 'C_major',
     major: 'C Major',
@@ -223,10 +211,10 @@ export const KEY_SIGNATURES = [
     accidentals: 0,
     type: 'natural',
     handMap: {
-      G: 'high2',  // B
-      D: 'low2',   // F
-      A: 'low2',   // C
-      E: 'low1'    // F
+      G: 'high2',
+      D: 'low2',
+      A: 'low2',
+      E: 'low1'
     },
     openStrings: ['G', 'D', 'A', 'E'],
     appearsIn: 'Most Suzuki Book 1-2, simple pieces',
@@ -240,10 +228,10 @@ export const KEY_SIGNATURES = [
     type: 'sharp',
     sharps: ['F'],
     handMap: {
-      G: 'high2',  // B
-      D: 'high2',  // F♯
-      A: 'low2',   // C
-      E: 'low2'    // G
+      G: 'high2',
+      D: 'high2',
+      A: 'low2',
+      E: 'low2'
     },
     openStrings: ['G', 'D', 'A', 'E'],
     appearsIn: 'Allegro, Perpetual Motion, May Song',
@@ -257,10 +245,10 @@ export const KEY_SIGNATURES = [
     type: 'sharp',
     sharps: ['F', 'C'],
     handMap: {
-      G: 'high2',  // B
-      D: 'high2',  // F♯
-      A: 'high2',  // C♯
-      E: 'low2'    // G
+      G: 'high2',
+      D: 'high2',
+      A: 'high2',
+      E: 'low2'
     },
     openStrings: ['D', 'A'],
     appearsIn: 'Chorus from Judas Maccabaeus, Book 2+',
@@ -274,13 +262,13 @@ export const KEY_SIGNATURES = [
     type: 'sharp',
     sharps: ['F', 'C', 'G'],
     handMap: {
-      G: 'high2',  // B (really G♯–B in context)
-      D: 'high2',  // F♯
-      A: 'high2',  // C♯
-      E: 'high2'   // G♯
+      G: 'high2',
+      D: 'high2',
+      A: 'high2',
+      E: 'high2'
     },
     openStrings: ['A', 'E'],
-    appearsIn: 'Kreutzer études, orchestra parts',
+    appearsIn: 'Kreutzer études, orchestra parts',
     difficulty: 'medium'
   },
   {
@@ -291,10 +279,10 @@ export const KEY_SIGNATURES = [
     type: 'flat',
     flats: ['B'],
     handMap: {
-      G: 'low2',   // B♭
-      D: 'low2',   // F
-      A: 'low1',   // B♭
-      E: 'low1'    // F
+      G: 'low2',
+      D: 'low2',
+      A: 'low1',
+      E: 'low1'
     },
     openStrings: ['G', 'D'],
     appearsIn: 'Orchestra parts, Book 3+',
@@ -308,10 +296,10 @@ export const KEY_SIGNATURES = [
     type: 'flat',
     flats: ['B', 'E'],
     handMap: {
-      G: 'low2',   // B♭
-      D: 'low2',   // F
-      A: 'low2',   // C
-      E: 'low1'    // F
+      G: 'low2',
+      D: 'low2',
+      A: 'low2',
+      E: 'low1'
     },
     openStrings: ['G', 'D'],
     appearsIn: 'Orchestra, Book 4+',
@@ -320,12 +308,10 @@ export const KEY_SIGNATURES = [
 ];
 
 // -------------------- BIELER VOCABULARY --------------------
-// Source: IDA BIELER METHOD by Lucia Kobza
 
 export const BIELER_VOCAB = [
-  // BOW STROKES - BASIC
   {
-    term: 'détaché',
+    term: 'détaché',
     definition: 'Separate bow strokes played with relaxed right hand using natural arm weight and good contact between bow and string. The fundamental stroke for all violin playing.',
     acceptableAnswers: ['separate bow', 'basic stroke', 'single bow strokes'],
     category: 'bow_basic',
@@ -343,8 +329,8 @@ export const BIELER_VOCAB = [
     appearsIn: 'Suzuki Book 1, most music'
   },
   {
-    term: 'martelé',
-    definition: 'Sharp articulated stroke in the upper half using flat hair and fast bow speed. The bow catches the string like collé then releases with the natural weight of the relaxed arm.',
+    term: 'martelé',
+    definition: 'Sharp articulated stroke in the upper half using flat hair and fast bow speed. The bow catches the string like collé then releases with the natural weight of the relaxed arm.',
     acceptableAnswers: ['hammered', 'sharp stroke', 'articulated'],
     category: 'bow_articulated',
     trainedFunction: 'right_hand',
@@ -352,7 +338,7 @@ export const BIELER_VOCAB = [
     appearsIn: 'Kreutzer No. 7'
   },
   {
-    term: 'collé',
+    term: 'collé',
     definition: 'Precise placement and pinching of the string with the bow using gripping stretching movements of the fingers. Can be silent placement only or articulated with pizzicato-like sound.',
     acceptableAnswers: ['pinch', 'grip', 'bow placement'],
     category: 'bow_articulated',
@@ -362,7 +348,7 @@ export const BIELER_VOCAB = [
   },
   {
     term: 'spiccato',
-    definition: 'Light bouncing stroke in the lower half that lifts from the string. Evolves from détaché by turning the wood of the bow out while using whole-arm motion from the shoulder.',
+    definition: 'Light bouncing stroke in the lower half that lifts from the string. Evolves from détaché by turning the wood of the bow out while using whole-arm motion from the shoulder.',
     acceptableAnswers: ['bouncing', 'off string', 'bounced bow'],
     category: 'bow_off_string',
     trainedFunction: 'right_hand',
@@ -370,7 +356,7 @@ export const BIELER_VOCAB = [
     appearsIn: 'Kreutzer No. 2 variations'
   },
   {
-    term: 'sautillé',
+    term: 'sautillé',
     definition: 'Virtuoso springing bow stroke produced by fast vertical flicking motion from the wrist. Light articulation uses outside of hair, stronger uses flat hair.',
     acceptableAnswers: ['springing', 'fast spiccato', 'bouncing fast'],
     category: 'bow_off_string',
@@ -378,8 +364,6 @@ export const BIELER_VOCAB = [
     difficulty: 'hard',
     appearsIn: 'Fast passages, orchestra'
   },
-
-  // LEFT HAND - TRAINED FUNCTIONS
   {
     term: 'First Trained Function',
     definition: 'Developing basic hand position so fingers fall into clear stable intervallic patterns with minimal effort. Fingers stay close to the string and remain down silently whenever possible.',
@@ -387,7 +371,7 @@ export const BIELER_VOCAB = [
     category: 'left_hand',
     trainedFunction: 'first_function',
     difficulty: 'easy',
-    appearsIn: 'Ševčík Op. 1 No. 1, Kreutzer No. 9'
+    appearsIn: 'Ševčík Op. 1 No. 1, Kreutzer No. 9'
   },
   {
     term: 'Second Trained Function',
@@ -396,7 +380,7 @@ export const BIELER_VOCAB = [
     category: 'left_hand',
     trainedFunction: 'second_function',
     difficulty: 'easy',
-    appearsIn: 'Ševčík Op. 1 Nos. 1-3, Kreutzer No. 6'
+    appearsIn: 'Ševčík Op. 1 Nos. 1-3, Kreutzer No. 6'
   },
   {
     term: 'Third Trained Function',
@@ -405,7 +389,7 @@ export const BIELER_VOCAB = [
     category: 'left_hand',
     trainedFunction: 'third_function',
     difficulty: 'medium',
-    appearsIn: 'Ševčík Op. 8, shifting exercises'
+    appearsIn: 'Ševčík Op. 8, shifting exercises'
   },
   {
     term: 'Fourth Trained Function',
@@ -416,8 +400,6 @@ export const BIELER_VOCAB = [
     difficulty: 'medium',
     appearsIn: 'Lyrical pieces, slow movements'
   },
-
-  // TEMPO MARKINGS
   {
     term: 'Allegro',
     definition: 'Fast tempo, lively and quick',
@@ -458,8 +440,6 @@ export const BIELER_VOCAB = [
     difficulty: 'easy',
     appearsIn: 'Vivaldi, virtuoso pieces'
   },
-
-  // DYNAMICS
   {
     term: 'piano',
     definition: 'Soft, quiet',
@@ -494,20 +474,54 @@ export const BIELER_VOCAB = [
   }
 ];
 
-// -------------------- FINGERBOARD DATA --------------------
+// -------------------- FINGERBOARD --------------------
 
 export const FINGERBOARD_CONFIG = {
-  strings: ['G', 'D', 'A', 'E'],  // ✅ CORRECTED: Left to right from violinist's perspective
-  stringMidi: { G: 55, D: 62, A: 69, E: 76 },  // Open string MIDI values
+  strings: ['G', 'D', 'A', 'E'],
+  stringMidi: { G: 55, D: 62, A: 69, E: 76 },
   positions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
   fingers: [1, 2, 3, 4]
 };
 
-// Generate note name from MIDI
 export function midiToNoteName(midi) {
   const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   return noteNames[midi % 12];
 }
+
+export const FINGERBOARD_NOTES = {
+  G: [
+    { position: 0, finger: 0, note: 'G', octave: 3, midi: 55 },
+    { position: 1, finger: 1, note: 'A', octave: 3, midi: 57 },
+    { position: 1, finger: 2, note: 'B', octave: 3, midi: 59 },
+    { position: 1, finger: 3, note: 'C', octave: 4, midi: 60 },
+    { position: 1, finger: 4, note: 'D', octave: 4, midi: 62 },
+    { position: 3, finger: 1, note: 'C', octave: 4, midi: 60 },
+    { position: 3, finger: 2, note: 'D', octave: 4, midi: 62 },
+    { position: 3, finger: 3, note: 'E', octave: 4, midi: 64 },
+    { position: 3, finger: 4, note: 'F#', octave: 4, midi: 66 }
+  ],
+  D: [
+    { position: 0, finger: 0, note: 'D', octave: 4, midi: 62 },
+    { position: 1, finger: 1, note: 'E', octave: 4, midi: 64 },
+    { position: 1, finger: 2, note: 'F#', octave: 4, midi: 66 },
+    { position: 1, finger: 3, note: 'G', octave: 4, midi: 67 },
+    { position: 1, finger: 4, note: 'A', octave: 4, midi: 69 }
+  ],
+  A: [
+    { position: 0, finger: 0, note: 'A', octave: 4, midi: 69 },
+    { position: 1, finger: 1, note: 'B', octave: 4, midi: 71 },
+    { position: 1, finger: 2, note: 'C#', octave: 5, midi: 73 },
+    { position: 1, finger: 3, note: 'D', octave: 5, midi: 74 },
+    { position: 1, finger: 4, note: 'E', octave: 5, midi: 76 }
+  ],
+  E: [
+    { position: 0, finger: 0, note: 'E', octave: 5, midi: 76 },
+    { position: 1, finger: 1, note: 'F#', octave: 5, midi: 78 },
+    { position: 1, finger: 2, note: 'G#', octave: 5, midi: 80 },
+    { position: 1, finger: 3, note: 'A', octave: 5, midi: 81 },
+    { position: 1, finger: 4, note: 'B', octave: 5, midi: 83 }
+  ]
+};
 
 // -------------------- FEEDBACK MESSAGES --------------------
 
@@ -530,14 +544,11 @@ export const ENCOURAGEMENT_MESSAGES = [
   'Keep practicing!'
 ];
 
-// ========================================================
-// 🆕 GAMIFICATION & STORAGE KEYS
-// ========================================================
+// -------------------- GAMIFICATION --------------------
 
-// Experience & Gamification
 export const XP_VALUES = {
   CORRECT_ANSWER: 10,
-  PERFECT_ANSWER: 25,      // No hints used
+  PERFECT_ANSWER: 25,
   STREAK_BONUS: 5,
   TECHNIQUE_COMPLETE: 15,
   PRACTICE_ITEM_DONE: 5,
@@ -557,7 +568,6 @@ export const LEVEL_THRESHOLDS = [
   { level: 10, xp: 12000 }
 ];
 
-// Profile Types
 export const PROFILE_TYPES = {
   INTERMEDIATE: {
     id: 'intermediate',
@@ -579,7 +589,6 @@ export const PROFILE_TYPES = {
   }
 };
 
-// ✅ CORRECTED - Storage Keys (all in one place)
 export const STORAGE_KEYS = {
   STATS: 'vmq.stats',
   XP: 'vmq.xp',
@@ -594,15 +603,7 @@ export const STORAGE_KEYS = {
   SETTINGS: 'vmq.settings',
   DIFFICULTY: 'vmq.difficulty'
 };
-  
-  // Learning algorithms
-  ITEM_RATINGS: 'vmq.itemRatings',      // For SM-2 spaced repetition
-  
-  // Practice planning
-  PRACTICE_PLAN: 'vmq.practicePlan'
-};
 
-// Achievements
 export const ACHIEVEMENTS = [
   { id: 'first_steps', name: 'First Steps', description: 'Complete first practice session', xp: 0 },
   { id: 'week_warrior', name: 'Week Warrior', description: '7-day streak', xp: 100 },
@@ -613,58 +614,16 @@ export const ACHIEVEMENTS = [
   { id: 'practice_dedicated', name: 'Practice Dedicated', description: '30-day streak', xp: 2000 }
 ];
 
-// Fingerboard Notes (for position trainer)
-export const FINGERBOARD_NOTES = {
-  G: [ // G string
-    { position: 0, finger: 0, note: 'G', octave: 3, midi: 55 },
-    { position: 1, finger: 1, note: 'A', octave: 3, midi: 57 },
-    { position: 1, finger: 2, note: 'B', octave: 3, midi: 59 },
-    { position: 1, finger: 3, note: 'C', octave: 4, midi: 60 },
-    { position: 1, finger: 4, note: 'D', octave: 4, midi: 62 },
-    { position: 3, finger: 1, note: 'C', octave: 4, midi: 60 },
-    { position: 3, finger: 2, note: 'D', octave: 4, midi: 62 },
-    { position: 3, finger: 3, note: 'E', octave: 4, midi: 64 },
-    { position: 3, finger: 4, note: 'F#', octave: 4, midi: 66 }
-  ],
-  D: [ // D string
-    { position: 0, finger: 0, note: 'D', octave: 4, midi: 62 },
-    { position: 1, finger: 1, note: 'E', octave: 4, midi: 64 },
-    { position: 1, finger: 2, note: 'F#', octave: 4, midi: 66 },
-    { position: 1, finger: 3, note: 'G', octave: 4, midi: 67 },
-    { position: 1, finger: 4, note: 'A', octave: 4, midi: 69 }
-  ],
-  A: [ // A string
-    { position: 0, finger: 0, note: 'A', octave: 4, midi: 69 },
-    { position: 1, finger: 1, note: 'B', octave: 4, midi: 71 },
-    { position: 1, finger: 2, note: 'C#', octave: 5, midi: 73 },
-    { position: 1, finger: 3, note: 'D', octave: 5, midi: 74 },
-    { position: 1, finger: 4, note: 'E', octave: 5, midi: 76 }
-  ],
-  E: [ // E string
-    { position: 0, finger: 0, note: 'E', octave: 5, midi: 76 },
-    { position: 1, finger: 1, note: 'F#', octave: 5, midi: 78 },
-    { position: 1, finger: 2, note: 'G#', octave: 5, midi: 80 },
-    { position: 1, finger: 3, note: 'A', octave: 5, midi: 81 },
-    { position: 1, finger: 4, note: 'B', octave: 5, midi: 83 }
-  ]
-};
-
-// Technique Tasks
 export const TECHNIQUE_TASKS = [
-  // Left Hand
   { id: 'lh_basic_position', name: 'Basic Left Hand Position', description: 'Violin on collarbone, wrist straight, fingers curved', category: 'lefthand', bielerRef: 'Trained Function 1' },
   { id: 'lh_finger_articulation', name: 'Finger Articulation', description: 'Finger motion from whole arm, not isolated pressure', category: 'lefthand', bielerRef: 'Trained Function 1' },
   { id: 'lh_finger_replacement', name: 'Finger Replacement', description: 'Hand rotation while maintaining frame', category: 'lefthand', bielerRef: 'Trained Function 2' },
   { id: 'lh_hand_frame', name: 'Hand Frame Patterns', description: 'Practice 1-2-3-4 and 1-2-34 patterns', category: 'lefthand', bielerRef: 'Hand Frame' },
   { id: 'lh_shifting', name: 'Shifting Practice', description: 'Smooth position changes with thumb release', category: 'lefthand', bielerRef: 'Position Work' },
   { id: 'lh_vibrato', name: 'Vibrato Development', description: 'Arm vibrato with relaxed wrist', category: 'lefthand', bielerRef: 'Sound Production' },
-  
-  // Right Hand
   { id: 'rh_bow_hold', name: 'Bow Hold', description: 'Thumb bent, fingers relaxed, pinky curved', category: 'righthand', bielerRef: 'Bow Hold' },
   { id: 'rh_contact_point', name: 'Contact Point Awareness', description: 'Play at bridge, middle, fingerboard', category: 'righthand', bielerRef: 'Contact Point' },
   { id: 'rh_bow_distribution', name: 'Bow Distribution', description: 'Equal sound across entire bow', category: 'righthand', bielerRef: 'Trained Function 3' },
-  
-  // Bow Strokes
   { id: 'bs_detache', name: 'Détaché', description: 'Smooth separate bows, consistent speed', category: 'bowstroke', bielerRef: 'Détaché' },
   { id: 'bs_martele', name: 'Martelé', description: 'Hammered stroke with fast attack', category: 'bowstroke', bielerRef: 'Martelé' },
   { id: 'bs_legato', name: 'Legato', description: 'Connected strokes in one bow', category: 'bowstroke', bielerRef: 'Legato' },
@@ -672,150 +631,6 @@ export const TECHNIQUE_TASKS = [
   { id: 'bs_staccato', name: 'Staccato', description: 'Multiple notes in one bow direction', category: 'bowstroke', bielerRef: 'Staccato' }
 ];
 
-// Daily Practice Goals
-export const DAILY_GOALS = {
-  BEGINNER: { minutes: 15, xpTarget: 50, itemsTarget: 10 },
-  INTERMEDIATE: { minutes: 30, xpTarget: 100, itemsTarget: 20 },
-  ADVANCED: { minutes: 45, xpTarget: 150, itemsTarget: 30 },
-  CONSERVATORY: { minutes: 60, xpTarget: 200, itemsTarget: 40 }
-};
-
-// ========================================================
-// 🆕 ADD TO BOTTOM OF FILE - NEW CONSTANTS
-// ========================================================
-
-// Experience & Gamification
-export const XP_VALUES = {
-  CORRECT_ANSWER: 10,
-  PERFECT_ANSWER: 25,      // No hints used
-  STREAK_BONUS: 5,
-  TECHNIQUE_COMPLETE: 15,
-  PRACTICE_ITEM_DONE: 5,
-  DAILY_GOAL_MET: 50
-};
-
-export const LEVEL_THRESHOLDS = [
-  { level: 1, xp: 0 },
-  { level: 2, xp: 100 },
-  { level: 3, xp: 250 },
-  { level: 4, xp: 500 },
-  { level: 5, xp: 1000 },
-  { level: 6, xp: 2000 },
-  { level: 7, xp: 3500 },
-  { level: 8, xp: 5500 },
-  { level: 9, xp: 8000 },
-  { level: 10, xp: 12000 }
-];
-
-// Profile Types
-export const PROFILE_TYPES = {
-  INTERMEDIATE: {
-    id: 'intermediate',
-    label: 'Intermediate (Suzuki 4-6)',
-    description: 'Building solid technique foundations',
-    color: '#007bff'
-  },
-  ADVANCED: {
-    id: 'advanced',
-    label: 'Advanced (Suzuki 7-10)',
-    description: 'Refining artistry and control',
-    color: '#28a745'
-  },
-  CONSERVATORY: {
-    id: 'conservatory',
-    label: 'Conservatory Prep',
-    description: 'Professional-level mastery',
-    color: '#dc3545'
-  }
-};
-
-// Storage Keys (add to your existing STORAGE_KEYS object or create new)
-export const STORAGE_KEYS = {
-  STATS: 'vmq.stats',
-  XP: 'vmq.xp',
-  LEVEL: 'vmq.level',
-  STREAK: 'vmq.streak',
-  LAST_PRACTICE: 'vmq.lastPractice',
-  PROFILE: 'vmq.profile',
-  ACHIEVEMENTS: 'vmq.achievements',
-  DAILY_GOAL: 'vmq.dailyGoal',
-  ITEM_RATINGS: 'vmq.itemRatings',
-  PRACTICE_PLAN: 'vmq.practicePlan',
-  SETTINGS: 'vmq.settings',
-  DIFFICULTY: 'vmq.difficulty'
-};
-
-// Achievements
-export const ACHIEVEMENTS = [
-  { id: 'first_steps', name: 'First Steps', description: 'Complete first practice session', xp: 0 },
-  { id: 'week_warrior', name: 'Week Warrior', description: '7-day streak', xp: 100 },
-  { id: 'interval_master', name: 'Interval Master', description: '90% accuracy in intervals', xp: 500 },
-  { id: 'rhythm_expert', name: 'Rhythm Expert', description: '90% accuracy in rhythm', xp: 500 },
-  { id: 'key_sage', name: 'Key Sage', description: 'Master all key signatures', xp: 750 },
-  { id: 'bieler_scholar', name: 'Bieler Scholar', description: '90% on vocabulary quiz', xp: 1000 },
-  { id: 'practice_dedicated', name: 'Practice Dedicated', description: '30-day streak', xp: 2000 }
-];
-
-// Fingerboard Notes (for position trainer)
-export const FINGERBOARD_NOTES = {
-  G: [ // G string
-    { position: 0, finger: 0, note: 'G', octave: 3, midi: 55 },
-    { position: 1, finger: 1, note: 'A', octave: 3, midi: 57 },
-    { position: 1, finger: 2, note: 'B', octave: 3, midi: 59 },
-    { position: 1, finger: 3, note: 'C', octave: 4, midi: 60 },
-    { position: 1, finger: 4, note: 'D', octave: 4, midi: 62 },
-    { position: 3, finger: 1, note: 'C', octave: 4, midi: 60 },
-    { position: 3, finger: 2, note: 'D', octave: 4, midi: 62 },
-    { position: 3, finger: 3, note: 'E', octave: 4, midi: 64 },
-    { position: 3, finger: 4, note: 'F#', octave: 4, midi: 66 }
-  ],
-  D: [ // D string
-    { position: 0, finger: 0, note: 'D', octave: 4, midi: 62 },
-    { position: 1, finger: 1, note: 'E', octave: 4, midi: 64 },
-    { position: 1, finger: 2, note: 'F#', octave: 4, midi: 66 },
-    { position: 1, finger: 3, note: 'G', octave: 4, midi: 67 },
-    { position: 1, finger: 4, note: 'A', octave: 4, midi: 69 }
-  ],
-  A: [ // A string
-    { position: 0, finger: 0, note: 'A', octave: 4, midi: 69 },
-    { position: 1, finger: 1, note: 'B', octave: 4, midi: 71 },
-    { position: 1, finger: 2, note: 'C#', octave: 5, midi: 73 },
-    { position: 1, finger: 3, note: 'D', octave: 5, midi: 74 },
-    { position: 1, finger: 4, note: 'E', octave: 5, midi: 76 }
-  ],
-  E: [ // E string
-    { position: 0, finger: 0, note: 'E', octave: 5, midi: 76 },
-    { position: 1, finger: 1, note: 'F#', octave: 5, midi: 78 },
-    { position: 1, finger: 2, note: 'G#', octave: 5, midi: 80 },
-    { position: 1, finger: 3, note: 'A', octave: 5, midi: 81 },
-    { position: 1, finger: 4, note: 'B', octave: 5, midi: 83 }
-  ]
-};
-
-// Technique Tasks (expand your existing TECHNIQUE_TASKS if you have it)
-export const TECHNIQUE_TASKS = [
-  // Left Hand
-  { id: 'lh_basic_position', name: 'Basic Left Hand Position', description: 'Violin on collarbone, wrist straight, fingers curved', category: 'lefthand', bielerRef: 'Trained Function 1' },
-  { id: 'lh_finger_articulation', name: 'Finger Articulation', description: 'Finger motion from whole arm, not isolated pressure', category: 'lefthand', bielerRef: 'Trained Function 1' },
-  { id: 'lh_finger_replacement', name: 'Finger Replacement', description: 'Hand rotation while maintaining frame', category: 'lefthand', bielerRef: 'Trained Function 2' },
-  { id: 'lh_hand_frame', name: 'Hand Frame Patterns', description: 'Practice 1-2-3-4 and 1-2-34 patterns', category: 'lefthand', bielerRef: 'Hand Frame' },
-  { id: 'lh_shifting', name: 'Shifting Practice', description: 'Smooth position changes with thumb release', category: 'lefthand', bielerRef: 'Position Work' },
-  { id: 'lh_vibrato', name: 'Vibrato Development', description: 'Arm vibrato with relaxed wrist', category: 'lefthand', bielerRef: 'Sound Production' },
-  
-  // Right Hand
-  { id: 'rh_bow_hold', name: 'Bow Hold', description: 'Thumb bent, fingers relaxed, pinky curved', category: 'righthand', bielerRef: 'Bow Hold' },
-  { id: 'rh_contact_point', name: 'Contact Point Awareness', description: 'Play at bridge, middle, fingerboard', category: 'righthand', bielerRef: 'Contact Point' },
-  { id: 'rh_bow_distribution', name: 'Bow Distribution', description: 'Equal sound across entire bow', category: 'righthand', bielerRef: 'Trained Function 3' },
-  
-  // Bow Strokes
-  { id: 'bs_detache', name: 'Détaché', description: 'Smooth separate bows, consistent speed', category: 'bowstroke', bielerRef: 'Détaché' },
-  { id: 'bs_martele', name: 'Martelé', description: 'Hammered stroke with fast attack', category: 'bowstroke', bielerRef: 'Martelé' },
-  { id: 'bs_legato', name: 'Legato', description: 'Connected strokes in one bow', category: 'bowstroke', bielerRef: 'Legato' },
-  { id: 'bs_spiccato', name: 'Spiccato', description: 'Controlled off-string bounce', category: 'bowstroke', bielerRef: 'Spiccato' },
-  { id: 'bs_staccato', name: 'Staccato', description: 'Multiple notes in one bow direction', category: 'bowstroke', bielerRef: 'Staccato' }
-];
-
-// Daily Practice Goals
 export const DAILY_GOALS = {
   BEGINNER: { minutes: 15, xpTarget: 50, itemsTarget: 10 },
   INTERMEDIATE: { minutes: 30, xpTarget: 100, itemsTarget: 20 },
