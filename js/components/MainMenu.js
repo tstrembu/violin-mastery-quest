@@ -31,6 +31,31 @@ export function MainMenu({ stats, onSelectMode }) {
       )
     ),
 
+    // ✅ NEW: Quick Actions
+    h('div', { 
+      style: { 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: '12px',
+        marginBottom: '24px'
+      } 
+    },
+      h('button', {
+        className: 'btn btn-primary',
+        onClick: () => onSelectMode('dashboard')
+      }, '📊 Dashboard'),
+      
+      h('button', {
+        className: 'btn btn-primary',
+        onClick: () => onSelectMode('practicePlanner')
+      }, '📝 Practice Planner'),
+      
+      h('button', {
+        className: 'btn btn-secondary',
+        onClick: () => onSelectMode('analytics')
+      }, '📈 Analytics')
+    ),
+
     // Mode buttons
     h('div', { className: 'mode-grid' },
       h('button', {
@@ -95,3 +120,5 @@ export function MainMenu({ stats, onSelectMode }) {
     }, '⚙️ Settings')
   );
 }
+
+export default MainMenu;
