@@ -3,12 +3,20 @@
 // ========================================================
 
 const { createElement: h, useState, useEffect, useRef } = React;
-import { BIELER_VOCAB, PRAISE_MESSAGES } from '../config/constants.js';
+
+// Imports
+import { BIELER_VOCAB, TECHNIQUE_TASKS, PRAISE_MESSAGES } from '../config/constants.js';
 import { selectNextItem, updateItem, getMasteryStats } from '../engines/spacedRepetition.js';
 import { getDifficulty, getBielerPool, getDifficultyInfo } from '../engines/difficultyAdapter.js';
 import { getRandom, fuzzyMatch, normalizeText } from '../utils/helpers.js';
+import { awardXP, incrementDailyItems } from '../engines/gamification.js';
+import { updateStats } from '../config/storage.js';
 
-export function Bieler({ onBack, onAnswer, showToast }) {
+export function Bieler({ navigate, onAnswer, showToast }) {
+  // ✅ Mode state
+  const [mode, setMode] = useState('vocabulary'); // 'vocabulary' or 'scenario'
+  
+  // Vocabulary mode state
   const [currentTerm, setCurrentTerm] = useState(null);
   const [userAnswer, setUserAnswer] = useState('');
   const [feedback, setFeedback] = useState('');
@@ -16,6 +24,7 @@ export function Bieler({ onBack, onAnswer, showToast }) {
   const [answered, setAnswered] = useState(false);
   const [showMastery, setShowMastery] = useState(false);
   const [mastery, setMastery] = useState([]);
+  const [potentialXP, setPotentialXP] = useState(15);
   const inputRef = useRef(null);
 
   const difficultyInfo = getDifficultyInfo('bieler');
@@ -24,8 +33,10 @@ export function Bieler({ onBack, onAnswer, showToast }) {
 
   // Generate first question
   useEffect(() => {
-    generateQuestion();
-  }, []);
+    if (mode === 'vocabulary') {
+      generateQuestion();
+    }
+  }, [mode]);
 
   /**
    * Generate new question
@@ -45,6 +56,7 @@ export function Bieler({ onBack, onAnswer, showToast }) {
     setFeedback('');
     setFeedbackType('');
     setAnswered(false);
+    setPotentialXP(15);
 
     // Update mastery stats
     const stats = getMasteryStats(termIds);
@@ -77,7 +89,7 @@ export function Bieler({ onBack, onAnswer, showToast }) {
   }
 
   /**
-   * Handle answer submission
+   * Handle answer submission with gamification
    */
   function handleSubmit(e) {
     e.preventDefault();
@@ -88,16 +100,27 @@ export function Bieler({ onBack, onAnswer, showToast }) {
     // Update spaced repetition
     updateItem(currentTerm.term, isCorrect);
 
-    // Update global stats
-    onAnswer(isCorrect);
+    // Update stats
+    updateStats('bieler', isCorrect);
 
-    // Show feedback
+    // Update global stats
+    if (onAnswer) {
+      onAnswer(isCorrect);
+    }
+
+    // ✅ Gamification
     if (isCorrect) {
-      setFeedback(getRandom(PRAISE_MESSAGES));
+      const result = awardXP(potentialXP, 'Bieler term mastered');
+      incrementDailyItems();
+      
+      const praiseMsg = getRandom(PRAISE_MESSAGES);
+      setFeedback(`${praiseMsg} +${potentialXP} XP`);
       setFeedbackType('success');
+      showToast(`✓ ${praiseMsg} +${potentialXP} XP`, 'success');
     } else {
       setFeedback(`The full definition is: ${currentTerm.definition}`);
       setFeedbackType('error');
+      showToast('Not quite. Review the definition.', 'error');
     }
 
     setAnswered(true);
@@ -115,7 +138,10 @@ export function Bieler({ onBack, onAnswer, showToast }) {
     if (!answered) {
       // Count as incorrect
       updateItem(currentTerm.term, false);
-      onAnswer(false);
+      updateStats('bieler', false);
+      if (onAnswer) {
+        onAnswer(false);
+      }
     }
     generateQuestion();
   }
@@ -127,18 +153,11 @@ export function Bieler({ onBack, onAnswer, showToast }) {
     setShowMastery(!showMastery);
   }
 
-  return h('div', { className: 'mode-container bieler-mode' },
-    // Header
-    h('header', { className: 'mode-header' },
-      h('button', { className: 'btn-back', onClick: onBack }, '← Back'),
-      h('h2', null, '🎻 Bieler Technique Vocabulary'),
-      h('div', { className: 'difficulty-badge', 'data-level': difficultyInfo.level },
-        difficultyInfo.label
-      )
-    ),
-
-    // Main content
-    h('div', { className: 'mode-content' },
+  /**
+   * Render vocabulary quiz mode
+   */
+  function renderVocabularyMode() {
+    return h('div', null,
       currentTerm && h('div', { className: 'vocab-area' },
         h('div', { className: 'vocab-term-card' },
           h('div', { className: 'vocab-term' }, currentTerm.term),
@@ -189,36 +208,164 @@ export function Bieler({ onBack, onAnswer, showToast }) {
         className: 'btn btn-secondary btn-mastery-toggle',
         onClick: toggleMastery
       }, showMastery ? 'Hide Stats' : 'Show Mastery Stats')
+    );
+  }
+
+  /**
+   * Render practice scenarios mode
+   */
+  function renderScenariosMode() {
+    const categoryNames = {
+      lefthand: 'Left Hand',
+      righthand: 'Right Hand',
+      bowstroke: 'Bow Strokes'
+    };
+
+    return h('div', { className: 'scenarios-content' },
+      h('p', { style: { marginBottom: '24px', fontSize: '1.1rem' } },
+        'Apply Professor Bieler\'s method in your practice:'
+      ),
+      
+      ['lefthand', 'righthand', 'bowstroke'].map(category => {
+        const categoryTasks = TECHNIQUE_TASKS.filter(t => t.category === category);
+        
+        return h('div', {
+          key: category,
+          style: { marginBottom: '32px' }
+        },
+          h('h3', { style: { color: 'var(--primary)', marginBottom: '16px' } }, 
+            categoryNames[category]
+          ),
+          
+          categoryTasks.map(task =>
+            h('div', {
+              key: task.id,
+              style: {
+                padding: '16px',
+                background: 'var(--bg)',
+                borderRadius: 'var(--radius)',
+                marginBottom: '12px',
+                borderLeft: '4px solid var(--primary)'
+              }
+            },
+              h('div', { 
+                style: { 
+                  fontWeight: 'bold', 
+                  marginBottom: '8px',
+                  color: 'var(--ink)'
+                } 
+              }, task.name),
+              
+              h('div', { 
+                style: { 
+                  fontSize: '0.9rem', 
+                  marginBottom: '8px',
+                  color: 'var(--ink-light)'
+                } 
+              }, task.description),
+              
+              task.bielerRef && h('div', {
+                style: {
+                  fontSize: '0.85rem',
+                  color: 'var(--primary)',
+                  fontStyle: 'italic'
+                }
+              }, `Bieler Reference: ${task.bielerRef}`)
+            )
+          )
+        );
+      })
+    );
+  }
+
+  return h('div', { className: 'mode-container bieler-mode' },
+    // Header
+    h('header', { className: 'mode-header' },
+      h('button', { 
+        className: 'btn-back', 
+        onClick: () => navigate('menu') 
+      }, '← Back'),
+      h('h2', null, '🎻 Bieler Technique'),
+      mode === 'vocabulary' && h('div', { 
+        className: 'difficulty-badge', 
+        'data-level': difficultyInfo.level 
+      }, difficultyInfo.label)
     ),
 
-    // Mastery overlay
-    showMastery && h('div', { className: 'mastery-overlay' },
-      h('div', { className: 'mastery-panel' },
+    // Main content
+    h('div', { className: 'mode-content' },
+      // ✅ Mode selector
+      h('div', { 
+        className: 'card', 
+        style: { marginBottom: '24px', background: 'var(--card)', padding: '16px' } 
+      },
+        h('div', { 
+          style: { 
+            display: 'flex', 
+            gap: '12px',
+            justifyContent: 'center'
+          } 
+        },
+          h('button', {
+            className: mode === 'vocabulary' ? 'btn btn-primary' : 'btn btn-secondary',
+            onClick: () => setMode('vocabulary')
+          }, '📝 Vocabulary Quiz'),
+          
+          h('button', {
+            className: mode === 'scenario' ? 'btn btn-primary' : 'btn btn-secondary',
+            onClick: () => setMode('scenario')
+          }, '🎯 Practice Scenarios')
+        )
+      ),
+
+      // ✅ Render appropriate mode
+      mode === 'vocabulary' ? renderVocabularyMode() : renderScenariosMode()
+    ),
+
+    // Mastery overlay (only for vocabulary mode)
+    mode === 'vocabulary' && showMastery && h('div', { 
+      className: 'mastery-overlay',
+      onClick: toggleMastery 
+    },
+      h('div', { 
+        className: 'mastery-panel',
+        onClick: (e) => e.stopPropagation()
+      },
         h('div', { className: 'mastery-header' },
           h('h3', null, 'Vocabulary Mastery'),
           h('button', { className: 'btn-close', onClick: toggleMastery }, '×')
         ),
         h('div', { className: 'mastery-list' },
-          mastery.slice(0, 15).map(stat =>
-            h('div', {
-              key: stat.id,
-              className: 'mastery-item',
-              'data-status': stat.status
-            },
-              h('div', { className: 'mastery-item-name' }, stat.id),
-              h('div', { className: 'mastery-item-stats' },
-                `${stat.accuracy}% (${stat.correct}/${stat.seen})`
-              ),
-              h('div', { className: 'mastery-item-bar' },
+          mastery.length > 0
+            ? mastery.slice(0, 15).map(stat =>
                 h('div', {
-                  className: 'mastery-item-fill',
-                  style: { width: `${stat.accuracy}%` }
-                })
+                  key: stat.id,
+                  className: 'mastery-item',
+                  'data-status': stat.status
+                },
+                  h('div', { className: 'mastery-item-name' }, stat.id),
+                  h('div', { className: 'mastery-item-stats' },
+                    `${stat.accuracy}% (${stat.correct}/${stat.seen})`
+                  ),
+                  h('div', { className: 'mastery-item-bar' },
+                    h('div', {
+                      className: 'mastery-item-fill',
+                      style: { width: `${stat.accuracy}%` }
+                    })
+                  )
+                )
               )
-            )
-          )
+            : h('p', { 
+                style: { 
+                  textAlign: 'center', 
+                  color: 'var(--ink-lighter)',
+                  padding: '32px'
+                } 
+              }, 'No stats yet. Keep practicing!')
         )
       )
     )
   );
 }
+
+export default Bieler;
