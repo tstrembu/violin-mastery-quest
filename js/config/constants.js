@@ -631,9 +631,79 @@ export const TECHNIQUE_TASKS = [
   { id: 'bs_staccato', name: 'Staccato', description: 'Multiple notes in one bow direction', category: 'bowstroke', bielerRef: 'Staccato' }
 ];
 
+// VMQ CONSTANTS - Pedagogy & Gamification
+
+// Existing notes, interval definitions, rhythm patterns, key signatures, Bieler vocab …
+export const NOTES = [/* ...same as before... */];
+export const INTERVAL_DEFINITIONS = [/* ...same as before... */];
+export const RHYTHM_PATTERNS = [/* ...same as before... */];
+export const KEY_SIGNATURES = [/* ...same as before... */];
+export const BIELER_VOCAB = [/* ...same as before... */];
+
+// XP values for different actions
+export const XP_VALUES = {
+  CORRECT_ANSWER: 10,
+  PERFECT_ANSWER: 25,
+  STREAK_BONUS: 5,
+  TECHNIQUE_COMPLETE: 15,
+  PRACTICE_ITEM_DONE: 5,
+  DAILY_GOAL_MET: 50
+};
+
+// Level thresholds
+export const LEVEL_THRESHOLDS = [
+  { level: 1, xp: 0 },
+  { level: 2, xp: 100 },
+  { level: 3, xp: 250 },
+  { level: 4, xp: 500 },
+  { level: 5, xp: 1000 },
+  { level: 6, xp: 2000 },
+  { level: 7, xp: 3500 },
+  { level: 8, xp: 5500 },
+  { level: 9, xp: 8000 },
+  { level: 10, xp: 12000 }
+];
+
+// Profiles (age/ability tiers)
+export const PROFILE_TYPES = {
+  INTERMEDIATE: { id:'intermediate', label:'Intermediate (Suzuki 4‑6)', description:'Building solid technique foundations', color:'#007bff' },
+  ADVANCED:     { id:'advanced',    label:'Advanced (Suzuki 7‑10)',   description:'Refining artistry and control',      color:'#28a745' },
+  CONSERVATORY: { id:'conservatory',label:'Conservatory Prep',        description:'Professional‑level mastery',        color:'#dc3545' }
+};
+
+// Achievements to unlock extra XP
+export const ACHIEVEMENTS = [
+  { id:'first_steps',     name:'First Steps',        description:'Complete first practice session',   xp:0 },
+  { id:'week_warrior',    name:'Week Warrior',       description:'7‑day streak',                     xp:100 },
+  { id:'interval_master', name:'Interval Master',    description:'90% accuracy in intervals',        xp:500 },
+  { id:'rhythm_expert',   name:'Rhythm Expert',      description:'90% accuracy in rhythm',           xp:500 },
+  { id:'key_sage',        name:'Key Sage',           description:'Master all key signatures',        xp:750 },
+  { id:'bieler_scholar',  name:'Bieler Scholar',     description:'90% on vocabulary quiz',          xp:1000 },
+  { id:'practice_dedicated', name:'Practice Dedicated', description:'30‑day streak',                xp:2000 }
+];
+
+// Technique tasks (Bieler alignment)
+export const TECHNIQUE_TASKS = [
+  { id:'lh_basic_position',     name:'Basic Left‑Hand Position', description:'Violin on collarbone, wrist straight, fingers curved',    category:'lefthand', bielerRef:'Trained Function 1' },
+  { id:'lh_finger_articulation',name:'Finger Articulation',      description:'Finger motion from whole arm, not isolated pressure',       category:'lefthand', bielerRef:'Trained Function 1' },
+  { id:'lh_finger_replacement', name:'Finger Replacement',       description:'Hand rotation while maintaining frame',                    category:'lefthand', bielerRef:'Trained Function 2' },
+  { id:'lh_hand_frame',         name:'Hand Frame Patterns',      description:'Practice 1‑2‑3‑4 and 1‑2‑34 patterns',                      category:'lefthand', bielerRef:'Hand Frame' },
+  { id:'lh_shifting',           name:'Shifting Practice',        description:'Smooth position changes with thumb release',               category:'lefthand', bielerRef:'Position Work' },
+  { id:'lh_vibrato',            name:'Vibrato Development',      description:'Arm vibrato with relaxed wrist',                           category:'lefthand', bielerRef:'Sound Production' },
+  { id:'rh_bow_hold',           name:'Bow Hold',                 description:'Thumb bent, fingers relaxed, pinky curved',                category:'righthand', bielerRef:'Bow Hold' },
+  { id:'rh_contact_point',      name:'Contact Point Awareness',  description:'Play at bridge, middle, fingerboard',                      category:'righthand', bielerRef:'Contact Point' },
+  { id:'rh_bow_distribution',   name:'Bow Distribution',         description:'Equal sound across entire bow',                             category:'righthand', bielerRef:'Trained Function 3' },
+  { id:'bs_detache',            name:'Détaché',                  description:'Smooth separate bows, consistent speed',                   category:'bowstroke', bielerRef:'Détaché' },
+  { id:'bs_martele',            name:'Martelé',                  description:'Hammered stroke with fast attack',                         category:'bowstroke', bielerRef:'Martelé' },
+  { id:'bs_legato',             name:'Legato',                   description:'Connected strokes in one bow',                             category:'bowstroke', bielerRef:'Legato' },
+  { id:'bs_spiccato',           name:'Spiccato',                 description:'Controlled off‑string bounce',                              category:'bowstroke', bielerRef:'Spiccato' },
+  { id:'bs_staccato',           name:'Staccato',                 description:'Multiple notes in one bow direction',                      category:'bowstroke', bielerRef:'Staccato' }
+];
+
+// Daily goals (minutes, XP target, items to complete)
 export const DAILY_GOALS = {
-  BEGINNER: { minutes: 15, xpTarget: 50, itemsTarget: 10 },
-  INTERMEDIATE: { minutes: 30, xpTarget: 100, itemsTarget: 20 },
-  ADVANCED: { minutes: 45, xpTarget: 150, itemsTarget: 30 },
-  CONSERVATORY: { minutes: 60, xpTarget: 200, itemsTarget: 40 }
+  BEGINNER:     { minutes:15, xpTarget: 50,  itemsTarget:10 },
+  INTERMEDIATE: { minutes:30, xpTarget:100,  itemsTarget:20 },
+  ADVANCED:     { minutes:45, xpTarget:150,  itemsTarget:30 },
+  CONSERVATORY: { minutes:60, xpTarget:200,  itemsTarget:40 }
 };
