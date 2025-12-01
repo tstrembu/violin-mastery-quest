@@ -3,10 +3,28 @@
 // ========================================================
 
 const { createElement: h, useState, useEffect } = React;
-import { STORAGE_KEYS, loadJSON, saveJSON, clearAll, exportData, isStorageAvailable } from '../config/storage.js';
-import { setDifficulty, DIFFICULTY_SETTINGS } from '../engines/difficultyAdapter.js';
 
-export function Settings({ onBack, audioEngine, showToast }) {
+// Imports
+import { 
+  STORAGE_KEYS, 
+  loadJSON, 
+  saveJSON, 
+  clearAll, 
+  exportData as exportAllData,
+  isStorageAvailable,
+  loadProfile,
+  saveProfile,
+  loadXP,
+  loadLevel,
+  loadStreak,
+  loadAchievements,
+  loadStats
+} from '../config/storage.js';
+import { setDifficulty, DIFFICULTY_SETTINGS } from '../engines/difficultyAdapter.js';
+import { PROFILE_TYPES } from '../config/constants.js';
+
+export function Settings({ navigate, audioEngine, showToast }) {
+  // Settings state
   const [settings, setSettings] = useState(() => loadJSON(STORAGE_KEYS.SETTINGS, {
     muted: false,
     darkMode: false,
@@ -15,12 +33,18 @@ export function Settings({ onBack, audioEngine, showToast }) {
     compactLayout: false
   }));
 
+  // Profile state
+  const [profile, setProfile] = useState(() => loadProfile());
+
+  // Difficulty state
   const [difficulties, setDifficulties] = useState(() => loadJSON(STORAGE_KEYS.DIFFICULTY, {}));
 
   // ✨ Apply settings whenever they change
   useEffect(() => {
     saveJSON(STORAGE_KEYS.SETTINGS, settings);
-    audioEngine.setMute(settings.muted);
+    if (audioEngine && audioEngine.setMute) {
+      audioEngine.setMute(settings.muted);
+    }
     applyThemeSettings(settings);
   }, [settings]);
 
@@ -30,7 +54,7 @@ export function Settings({ onBack, audioEngine, showToast }) {
   function applyThemeSettings(settings) {
     const html = document.documentElement;
 
-    // Dark mode
+    // Theme
     if (settings.darkMode) {
       html.setAttribute('data-theme', 'dark');
     } else if (settings.highContrast) {
@@ -69,7 +93,7 @@ export function Settings({ onBack, audioEngine, showToast }) {
     setSettings(prev => ({ 
       ...prev, 
       darkMode: !prev.darkMode,
-      highContrast: false // Disable high contrast when toggling dark mode
+      highContrast: false
     }));
     showToast?.(!settings.darkMode ? '🌙 Dark mode enabled' : '☀️ Light mode enabled', 'info');
   }
@@ -81,7 +105,7 @@ export function Settings({ onBack, audioEngine, showToast }) {
     setSettings(prev => ({ 
       ...prev, 
       highContrast: !prev.highContrast,
-      darkMode: false // Disable dark mode when enabling high contrast
+      darkMode: false
     }));
     showToast?.(
       !settings.highContrast ? 'High contrast enabled' : 'High contrast disabled', 
@@ -112,6 +136,16 @@ export function Settings({ onBack, audioEngine, showToast }) {
   }
 
   /**
+   * ✨ Handle profile change
+   */
+  function handleProfileChange(newProfile) {
+    setProfile(newProfile);
+    saveProfile(newProfile);
+    document.body.setAttribute('data-profile', newProfile);
+    showToast?.('Profile updated', 'success');
+  }
+
+  /**
    * Change difficulty for a mode
    */
   function handleDifficultyChange(mode, level) {
@@ -121,29 +155,43 @@ export function Settings({ onBack, audioEngine, showToast }) {
   }
 
   /**
+   * ✨ Export all user data
+   */
+  function handleExport() {
+    const data = {
+      profile: loadProfile(),
+      xp: loadXP(),
+      level: loadLevel(),
+      streak: loadStreak(),
+      achievements: loadAchievements(),
+      stats: loadStats(),
+      settings: settings,
+      difficulties: difficulties,
+      exportDate: new Date().toISOString(),
+      version: '1.0.0'
+    };
+    
+    const dataStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `vmq-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    showToast?.('Progress exported successfully', 'success');
+  }
+
+  /**
    * Reset all progress
    */
   function handleReset() {
-    if (confirm('Are you sure? This will erase all progress data.')) {
+    if (confirm('⚠️ Are you sure? This will erase ALL progress data including XP, achievements, and stats. This cannot be undone.')) {
       clearAll();
       showToast?.('All progress reset', 'info');
       setTimeout(() => window.location.reload(), 1000);
     }
-  }
-
-  /**
-   * Export data
-   */
-  function handleExport() {
-    const data = exportData();
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `vmq-backup-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast?.('Progress exported', 'success');
   }
 
   const storageAvailable = isStorageAvailable();
@@ -151,16 +199,84 @@ export function Settings({ onBack, audioEngine, showToast }) {
   return h('div', { className: 'mode-container settings-mode' },
     // Header
     h('header', { className: 'mode-header' },
-      h('button', { className: 'btn-back', onClick: onBack }, '← Back'),
+      h('button', { 
+        className: 'btn-back', 
+        onClick: () => navigate('menu') 
+      }, '← Back'),
       h('h2', null, '⚙️ Settings')
     ),
 
     // Main content
     h('div', { className: 'mode-content settings-content' },
       
+      // ✨ Profile Selection Section
+      h('section', { className: 'settings-section' },
+        h('h3', null, '🎓 Profile Level'),
+        h('p', { 
+          style: { 
+            fontSize: 'var(--font-size-sm)', 
+            color: 'var(--ink-light)',
+            marginBottom: 'var(--space-md)'
+          } 
+        }, 'Your profile helps customize practice goals and difficulty.'),
+        
+        Object.values(PROFILE_TYPES).map(profileType =>
+          h('label', {
+            key: profileType.id,
+            style: {
+              display: 'flex',
+              alignItems: 'center',
+              padding: 'var(--space-md)',
+              marginBottom: 'var(--space-sm)',
+              background: profile === profileType.id ? '#e7f3ff' : 'var(--bg)',
+              border: `2px solid ${profile === profileType.id ? profileType.color : 'var(--border)'}`,
+              borderRadius: 'var(--radius)',
+              cursor: 'pointer',
+              transition: 'all var(--transition-base)'
+            },
+            onMouseEnter: (e) => {
+              if (profile !== profileType.id) {
+                e.currentTarget.style.borderColor = profileType.color;
+                e.currentTarget.style.background = 'var(--card)';
+              }
+            },
+            onMouseLeave: (e) => {
+              if (profile !== profileType.id) {
+                e.currentTarget.style.borderColor = 'var(--border)';
+                e.currentTarget.style.background = 'var(--bg)';
+              }
+            }
+          },
+            h('input', {
+              type: 'radio',
+              name: 'profile',
+              value: profileType.id,
+              checked: profile === profileType.id,
+              onChange: () => handleProfileChange(profileType.id),
+              style: { marginRight: 'var(--space-md)', accentColor: profileType.color }
+            }),
+            h('div', null,
+              h('div', { 
+                style: { 
+                  fontWeight: 'bold',
+                  color: profileType.color,
+                  marginBottom: 'var(--space-xs)'
+                } 
+              }, profileType.label),
+              h('div', { 
+                style: { 
+                  fontSize: 'var(--font-size-sm)',
+                  color: 'var(--ink-light)'
+                }
+              }, profileType.description)
+            )
+          )
+        )
+      ),
+      
       // ✨ Appearance Section
       h('section', { className: 'settings-section' },
-        h('h3', null, 'Appearance'),
+        h('h3', null, '🎨 Appearance'),
         
         h('label', { className: 'setting-item' },
           h('span', null, 'Dark Mode'),
@@ -185,7 +301,7 @@ export function Settings({ onBack, audioEngine, showToast }) {
 
       // ✨ Accessibility Section
       h('section', { className: 'settings-section' },
-        h('h3', null, 'Accessibility'),
+        h('h3', null, '♿ Accessibility'),
         
         h('label', { className: 'setting-item' },
           h('span', null, 'Large Fonts'),
@@ -210,7 +326,7 @@ export function Settings({ onBack, audioEngine, showToast }) {
 
       // Audio settings
       h('section', { className: 'settings-section' },
-        h('h3', null, 'Audio'),
+        h('h3', null, '🔊 Audio'),
         h('label', { className: 'setting-item' },
           h('span', null, 'Mute all sounds'),
           h('input', {
@@ -224,7 +340,7 @@ export function Settings({ onBack, audioEngine, showToast }) {
 
       // Difficulty settings
       h('section', { className: 'settings-section' },
-        h('h3', null, 'Difficulty Levels'),
+        h('h3', null, '📊 Difficulty Levels'),
         Object.keys(DIFFICULTY_SETTINGS).map(mode =>
           h('div', { key: mode, className: 'setting-item' },
             h('label', null, mode.charAt(0).toUpperCase() + mode.slice(1)),
@@ -246,7 +362,7 @@ export function Settings({ onBack, audioEngine, showToast }) {
 
       // Data management
       h('section', { className: 'settings-section' },
-        h('h3', null, 'Data Management'),
+        h('h3', null, '💾 Data Management'),
         
         // Storage status indicator
         !storageAvailable && h('div', { 
@@ -254,31 +370,47 @@ export function Settings({ onBack, audioEngine, showToast }) {
           style: { marginBottom: 'var(--space-md)', fontSize: 'var(--font-size-sm)' }
         }, '⚠️ Private browsing detected. Progress will reset when you close the app.'),
 
-        h('button', {
-          className: 'btn btn-secondary',
-          onClick: handleExport
-        }, '📥 Export Progress'),
-        
-        h('button', {
-          className: 'btn btn-danger',
-          onClick: handleReset,
-          style: { marginTop: '10px' }
-        }, '🗑️ Reset All Progress')
+        h('p', {
+          style: {
+            fontSize: 'var(--font-size-sm)',
+            color: 'var(--ink-light)',
+            marginBottom: 'var(--space-md)'
+          }
+        }, 'Export your progress as a backup file, or reset to start fresh.'),
+
+        h('div', { style: { display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' } },
+          h('button', {
+            className: 'btn btn-secondary',
+            onClick: handleExport
+          }, '📥 Export Progress'),
+          
+          h('button', {
+            className: 'btn btn-danger',
+            onClick: handleReset
+          }, '🗑️ Reset All Progress')
+        )
       ),
 
       // About
       h('section', { className: 'settings-section' },
-        h('h3', null, 'About'),
+        h('h3', null, 'ℹ️ About'),
         h('p', { className: 'about-text' },
-          'Violin Mastery Quest v1.0.0'
+          '🎻 Violin Mastery Quest v1.0.0'
         ),
         h('p', { className: 'about-text' },
           'Built for serious young violinists. Pedagogy aligned with Ida Bieler Method and Suzuki tradition.'
         ),
-        h('p', { className: 'about-text', style: { fontSize: 'var(--font-size-sm)', color: 'var(--ink-lighter)' } },
-          `Storage: ${storageAvailable ? 'Available' : 'Unavailable (Private Mode)'}`
-        )
+        h('p', { 
+          className: 'about-text', 
+          style: { 
+            fontSize: 'var(--font-size-sm)', 
+            color: 'var(--ink-lighter)',
+            marginTop: 'var(--space-md)'
+          } 
+        }, `Storage: ${storageAvailable ? '✅ Available' : '⚠️ Unavailable (Private Mode)'}`)
       )
     )
   );
 }
+
+export default Settings;
