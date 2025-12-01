@@ -11,87 +11,35 @@
   <title>Violin Mastery Quest</title>
   <meta name="description" content="Adaptive violin learning with spaced repetition for serious young violinists">
   
-  <!-- Modular CSS - load in order -->
+  <!-- CSS -->
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/components.css">
-  <!-- ⚠️ REMOVED themes.css - it's included in base.css -->
   
-  <!-- Favicon (optional - add later) -->
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
-  
-  <!-- webmanifest -->
-  <link rel="manifest" href="manifest.webmanifest">
 </head>
 <body>
-  <!-- 🎯 React app renders here -->
+  <!-- React app renders here -->
   <div id="root"></div>
   
-  <!-- Service Worker Registration (optional but recommended) -->
+  <!-- Service Worker -->
   <script>
-    // Register service worker for offline support
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        // ✅ FIXED: Use relative path to work everywhere
         navigator.serviceWorker.register('./sw.js')
-          .then((registration) => {
-            console.log('✅ Service Worker registered:', registration.scope);
-            
-            // Check for updates periodically
-            setInterval(() => {
-              registration.update();
-            }, 60 * 60 * 1000); // Check every hour
-          })
-          .catch((error) => {
-            console.log('⚠️ Service Worker registration failed:', error);
-          });
+          .then(reg => console.log('✅ Service Worker registered:', reg.scope))
+          .catch(err => console.log('⚠️ SW registration failed:', err));
       });
     }
   </script>
 
-  <!-- ======================================================
-       📚 SCRIPT LOADING ORDER - DO NOT CHANGE!
-       ================================================= -->
+  <!-- React (creates global React and ReactDOM variables) -->
+  <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
 
-  <!-- 1️⃣ React Library (foundation) -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-
-  <!-- 2️⃣ Config Layer (data structures) -->
-  <script type="module" src="js/config/constants.js"></script>
-  <script type="module" src="js/config/storage.js"></script>
-
-  <!-- 3️⃣ Engine Layer (business logic) -->
-  <script type="module" src="js/engines/audioEngine.js"></script>
-  <script type="module" src="js/engines/spacedRepetition.js"></script>
-  <script type="module" src="js/engines/difficultyAdapter.js"></script>
-  <script type="module" src="js/engines/gamification.js"></script>
-  <script type="module" src="js/engines/analytics.js"></script>
-
-  <!-- 4️⃣ Utils Layer -->
-  <script type="module" src="js/utils/helpers.js"></script>
-
-  <!-- 5️⃣ Component Layer (UI) -->
-  <script type="module" src="js/components/Toast.js"></script>
-  <script type="module" src="js/components/MainMenu.js"></script>
-  <script type="module" src="js/components/Dashboard.js"></script>
-  <script type="module" src="js/components/Welcome.js"></script>
-  <script type="module" src="js/components/Analytics.js"></script>
-  <script type="module" src="js/components/PracticePlanner.js"></script>
-  <script type="module" src="js/components/Intervals.js"></script>
-  <script type="module" src="js/components/KeySignatures.js"></script>
-  <script type="module" src="js/components/Bieler.js"></script>
-  <script type="module" src="js/components/Rhythm.js"></script>
-  <script type="module" src="js/components/Flashcards.js"></script>
-  <script type="module" src="js/components/Fingerboard.js"></script>
-  <script type="module" src="js/components/Settings.js"></script>
-
-  <!-- 6️⃣ Main App (orchestrator - MUST BE LAST!) -->
+  <!-- Your App (browser automatically loads all imports) -->
   <script type="module" src="js/App.js"></script>
-
-  <!-- ======================================================
-       ⚠️ IMPORTANT: App.js initializes everything
-       It MUST load after all components are loaded
-       ================================================= -->
 </body>
 </html>
