@@ -7,6 +7,9 @@ import { INTERVAL_DEFINITIONS, ROOT_NOTES, PRAISE_MESSAGES } from '../config/con
 import { selectNextItem, updateItem, getMasteryStats } from '../engines/spacedRepetition.js';
 import { getDifficulty, getItemPool, getSpeedMultiplier, getDifficultyInfo } from '../engines/difficultyAdapter.js';
 import { shuffle, getRandom } from '../utils/helpers.js';
+import { awardXP, incrementDailyItems, checkAchievements } from '../engines/gamification.js';
+import { getAccuracy } from '../engines/analytics.js';
+
 
 export function Intervals({ onBack, onAnswer, audioEngine, showToast }) {
   const [currentItem, setCurrentItem] = useState(null);
