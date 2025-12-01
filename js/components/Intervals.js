@@ -3,15 +3,17 @@
 // ========================================================
 
 const { createElement: h, useState, useEffect } = React;
+
+// Imports
 import { INTERVAL_DEFINITIONS, ROOT_NOTES, PRAISE_MESSAGES } from '../config/constants.js';
 import { selectNextItem, updateItem, getMasteryStats } from '../engines/spacedRepetition.js';
 import { getDifficulty, getItemPool, getSpeedMultiplier, getDifficultyInfo } from '../engines/difficultyAdapter.js';
 import { shuffle, getRandom } from '../utils/helpers.js';
 import { awardXP, incrementDailyItems, checkAchievements } from '../engines/gamification.js';
 import { getAccuracy } from '../engines/analytics.js';
+import { updateStats } from '../config/storage.js';
 
-
-export function Intervals({ onBack, onAnswer, audioEngine, showToast }) {
+export function Intervals({ navigate, onAnswer, audioEngine, showToast }) {
   const [currentItem, setCurrentItem] = useState(null);
   const [rootNote, setRootNote] = useState(null);
   const [options, setOptions] = useState([]);
@@ -20,6 +22,7 @@ export function Intervals({ onBack, onAnswer, audioEngine, showToast }) {
   const [answered, setAnswered] = useState(false);
   const [showMastery, setShowMastery] = useState(false);
   const [mastery, setMastery] = useState([]);
+  const [potentialXP, setPotentialXP] = useState(20);
 
   const difficultyInfo = getDifficultyInfo('intervals');
   const pool = getItemPool('intervals', INTERVAL_DEFINITIONS);
@@ -56,6 +59,7 @@ export function Intervals({ onBack, onAnswer, audioEngine, showToast }) {
     setFeedback('');
     setFeedbackType('');
     setAnswered(false);
+    setPotentialXP(20); // Reset XP for new question
 
     // Auto-play the interval
     playInterval(root.midi, interval.semitones);
@@ -74,7 +78,7 @@ export function Intervals({ onBack, onAnswer, audioEngine, showToast }) {
   }
 
   /**
-   * Handle answer selection
+   * Handle answer selection with gamification
    */
   function handleAnswer(selectedItem) {
     if (answered) return;
@@ -84,18 +88,55 @@ export function Intervals({ onBack, onAnswer, audioEngine, showToast }) {
     // Update spaced repetition
     updateItem(currentItem.id, isCorrect);
 
-    // Update global stats
-    onAnswer(isCorrect);
+    // Update module stats
+    updateStats('intervals', isCorrect);
 
-    // Show feedback
+    // Update global stats (if onAnswer provided)
+    if (onAnswer) {
+      onAnswer(isCorrect);
+    }
+
+    // ✅ Gamification
     if (isCorrect) {
-      setFeedback(getRandom(PRAISE_MESSAGES));
+      // Award XP
+      const result = awardXP(potentialXP, 'Interval identified');
+      incrementDailyItems();
+      
+      // Show success feedback
+      const praiseMsg = getRandom(PRAISE_MESSAGES);
+      setFeedback(`${praiseMsg} +${potentialXP} XP`);
       setFeedbackType('success');
-      audioEngine.playFeedback(true);
+      
+      // Show toast
+      showToast(`✓ ${praiseMsg} +${potentialXP} XP`, 'success');
+      
+      // Play success sound
+      if (audioEngine.playFeedback) {
+        audioEngine.playFeedback(true);
+      }
+      
+      // Check for achievements
+      const accuracy = getAccuracy('intervals');
+      if (accuracy >= 90) {
+        const newAchievements = checkAchievements('accuracy', { 
+          module: 'intervals', 
+          accuracy 
+        });
+        
+        newAchievements.forEach(ach => {
+          showToast(`🏆 Achievement: ${ach.name}!`, 'success');
+        });
+      }
     } else {
+      // Show error feedback
       setFeedback(`Not quite. This interval was a ${currentItem.label}.`);
       setFeedbackType('error');
-      audioEngine.playFeedback(false);
+      showToast('Not quite. Try again!', 'error');
+      
+      // Play error sound
+      if (audioEngine.playFeedback) {
+        audioEngine.playFeedback(false);
+      }
     }
 
     setAnswered(true);
@@ -127,7 +168,7 @@ export function Intervals({ onBack, onAnswer, audioEngine, showToast }) {
     h('header', { className: 'mode-header' },
       h('button', {
         className: 'btn-back',
-        onClick: onBack
+        onClick: () => navigate('menu')
       }, '← Back'),
       h('h2', null, '🎵 Interval Training'),
       h('div', { className: 'difficulty-badge', 'data-level': difficultyInfo.level },
@@ -145,6 +186,21 @@ export function Intervals({ onBack, onAnswer, audioEngine, showToast }) {
           onClick: handleReplay,
           disabled: !currentItem
         }, '🔊 Play Interval'),
+
+        // ✅ Bieler Tip
+        h('div', {
+          style: {
+            padding: '12px',
+            background: '#e7f3ff',
+            borderLeft: '4px solid #007bff',
+            borderRadius: '4px',
+            margin: '16px 0',
+            fontSize: '0.9rem'
+          }
+        },
+          h('strong', null, 'Bieler Tip: '),
+          'Listen for the distance between notes. Small intervals (2nds, 3rds) are close together. Large intervals (6ths, 7ths) span more than an octave width on the fingerboard.'
+        ),
 
         h('div', { className: 'hint-text' },
           `Root: ${rootNote?.note || '—'} • ${difficultyInfo.description}`
@@ -176,8 +232,11 @@ export function Intervals({ onBack, onAnswer, audioEngine, showToast }) {
     ),
 
     // Mastery overlay
-    showMastery && h('div', { className: 'mastery-overlay' },
-      h('div', { className: 'mastery-panel' },
+    showMastery && h('div', { className: 'mastery-overlay', onClick: toggleMastery },
+      h('div', { 
+        className: 'mastery-panel',
+        onClick: (e) => e.stopPropagation() // Prevent closing when clicking panel
+      },
         h('div', { className: 'mastery-header' },
           h('h3', null, 'Interval Mastery'),
           h('button', {
@@ -186,26 +245,32 @@ export function Intervals({ onBack, onAnswer, audioEngine, showToast }) {
           }, '×')
         ),
         h('div', { className: 'mastery-list' },
-          mastery.slice(0, 10).map(stat =>
-            h('div', {
-              key: stat.id,
-              className: 'mastery-item',
-              'data-status': stat.status
-            },
-              h('div', { className: 'mastery-item-name' }, stat.id),
-              h('div', { className: 'mastery-item-stats' },
-                `${stat.accuracy}% (${stat.correct}/${stat.seen})`
-              ),
-              h('div', { className: 'mastery-item-bar' },
+          mastery.length > 0 
+            ? mastery.slice(0, 10).map(stat =>
                 h('div', {
-                  className: 'mastery-item-fill',
-                  style: { width: `${stat.accuracy}%` }
-                })
+                  key: stat.id,
+                  className: 'mastery-item',
+                  'data-status': stat.status
+                },
+                  h('div', { className: 'mastery-item-name' }, stat.id),
+                  h('div', { className: 'mastery-item-stats' },
+                    `${stat.accuracy}% (${stat.correct}/${stat.seen})`
+                  ),
+                  h('div', { className: 'mastery-item-bar' },
+                    h('div', {
+                      className: 'mastery-item-fill',
+                      style: { width: `${stat.accuracy}%` }
+                    })
+                  )
+                )
               )
-            )
-          )
+            : h('p', { style: { textAlign: 'center', color: '#6c757d' } }, 
+                'No stats yet. Keep practicing!'
+              )
         )
       )
     )
   );
 }
+
+export default Intervals;
