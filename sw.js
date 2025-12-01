@@ -1,7 +1,7 @@
 // sw.js - Service Worker for Violin Mastery Quest
 // Provides offline support and caching
 
-const CACHE_VERSION = 'vmq-v2.0.1';
+const CACHE_VERSION = 'vmq-v2.0.6';
 const CACHE_NAME = `vmq-cache-${CACHE_VERSION}`;
 
 // Files to cache immediately (your app shell)
