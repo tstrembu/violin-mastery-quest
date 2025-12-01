@@ -1,9 +1,21 @@
 // ========================================================
-// VMQ APP - Production Version with Theme Initialization
+// VMQ APP - Main Application Router
 // ========================================================
 
 const { createElement: h, useState, useEffect } = React;
 
+// ========================================================
+// IMPORTS - All at the top!
+// ========================================================
+
+// Config
+import { STORAGE_KEYS } from './config/constants.js';
+import { loadJSON, saveJSON, getStorageStatus } from './config/storage.js';
+
+// Engines
+import { audioEngine } from './engines/audioEngine.js';
+
+// Components - Existing
 import { MainMenu } from './components/MainMenu.js';
 import { Intervals } from './components/Intervals.js';
 import { Flashcards } from './components/Flashcards.js';
@@ -13,20 +25,37 @@ import { KeySignatures } from './components/KeySignatures.js';
 import { Fingerboard } from './components/Fingerboard.js';
 import { Settings } from './components/Settings.js';
 import { Toast } from './components/Toast.js';
-import { audioEngine } from './engines/audioEngine.js';
-import { STORAGE_KEYS, loadJSON, saveJSON, getStorageStatus } from './config/storage.js';
+
+// Components - New
+import Dashboard from './components/Dashboard.js';
+import Analytics from './components/Analytics.js';
+import Welcome from './components/Welcome.js';
+import PracticePlanner from './components/PracticePlanner.js';
+
+// ========================================================
+// MAIN APP COMPONENT
+// ========================================================
 
 export default function App() {
-  const [view, setView] = useState('menu');
+  // Check if user is new (no profile set yet)
+  const [view, setView] = useState(() => {
+    const profile = loadJSON(STORAGE_KEYS.PROFILE, null);
+    return profile ? 'dashboard' : 'welcome';  // New users see welcome screen
+  });
+
   const [stats, setStats] = useState(() => loadJSON(STORAGE_KEYS.STATS, {
     total: 0,
     correct: 0,
     byMode: {}
   }));
+
   const [toastMessage, setToastMessage] = useState(null);
   const [audioInitialized, setAudioInitialized] = useState(false);
 
-  // ✨ Apply saved theme settings on mount
+  // ========================================================
+  // THEME INITIALIZATION
+  // ========================================================
+
   useEffect(() => {
     const settings = loadJSON(STORAGE_KEYS.SETTINGS, {
       muted: false,
@@ -38,11 +67,14 @@ export default function App() {
 
     applyThemeSettings(settings);
     audioEngine.setMute(settings.muted);
+
+    // Apply profile theme if set
+    const profile = loadJSON(STORAGE_KEYS.PROFILE, null);
+    if (profile) {
+      document.body.setAttribute('data-profile', profile);
+    }
   }, []);
 
-  /**
-   * ✨ Apply theme settings to DOM
-   */
   function applyThemeSettings(settings) {
     const html = document.documentElement;
 
@@ -70,6 +102,10 @@ export default function App() {
     }
   }
 
+  // ========================================================
+  // STORAGE & AUDIO INITIALIZATION
+  // ========================================================
+
   // Check storage and warn user
   useEffect(() => {
     const storageStatus = getStorageStatus();
@@ -92,14 +128,13 @@ export default function App() {
         try {
           await audioEngine.resume();
           setAudioInitialized(true);
-          console.log('Audio initialized');
+          console.log('✅ Audio initialized');
         } catch (err) {
-          console.warn('Audio initialization delayed:', err);
+          console.warn('⚠️ Audio initialization delayed:', err);
         }
       }
     };
 
-    // Multiple event types for better iOS compatibility
     const events = ['click', 'touchstart', 'touchend'];
     events.forEach(event => {
       document.addEventListener(event, initAudio, { once: true, passive: true });
@@ -111,6 +146,10 @@ export default function App() {
       });
     };
   }, [audioInitialized]);
+
+  // ========================================================
+  // EVENT HANDLERS
+  // ========================================================
 
   function handleAnswer(isCorrect, modeName) {
     setStats(prev => {
@@ -138,19 +177,39 @@ export default function App() {
 
   function navigateTo(newView) {
     setView(newView);
+    // Scroll to top on navigation
+    window.scrollTo(0, 0);
   }
 
   function showToast(message, type = 'info') {
     setToastMessage({ message, type, timestamp: Date.now() });
   }
 
+  // ========================================================
+  // VIEW ROUTER
+  // ========================================================
+
   function renderView() {
     const commonProps = {
-      onBack: () => navigateTo('menu'),
+      navigate: navigateTo,
       showToast
     };
 
     switch (view) {
+      // New Views
+      case 'welcome':
+        return h(Welcome, commonProps);
+
+      case 'dashboard':
+        return h(Dashboard, commonProps);
+
+      case 'analytics':
+        return h(Analytics, commonProps);
+
+      case 'practicePlanner':
+        return h(PracticePlanner, commonProps);
+
+      // Training Modules
       case 'intervals':
         return h(Intervals, {
           ...commonProps,
@@ -184,14 +243,21 @@ export default function App() {
         });
 
       case 'fingerboard':
-        return h(Fingerboard, commonProps);
+        return h(Fingerboard, {
+          ...commonProps,
+          onAnswer: (correct) => handleAnswer(correct, 'fingerboard')
+        });
 
+      // Settings
       case 'settings':
         return h(Settings, {
           ...commonProps,
-          audioEngine
+          audioEngine,
+          onThemeChange: applyThemeSettings
         });
 
+      // Main Menu (default)
+      case 'menu':
       default:
         return h(MainMenu, {
           stats,
@@ -199,6 +265,10 @@ export default function App() {
         });
     }
   }
+
+  // ========================================================
+  // RENDER
+  // ========================================================
 
   return h('div', { className: 'app' },
     renderView(),
@@ -210,6 +280,9 @@ export default function App() {
   );
 }
 
-// Mount app
+// ========================================================
+// MOUNT APP
+// ========================================================
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(h(App));
