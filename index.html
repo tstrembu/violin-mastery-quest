@@ -7,39 +7,35 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="VMQ">
   <meta name="theme-color" content="#4a90e2">
-  
   <title>Violin Mastery Quest</title>
   <meta name="description" content="Adaptive violin learning with spaced repetition for serious young violinists">
-  
-  <!-- CSS -->
+  <!-- Styles -->
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/components.css">
-  
-  <!-- PWA -->
+  <!-- PWA Manifest & Icons -->
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head>
 <body>
-  <!-- React app renders here -->
+  <!-- React app mounts here -->
   <div id="root"></div>
-  
-  <!-- Service Worker -->
+
+  <!-- Register Service Worker -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js')
-          .then(reg => console.log('✅ Service Worker registered:', reg.scope))
-          .catch(err => console.log('⚠️ SW registration failed:', err));
+          .then(reg => console.log('SW registered:', reg.scope))
+          .catch(err => console.log('SW registration failed:', err));
       });
     }
   </script>
 
-  <!-- React (creates global React and ReactDOM variables) -->
+  <!-- React / ReactDOM from CDN -->
   <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
-
-  <!-- Your App (browser automatically loads all imports) -->
+  <!-- Entry point -->
   <script type="module" src="js/App.js"></script>
 </body>
 </html>
