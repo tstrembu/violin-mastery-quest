@@ -188,7 +188,93 @@ Lightweight SR engine that:
 
 High-level layout:
 
-```text
+## **📚 FILE DEPENDENCY MAP**
+
+index.html (Entry Point)
+│
+├─→ React (CDN)
+├─→ ReactDOM (CDN)
+│
+├─→ CSS
+│   ├─→ base.css
+│   └─→ components.css
+│
+├─→ Config Layer
+│   ├─→ constants.js (INTERVALS, KEY_SIGNATURES, BIELER_VOCAB, etc.)
+│   └─→ storage.js (loadJSON, saveJSON, all storage helpers)
+│
+├─→ Engine Layer
+│   ├─→ audioEngine.js (playNote, playInterval)
+│   ├─→ spacedRepetition.js (SM-2 algorithm)
+│   ├─→ difficultyAdapter.js (Elo rating)
+│   ├─→ gamification.js (awardXP, updateStreak, achievements)
+│   └─→ analytics.js (getAccuracy, getRecommendations)
+│
+├─→ Utils Layer
+│   └─→ helpers.js (shuffleArray, getRandomItem, etc.)
+│
+├─→ Component Layer
+│   ├─→ Toast.js
+│   ├─→ MainMenu.js
+│   ├─→ Dashboard.js
+│   │   ├─→ gamification.js
+│   │   ├─→ analytics.js
+│   │   └─→ storage.js
+│   │
+│   ├─→ Welcome.js
+│   │   ├─→ storage.js
+│   │   └─→ constants.js
+│   │
+│   ├─→ Analytics.js
+│   │   ├─→ analytics.js
+│   │   └─→ storage.js
+│   │
+│   ├─→ PracticePlanner.js
+│   │   ├─→ gamification.js
+│   │   ├─→ storage.js
+│   │   └─→ constants.js
+│   │
+│   ├─→ Intervals.js
+│   │   ├─→ audioEngine.js
+│   │   ├─→ gamification.js
+│   │   ├─→ analytics.js
+│   │   └─→ storage.js
+│   │
+│   ├─→ KeySignatures.js
+│   │   ├─→ gamification.js
+│   │   ├─→ analytics.js
+│   │   └─→ storage.js
+│   │
+│   ├─→ Bieler.js
+│   │   ├─→ gamification.js
+│   │   ├─→ constants.js (TECHNIQUE_TASKS)
+│   │   └─→ storage.js
+│   │
+│   ├─→ Rhythm.js
+│   │   ├─→ gamification.js
+│   │   ├─→ analytics.js
+│   │   └─→ storage.js
+│   │
+│   ├─→ Flashcards.js
+│   │   ├─→ gamification.js
+│   │   ├─→ analytics.js
+│   │   └─→ storage.js
+│   │
+│   ├─→ Fingerboard.js
+│   │   ├─→ audioEngine.js
+│   │   ├─→ gamification.js
+│   │   ├─→ constants.js (FINGERBOARD_NOTES)
+│   │   └─→ storage.js
+│   │
+│   └─→ Settings.js
+│       ├─→ storage.js
+│       └─→ constants.js
+│
+└─→ App.js (Main Router - Renders all components)
+    ├─→ All Components Above
+    └─→ Manages view state & navigation
+
+
 .
 ├─ index.html
 ├─ css/
