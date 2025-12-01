@@ -190,89 +190,47 @@ High-level layout:
 
 ## **📚 FILE DEPENDENCY MAP**
 
-index.html (Entry Point)
+/violin-mastery-quest/
 │
-├─→ React (CDN)
-├─→ ReactDOM (CDN)
+├── index.html                    ⭐ ENTRY POINT (loads everything)
+├── README.md
 │
-├─→ CSS
-│   ├─→ base.css
-│   └─→ components.css
+├── css/
+│   ├── base.css                  (loaded by index.html)
+│   └── components.css            (loaded by index.html)
 │
-├─→ Config Layer
-│   ├─→ constants.js (INTERVALS, KEY_SIGNATURES, BIELER_VOCAB, etc.)
-│   └─→ storage.js (loadJSON, saveJSON, all storage helpers)
-│
-├─→ Engine Layer
-│   ├─→ audioEngine.js (playNote, playInterval)
-│   ├─→ spacedRepetition.js (SM-2 algorithm)
-│   ├─→ difficultyAdapter.js (Elo rating)
-│   ├─→ gamification.js (awardXP, updateStreak, achievements)
-│   └─→ analytics.js (getAccuracy, getRecommendations)
-│
-├─→ Utils Layer
-│   └─→ helpers.js (shuffleArray, getRandomItem, etc.)
-│
-├─→ Component Layer
-│   ├─→ Toast.js
-│   ├─→ MainMenu.js
-│   ├─→ Dashboard.js
-│   │   ├─→ gamification.js
-│   │   ├─→ analytics.js
-│   │   └─→ storage.js
-│   │
-│   ├─→ Welcome.js
-│   │   ├─→ storage.js
-│   │   └─→ constants.js
-│   │
-│   ├─→ Analytics.js
-│   │   ├─→ analytics.js
-│   │   └─→ storage.js
-│   │
-│   ├─→ PracticePlanner.js
-│   │   ├─→ gamification.js
-│   │   ├─→ storage.js
-│   │   └─→ constants.js
-│   │
-│   ├─→ Intervals.js
-│   │   ├─→ audioEngine.js
-│   │   ├─→ gamification.js
-│   │   ├─→ analytics.js
-│   │   └─→ storage.js
-│   │
-│   ├─→ KeySignatures.js
-│   │   ├─→ gamification.js
-│   │   ├─→ analytics.js
-│   │   └─→ storage.js
-│   │
-│   ├─→ Bieler.js
-│   │   ├─→ gamification.js
-│   │   ├─→ constants.js (TECHNIQUE_TASKS)
-│   │   └─→ storage.js
-│   │
-│   ├─→ Rhythm.js
-│   │   ├─→ gamification.js
-│   │   ├─→ analytics.js
-│   │   └─→ storage.js
-│   │
-│   ├─→ Flashcards.js
-│   │   ├─→ gamification.js
-│   │   ├─→ analytics.js
-│   │   └─→ storage.js
-│   │
-│   ├─→ Fingerboard.js
-│   │   ├─→ audioEngine.js
-│   │   ├─→ gamification.js
-│   │   ├─→ constants.js (FINGERBOARD_NOTES)
-│   │   └─→ storage.js
-│   │
-│   └─→ Settings.js
-│       ├─→ storage.js
-│       └─→ constants.js
-│
-└─→ App.js (Main Router - Renders all components)
-    ├─→ All Components Above
-    └─→ Manages view state & navigation
+└── js/
+    ├── config/
+    │   ├── constants.js          (exports: INTERVALS, XP_VALUES, etc.)
+    │   └── storage.js            (exports: loadJSON, saveJSON, etc.)
+    │
+    ├── engines/
+    │   ├── audioEngine.js        (exports: playNote, playInterval)
+    │   ├── spacedRepetition.js   (exports: SM-2 functions)
+    │   ├── difficultyAdapter.js  (exports: Elo functions)
+    │   ├── gamification.js       (exports: awardXP, updateStreak)
+    │   └── analytics.js          (exports: getAccuracy, getRecommendations)
+    │
+    ├── utils/
+    │   └── helpers.js            (exports: utility functions)
+    │
+    ├── components/
+    │   ├── Toast.js              (exports: default Toast component)
+    │   ├── MainMenu.js           (exports: default MainMenu)
+    │   ├── Dashboard.js          (exports: default Dashboard)
+    │   ├── Welcome.js            (exports: default Welcome)
+    │   ├── Analytics.js          (exports: default Analytics)
+    │   ├── PracticePlanner.js    (exports: default PracticePlanner)
+    │   ├── Intervals.js          (exports: default Intervals)
+    │   ├── KeySignatures.js      (exports: default KeySignatures)
+    │   ├── Bieler.js             (exports: default Bieler)
+    │   ├── Rhythm.js             (exports: default Rhythm)
+    │   ├── Flashcards.js         (exports: default Flashcards)
+    │   ├── Fingerboard.js        (exports: default Fingerboard)
+    │   └── Settings.js           (exports: default Settings)
+    │
+    └── App.js                    ⭐ MAIN APP (imports all components, renders UI)
+
 
 
 .
