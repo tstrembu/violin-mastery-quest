@@ -920,3 +920,242 @@ input[type="checkbox"] {
     margin: var(--space-md) auto;
   }
 }
+
+/* ========================================================
+   🆕 ADD TO BOTTOM - Dashboard & Analytics Components
+   ===================================================== */
+
+/* Dashboard Layout */
+.dashboard-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.dashboard-card {
+  background: var(--card);           /* ✅ FIXED: Use --card */
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-md);      /* ✅ FIXED: Use --shadow-md */
+  transition: transform var(--transition-base), box-shadow var(--transition-base);
+}
+
+.dashboard-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);      /* ✅ FIXED: Use --shadow-lg */
+}
+
+.dashboard-card h3 {
+  margin-top: 0;
+  color: var(--theme-primary);
+  font-size: var(--font-size-lg);
+}
+
+/* Daily Goal Progress */
+.goal-progress {
+  margin-top: var(--space-md);
+}
+
+.goal-stat {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-size-sm);
+}
+
+.goal-stat-label {
+  color: var(--ink-light);           /* ✅ FIXED: Use --ink-light */
+}
+
+.goal-stat-value {
+  font-weight: 600;
+  color: var(--ink);                 /* ✅ FIXED: Use --ink */
+}
+
+.progress-wrapper {
+  height: 8px;
+  background: var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-bottom: var(--space-md);
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--theme-primary) 0%, var(--success) 100%);
+  transition: width 0.5s ease;
+}
+
+/* Module Cards */
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.module-card {
+  background: var(--card);
+  border-left: 4px solid var(--theme-primary);
+  border-radius: var(--radius);
+  padding: var(--space-md);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.module-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateX(4px);
+}
+
+.module-card-title {
+  font-weight: 600;
+  margin-bottom: var(--space-sm);
+  color: var(--ink);
+}
+
+.module-card-accuracy {
+  font-size: var(--font-size-sm);
+  color: var(--ink-light);
+}
+
+/* Analytics Charts */
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-lg);
+  margin-top: var(--space-lg);
+}
+
+.analytics-card {
+  background: var(--card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  box-shadow: var(--shadow-md);
+}
+
+.analytics-card h3 {
+  margin-top: 0;
+  margin-bottom: var(--space-md);
+  color: var(--theme-primary);
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.stat-row:last-child {
+  border-bottom: none;
+}
+
+/* Welcome Screen */
+.welcome-container {
+  max-width: 600px;
+  margin: var(--space-2xl) auto;
+  padding: var(--space-lg);
+  text-align: center;
+}
+
+.welcome-container h1 {
+  margin-bottom: var(--space-lg);
+  color: var(--ink);
+}
+
+.welcome-container h2 {
+  margin-bottom: var(--space-xl);
+  color: var(--theme-primary);
+}
+
+.profile-selection {
+  display: grid;
+  gap: var(--space-md);
+  margin: var(--space-xl) 0;
+}
+
+.profile-option {
+  border: 2px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  text-align: left;
+  background: var(--card);
+}
+
+.profile-option:hover {
+  border-color: var(--theme-primary);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.profile-option.selected {
+  border-color: var(--theme-primary);
+  border-width: 3px;
+  background: var(--card);
+  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
+}
+
+.profile-option h3 {
+  margin-top: 0;
+  margin-bottom: var(--space-sm);
+  color: var(--ink);
+}
+
+.profile-option p {
+  margin: 0;
+  color: var(--ink-light);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+/* Practice Planner */
+.practice-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-sm);
+  border-left: 3px solid var(--primary);
+  transition: all var(--transition-base);
+}
+
+.practice-item:hover {
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+}
+
+.practice-item.completed {
+  opacity: 0.7;
+  border-left-color: var(--success);
+  background: #d1f4e0;
+}
+
+.practice-item-content {
+  flex: 1;
+}
+
+.practice-item-name {
+  font-weight: 600;
+  margin-bottom: var(--space-xs);
+  color: var(--ink);
+}
+
+.practice-item-description {
+  font-size: var(--font-size-sm);
+  color: var(--ink-light);
+  margin-bottom: var(--space-xs);
+}
+
+.practice-item-bieler {
+  font-size: var(--font-size-sm);
+  color: var(--primary);
+  font-style: italic;
+}
