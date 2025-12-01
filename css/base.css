@@ -5,18 +5,18 @@
 
 /* CSS Variables */
 :root {
-  /* Brand Colors */
+  /* ===== Brand Colors ===== */
   --primary: #4a90e2;
   --primary-dark: #357abd;
   --primary-light: #6ba3e8;
   
-  /* Semantic Colors */
+  /* ===== Semantic Colors ===== */
   --success: #009e73;
   --warning: #e69f00;
   --error: #d55e00;
   --info: #56b4e9;
   
-  /* Neutrals */
+  /* ===== Neutrals ===== */
   --bg: #f8fafc;
   --card: #ffffff;
   --border: #e2e8f0;
@@ -24,18 +24,18 @@
   --ink-light: #475569;
   --ink-lighter: #94a3b8;
   
-  /* Shadows */
+  /* ===== Shadows ===== */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
   
-  /* Border Radius */
+  /* ===== Border Radius ===== */
   --radius: 8px;
   --radius-sm: 4px;
   --radius-lg: 12px;
   --radius-full: 9999px;
   
-  /* Spacing Scale */
+  /* ===== Spacing Scale ===== */
   --space-xs: 4px;
   --space-sm: 8px;
   --space-md: 16px;
@@ -43,7 +43,7 @@
   --space-xl: 32px;
   --space-2xl: 48px;
   
-  /* Typography */
+  /* ===== Typography ===== */
   --font-main: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
   
@@ -55,18 +55,30 @@
   --font-size-3xl: 2rem;
   --font-size-4xl: 2.5rem;
   
-  /* Transitions */
+  /* ===== Transitions ===== */
   --transition-fast: 0.15s ease;
   --transition-base: 0.2s ease;
   --transition-slow: 0.3s ease;
   
-  /* Z-index Scale */
+  /* ===== Z-index Scale ===== */
   --z-base: 1;
   --z-dropdown: 100;
   --z-overlay: 1000;
   --z-modal: 1100;
   --z-toast: 2000;
+  
+  /* ===== Profile-Specific Colors ===== */
+  --profile-intermediate: #4a90e2;   /* Matches --primary */
+  --profile-advanced: #28a745;
+  --profile-conservatory: #dc3545;
+  
+  /* ===== Dynamic Theme (Changes with profile) ===== */
+  --theme-primary: var(--profile-intermediate);
 }
+
+/* ========================================================
+   RESETS
+   ===================================================== */
 
 /* Box Sizing Reset */
 *,
@@ -107,7 +119,10 @@ body {
   min-height: 100vh;
 }
 
-/* Typography Hierarchy */
+/* ========================================================
+   TYPOGRAPHY
+   ===================================================== */
+
 h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
   line-height: 1.2;
@@ -157,7 +172,11 @@ code, pre {
   font-size: 0.9em;
 }
 
-/* Focus Styles (Accessibility) */
+/* ========================================================
+   ACCESSIBILITY
+   ===================================================== */
+
+/* Focus Styles */
 :focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
@@ -169,7 +188,7 @@ code, pre {
   color: white;
 }
 
-/* Reduced Motion (Accessibility) */
+/* Reduced Motion */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -178,4 +197,89 @@ code, pre {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ========================================================
+   PROFILE THEMES
+   ===================================================== */
+
+/* Profile-specific theme overrides */
+body[data-profile="intermediate"] {
+  --theme-primary: var(--profile-intermediate);
+}
+
+body[data-profile="advanced"] {
+  --theme-primary: var(--profile-advanced);
+}
+
+body[data-profile="conservatory"] {
+  --theme-primary: var(--profile-conservatory);
+}
+
+/* ========================================================
+   GAMIFICATION UI
+   ===================================================== */
+
+/* Streak indicator */
+.streak-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: linear-gradient(135deg, #ff9a56 0%, #ff6a3d 100%);
+  color: white;
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+/* XP Progress Bar */
+.xp-bar {
+  position: relative;
+  height: 8px;
+  background: var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.xp-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--theme-primary) 0%, var(--success) 100%);
+  transition: width 0.5s ease;
+}
+
+/* ========================================================
+   UTILITY CLASSES
+   ===================================================== */
+
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: var(--space-md);
+}
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-md);
+}
+
+.small {
+  font-size: var(--font-size-sm);
+  color: var(--ink-lighter);
+}
+
+/* Screen reader only (accessibility) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
