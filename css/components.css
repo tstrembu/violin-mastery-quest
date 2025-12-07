@@ -448,6 +448,365 @@ input[type="range"]::-moz-range-thumb {
   text-align: center;
 }
 
+/* ======================================
+   DASHBOARD ENHANCEMENTS
+   ====================================== */
+
+.dashboard {
+  gap: var(--space-lg);
+}
+
+/* Hero Card */
+.hero-card {
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  color: white;
+  padding: clamp(1.5rem, 4vw, 2rem);
+}
+
+.hero-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.level-badge-large {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.badge-icon {
+  font-size: clamp(3rem, 10vw, 4rem);
+  line-height: 1;
+}
+
+.badge-info h3 {
+  color: white;
+  margin: 0;
+  font-size: clamp(var(--font-size-xl), 4vw, var(--font-size-2xl));
+}
+
+.badge-info p {
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+}
+
+.hero-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: var(--space-sm);
+}
+
+.stat-card.compact {
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.stat-card.compact .stat-value {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: white;
+  margin-bottom: var(--space-xs);
+}
+
+.stat-card.compact .stat-label {
+  font-size: var(--font-size-sm);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Progress Section */
+.progress-section {
+  margin-top: var(--space-md);
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-size-sm);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Coach Insights */
+.coach-insights {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.insight {
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border-left: 4px solid var(--primary);
+  transition: all var(--transition-base);
+  cursor: pointer;
+}
+
+.insight:hover {
+  transform: translateX(4px);
+  box-shadow: var(--shadow-md);
+}
+
+.insight-urgent {
+  border-left-color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.insight-focus {
+  border-left-color: var(--warning);
+  background: var(--warning-bg);
+}
+
+.insight-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.insight-icon {
+  font-size: var(--font-size-xl);
+}
+
+.insight-cta {
+  display: inline-block;
+  margin-top: var(--space-xs);
+  color: var(--primary);
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+}
+
+/* Module Performance List */
+.module-performance-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.module-performance-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.module-performance-item:hover {
+  background: var(--surface);
+  transform: translateX(2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.module-info {
+  flex: 1;
+}
+
+.module-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.module-name h4 {
+  margin: 0;
+  font-size: var(--font-size-base);
+}
+
+.module-meta {
+  display: flex;
+  gap: var(--space-md);
+  font-size: var(--font-size-sm);
+}
+
+.difficulty-badge {
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.difficulty-easy { background: var(--success-bg); color: var(--success); }
+.difficulty-medium { background: var(--warning-bg); color: var(--warning); }
+.difficulty-hard { background: var(--danger-bg); color: var(--danger); }
+
+.module-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-xs);
+  min-width: 80px;
+}
+
+.accuracy-badge {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+}
+
+.progress-mini {
+  width: 80px;
+}
+
+.module-action .arrow {
+  font-size: var(--font-size-xl);
+  color: var(--ink-lighter);
+}
+
+/* Weekly Chart */
+.weekly-chart {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  height: 150px;
+  padding: var(--space-md) 0;
+  gap: var(--space-xs);
+}
+
+.day-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.day-bar {
+  width: 100%;
+  min-height: 4px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: all var(--transition-base);
+  cursor: pointer;
+}
+
+.day-bar:hover {
+  opacity: 0.8;
+}
+
+.day-label {
+  font-size: var(--font-size-xs);
+  color: var(--ink-light);
+  font-weight: 600;
+}
+
+.weekly-summary {
+  display: flex;
+  justify-content: space-between;
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+}
+
+/* Session List */
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.session-icon {
+  font-size: var(--font-size-2xl);
+  min-width: 40px;
+  text-align: center;
+}
+
+.session-info {
+  flex: 1;
+}
+
+.session-module {
+  font-weight: 600;
+  margin-bottom: var(--space-xs);
+}
+
+.session-meta {
+  display: flex;
+  gap: var(--space-md);
+  font-size: var(--font-size-sm);
+}
+
+.session-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-xs);
+}
+
+.session-accuracy {
+  font-weight: 700;
+  font-size: var(--font-size-lg);
+}
+
+/* Achievements Preview */
+.achievements-preview {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.achievement-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  min-width: 100px;
+}
+
+.achievement-icon {
+  font-size: var(--font-size-3xl);
+}
+
+.achievement-name {
+  font-size: var(--font-size-sm);
+  text-align: center;
+  font-weight: 600;
+}
+
+/* Grade Colors */
+.grade-S { color: var(--success); }
+.grade-A { color: #3b82f6; }
+.grade-B { color: var(--warning); }
+.grade-C { color: #f97316; }
+.grade-D, .grade-F { color: var(--danger); }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .hero-content {
+    gap: var(--space-md);
+  }
+  
+  .module-performance-item {
+    grid-template-columns: 1fr auto;
+  }
+  
+  .module-action {
+    display: none;
+  }
+}
+
 /* -------------------- TOAST SYSTEM (6-Engine Live) -------------------- */
 .toast-container {
   position: fixed; bottom: clamp(1rem, 6vh, 2rem); 
