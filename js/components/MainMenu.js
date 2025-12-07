@@ -1,124 +1,164 @@
-// ========================================================
-// VMQ MAIN MENU - Home Screen
-// ========================================================
+// ======================================
+// MAIN MENU - Mode Selection Hub
+// Central navigation + stats overview
+// ======================================
 
-const { createElement: h } = React;
-import { calculateAccuracy } from '../utils/helpers.js';
+const { createElement: h, useState, useEffect } = React;
 
-export function MainMenu({ stats, onSelectMode }) {
-  const accuracy = calculateAccuracy(stats.correct, stats.total);
+import { loadXP, loadStreak, getLevel, getStatsSummary } from '../engines/gamification.js';
+import { analyzePerformance } from '../engines/analytics.js';
+import { getReviewStats } from '../engines/spacedRepetition.js';
+import { STORAGE_KEYS } from '../config/constants.js';
+import { loadJSON } from '../config/storage.js';
 
-  return h('div', { className: 'main-menu' },
+export default function MainMenu({ onNavigate }) {
+  const [stats, setStats] = useState(null);
+  const [levelData, setLevelData] = useState({ level: 1, title: 'Beginner', badge: '🎵' });
+  const [streak, setStreak] = useState(0);
+  const [spacedStats, setSpacedStats] = useState({ dueToday: 0 });
+  const [profile, setProfile] = useState({ name: 'Student' });
+
+  useEffect(() => {
+    // Load all stats on mount
+    const summary = getStatsSummary();
+    const level = getLevel(loadXP());
+    const streakData = loadStreak();
+    
+    setStats(summary);
+    setLevelData(level);
+    setStreak(streakData.current);
+    setProfile(loadJSON(STORAGE_KEYS.PROFILE, { name: 'Student' }));
+    
+    // Spaced repetition stats
+    getReviewStats().then(setSpacedStats);
+  }, []);
+
+  if (!stats) {
+    return h('div', { className: 'loading' }, 'Loading menu...');
+  }
+
+  const accuracy = stats.accuracy || 0;
+  const colorClass = accuracy >= 85 ? 'success' : accuracy >= 70 ? 'warning' : 'danger';
+
+  return h('div', { className: 'module-container' },
     // Header
-    h('header', { className: 'menu-header' },
-      h('h1', { className: 'app-title' }, '🎻 Violin Mastery Quest'),
-      h('p', { className: 'app-subtitle' }, 'Adaptive practice for serious young violinists')
-    ),
-
-    // Stats summary
-    h('div', { className: 'stats-summary' },
-      h('div', { className: 'stat-card' },
-        h('div', { className: 'stat-value' }, stats.total || 0),
-        h('div', { className: 'stat-label' }, 'Questions')
-      ),
-      h('div', { className: 'stat-card' },
-        h('div', { className: 'stat-value' }, stats.correct || 0),
-        h('div', { className: 'stat-label' }, 'Correct')
-      ),
-      h('div', { className: 'stat-card' },
-        h('div', { className: 'stat-value' }, `${accuracy}%`),
-        h('div', { className: 'stat-label' }, 'Accuracy')
+    h('header', { className: 'module-header' },
+      h('h1', null, '🎻 Violin Mastery Quest'),
+      h('div', { className: 'stats-inline' },
+        h('span', null, levelData.badge),
+        h('span', null, `Lv ${levelData.level}`)
       )
     ),
 
-    // ✅ NEW: Quick Actions
-    h('div', { 
-      style: { 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '12px',
-        marginBottom: '24px'
-      } 
-    },
-      h('button', {
-        className: 'btn btn-primary',
-        onClick: () => onSelectMode('dashboard')
-      }, '📊 Dashboard'),
-      
-      h('button', {
-        className: 'btn btn-primary',
-        onClick: () => onSelectMode('practicePlanner')
-      }, '📝 Practice Planner'),
-      
-      h('button', {
-        className: 'btn btn-secondary',
-        onClick: () => onSelectMode('analytics')
-      }, '📈 Analytics')
-    ),
-
-    // Mode buttons
-    h('div', { className: 'mode-grid' },
-      h('button', {
-        className: 'mode-card mode-card-primary',
-        onClick: () => onSelectMode('intervals')
-      },
-        h('div', { className: 'mode-icon' }, '🎵'),
-        h('div', { className: 'mode-title' }, 'Intervals'),
-        h('div', { className: 'mode-description' }, 'Ear training with melodic intervals')
-      ),
-
-      h('button', {
-        className: 'mode-card mode-card-primary',
-        onClick: () => onSelectMode('keySignatures')
-      },
-        h('div', { className: 'mode-icon' }, '🎼'),
-        h('div', { className: 'mode-title' }, 'Key Signatures'),
-        h('div', { className: 'mode-description' }, 'Learn keys and Bieler hand maps')
-      ),
-
-      h('button', {
-        className: 'mode-card mode-card-primary',
-        onClick: () => onSelectMode('flashcards')
-      },
-        h('div', { className: 'mode-icon' }, '📝'),
-        h('div', { className: 'mode-title' }, 'Note Reading'),
-        h('div', { className: 'mode-description' }, 'Quick note name identification')
-      ),
-
-      h('button', {
-        className: 'mode-card mode-card-primary',
-        onClick: () => onSelectMode('bieler')
-      },
-        h('div', { className: 'mode-icon' }, '🎻'),
-        h('div', { className: 'mode-title' }, 'Bieler Technique'),
-        h('div', { className: 'mode-description' }, 'Bow strokes and trained functions')
-      ),
-
-      h('button', {
-        className: 'mode-card mode-card-secondary',
-        onClick: () => onSelectMode('rhythm')
-      },
-        h('div', { className: 'mode-icon' }, '🥁'),
-        h('div', { className: 'mode-title' }, 'Rhythm'),
-        h('div', { className: 'mode-description' }, 'Pattern recognition and timing')
-      ),
-
-      h('button', {
-        className: 'mode-card mode-card-secondary',
-        onClick: () => onSelectMode('fingerboard')
-      },
-        h('div', { className: 'mode-icon' }, '🎯'),
-        h('div', { className: 'mode-title' }, 'Fingerboard'),
-        h('div', { className: 'mode-description' }, 'Position visualization tool')
+    // Hero Stats Card
+    h('div', { className: 'card card-success' },
+      h('div', { style: { textAlign: 'center', paddingBottom: 'var(--space-lg)' } },
+        h('h2', null, profile.name),
+        h('div', { className: 'stat-large' }, levelData.badge),
+        h('h3', null, levelData.title),
+        h('p', { className: 'text-muted' }, `${stats.xp} XP • ${streak} day streak`)
       )
     ),
 
-    // Settings button
-    h('button', {
-      className: 'btn btn-secondary settings-btn',
-      onClick: () => onSelectMode('settings')
-    }, '⚙️ Settings')
+    // Quick Stats Row
+    h('div', { className: 'grid-3' },
+      h('div', { className: 'module-stat' },
+        h('div', { className: 'stat-medium', style: { color: 'var(--success)' } }, stats.totalQuestions),
+        h('p', { className: 'text-muted' }, 'Questions')
+      ),
+      h('div', { className: 'module-stat' },
+        h('div', { className: `stat-medium ${colorClass}` }, `${accuracy}%`),
+        h('p', { className: 'text-muted' }, 'Accuracy')
+      ),
+      h('div', { className: 'module-stat' },
+        h('div', { className: 'stat-medium', style: { color: 'var(--primary)' } }, spacedStats.dueToday),
+        h('p', { className: 'text-muted' }, 'Due Today')
+      )
+    ),
+
+    // Primary Training Modules
+    h('div', { className: 'card' },
+      h('h3', null, 'Training Modules'),
+      h('div', { className: 'grid-2' },
+        h('button', {
+          className: 'btn btn-primary btn-lg',
+          onClick: () => onNavigate('intervals')
+        }, '🎵 Intervals'),
+        h('button', {
+          className: 'btn btn-primary btn-lg',
+          onNavigate: () => onNavigate('keys')
+        }, '🔑 Key Signatures'),
+        h('button', {
+          className: 'btn btn-primary btn-lg',
+          onClick: () => onNavigate('rhythm')
+        }, '🥁 Rhythm'),
+        h('button', {
+          className: 'btn btn-primary btn-lg',
+          onClick: () => onNavigate('scales')
+        }, '🎼 Scales')
+      )
+    ),
+
+    // Secondary Modules + Tools
+    h('div', { className: 'card' },
+      h('h3', null, 'Ear Training & Tools'),
+      h('div', { className: 'grid-2' },
+        h('button', {
+          className: 'btn btn-outline',
+          onClick: () => onNavigate('interval-ear')
+        }, '👂 Interval Ear'),
+        h('button', {
+          className: 'btn btn-outline',
+          onClick: () => onNavigate('speed-drill')
+        }, '⚡ Speed Drill'),
+        h('button', {
+          className: 'btn btn-outline',
+          onClick: () => onNavigate('spaced-rep')
+        }, `📚 Review (${spacedStats.dueToday})`),
+        h('button', {
+          className: 'btn btn-outline',
+          onClick: () => onNavigate('fingerboard')
+        }, '🎻 Fingerboard')
+      )
+    ),
+
+    // Quick Actions
+    h('div', { className: 'card' },
+      h('h3', null, 'Quick Actions'),
+      h('div', { className: 'grid-2' },
+        h('button', {
+          className: 'btn btn-primary',
+          onClick: () => onNavigate('dashboard')
+        }, '📊 Dashboard'),
+        h('button', {
+          className: 'btn btn-primary',
+          onClick: () => onNavigate('planner')
+        }, '📅 Planner'),
+        h('button', {
+          className: 'btn btn-outline',
+          onClick: () => onNavigate('achievements')
+        }, '🏆 Achievements'),
+        h('button', {
+          className: 'btn btn-outline',
+          onClick: () => onNavigate('settings')
+        }, '⚙️ Settings')
+      )
+    ),
+
+    // Progress Bar
+    h('div', { className: 'card' },
+      h('div', { className: 'progress-bar' },
+        h('div', {
+          className: 'progress-fill',
+          style: { width: `${levelData.progress || 0}%` }
+        })
+      ),
+      h('p', {
+        className: 'text-muted',
+        style: { textAlign: 'center', marginTop: 'var(--space-sm)' }
+      },
+        `${stats.xpToNextLevel || 0} XP to ${levelData.level + 1}`
+      )
+    )
   );
 }
-
-export default MainMenu;
