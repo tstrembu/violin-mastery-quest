@@ -1,234 +1,277 @@
-// ========================================================
-// VMQ DIFFICULTY ADAPTER - Production Version
-// Manages difficulty levels with robust error handling
-// ========================================================
+// ======================================
+// VMQ DIFFICULTY ADAPTER v2.0 - Production AI
+// Real-time difficulty adjustment for 50+ modules
+// ======================================
 
-import { STORAGE_KEYS, loadJSON, saveJSON } from '../config/storage.js';
-import { 
-  INTERVAL_DEFINITIONS, 
-  RHYTHM_PATTERNS, 
-  NOTES, 
-  NATURAL_NOTES,
-  SHARP_NOTES,
-  FLAT_NOTES,
-  BIELER_VOCAB,
-  KEY_SIGNATURES
-} from '../config/constants.js';
+import { loadJSON, saveJSON, STORAGE_KEYS } from '../config/storage.js';
+import { sessionTracker } from './sessionTracker.js';
+import { getStats as sm2Stats } from './spacedRepetition.js';
+import { loadXP, getLevel } from './gamification.js';
 
 /**
- * Difficulty settings for each mode
+ * Difficulty Levels (Violin-optimized)
  */
-export const DIFFICULTY_SETTINGS = {
-  intervals: {
-    easy: {
-      label: 'Easy',
-      description: 'Perfect intervals and 3rds',
-      items: ['P4', 'P5', 'm3', 'M3', 'P8'],
-      speedMultiplier: 0.6  // ✨ Slower for Cooper (was 0.8)
-    },
-    medium: {
-      label: 'Medium',
-      description: 'All common intervals',
-      items: ['m2', 'M2', 'm3', 'M3', 'P4', 'P5', 'M6', 'P8'],
-      speedMultiplier: 0.8  // ✨ Adjustable
-    },
-    hard: {
-      label: 'Hard',
-      description: 'All intervals including 7ths',
-      items: null,
-      speedMultiplier: 1.0
-    }
-  },
-
-  rhythm: {
-    easy: {
-      label: 'Easy',
-      description: 'Simple patterns, slow tempo',
-      items: ['quarters', 'eighths', 'quarter-eighths'],
-      bpmRange: [60, 90]
-    },
-    medium: {
-      label: 'Medium',
-      description: 'Dotted rhythms, moderate tempo',
-      items: ['quarters', 'eighths', 'quarter-eighths', 'dotted-1', 'sixteenths', 'eighth-sixteenths'],
-      bpmRange: [80, 120]
-    },
-    hard: {
-      label: 'Hard',
-      description: 'All patterns, faster tempo',
-      items: null,
-      bpmRange: [100, 160]
-    }
-  },
-
-  flashcards: {
-    easy: {
-      label: 'Easy',
-      description: 'Natural notes only',
-      items: NATURAL_NOTES
-    },
-    medium: {
-      label: 'Medium',
-      description: 'Sharps and flats',
-      items: [...NATURAL_NOTES, ...SHARP_NOTES]
-    },
-    hard: {
-      label: 'Hard',
-      description: 'All notes including enharmonics',
-      items: null
-    }
-  },
-
-  bieler: {
-    easy: {
-      label: 'Easy',
-      description: 'Basic strokes and tempo markings',
-      categories: ['bow_basic', 'tempo'],
-      itemCount: 10
-    },
-    medium: {
-      label: 'Medium',
-      description: 'Advanced strokes and left hand',
-      categories: ['bow_basic', 'bow_articulated', 'left_hand', 'tempo', 'dynamics'],
-      itemCount: 15
-    },
-    hard: {
-      label: 'Hard',
-      description: 'All technique vocabulary',
-      categories: null,
-      itemCount: null
-    }
-  },
-
-  keySignatures: {
-    easy: {
-      label: 'Easy',
-      description: 'C, G, D, F major (Level 1)',
-      items: ['C_major', 'G_major', 'D_major', 'F_major']
-    },
-    medium: {
-      label: 'Medium',
-      description: 'All Level 1 keys',
-      items: ['C_major', 'G_major', 'D_major', 'A_major', 'F_major', 'Bb_major']
-    },
-    hard: {
-      label: 'Hard',
-      description: 'All keys including relative minors',
-      items: null
-    }
-  }
+const DIFFICULTY_LEVELS = {
+  BEGINNER: { id: 1, speed: 0.5, accuracyTarget: 70, notes: 4, tempo: 60 },
+  INTERMEDIATE: { id: 2, speed: 0.75, accuracyTarget: 80, notes: 8, tempo: 90 },
+  ADVANCED: { id: 3, speed: 1.0, accuracyTarget: 85, notes: 12, tempo: 120 },
+  EXPERT: { id: 4, speed: 1.25, accuracyTarget: 90, notes: 16, tempo: 144 },
+  MASTER: { id: 5, speed: 1.5, accuracyTarget: 95, notes: 20, tempo: 180 }
 };
 
-export function getDifficulty(modeName) {
-  try {
-    const difficulties = loadJSON(STORAGE_KEYS.DIFFICULTY, {});
-    return difficulties[modeName] || 'easy';
-  } catch (err) {
-    console.warn('Failed to load difficulty, using easy:', err);
-    return 'easy';
+/**
+ * Module Categories (VMQ 50+ modules)
+ */
+const MODULE_CATEGORIES = {
+  EAR_TRAINING: ['intervalear', 'keytester', 'tempotester', 'arpeggiotester'],
+  NOTE_READING: ['flashcards', 'snapshot', 'notelocator'],
+  THEORY: ['intervals', 'keys', 'rhythm', 'scaleslab'],
+  TECHNIQUE: ['bieler', 'bielerlab', 'fingerboard'],
+  RHYTHM: ['rhythmdrills', 'timesigtester']
+};
+
+/**
+ * Adaptation Triggers
+ */
+const ADAPTATION_RULES = {
+  SPEED_UP: { accuracy: 90, streak: 5, sessions: 3 },    // Promote
+  SLOW_DOWN: { accuracy: 65, streak: 0, lapses: 2 },     // Demote
+  STABILITY_WINDOW: 5,                                   // Reviews needed
+  MAX_LEVEL_CHANGE: 1                                    // No jumps
+};
+
+class DifficultyAdapter {
+  constructor() {
+    this.performance = new Map();  // module → performance data
+    this.globalLevel = 1;
+    this.init();
+  }
+
+  async init() {
+    const saved = await loadJSON(STORAGE_KEYS.DIFFICULTY, {});
+    this.performance = new Map(Object.entries(saved));
+    
+    // Set global level from XP
+    const xp = loadXP();
+    this.globalLevel = getLevel(xp).level;
+    
+    console.log(`[Difficulty] Initialized: Global Lv${this.globalLevel}`);
+  }
+
+  /**
+   * Get current difficulty for module
+   */
+  async getDifficulty(moduleId) {
+    const perf = await this.getPerformance(moduleId);
+    const category = this.getCategory(moduleId);
+    
+    // Combine global level + module performance + SM-2 stats
+    const baseLevel = Math.min(5, this.globalLevel);
+    const moduleLevel = perf.level || baseLevel;
+    const sm2Level = await this.getSM2Level(moduleId);
+    
+    const finalLevel = Math.max(1, Math.min(5, 
+      (baseLevel * 0.4 + moduleLevel * 0.4 + sm2Level * 0.2)
+    ));
+    
+    return {
+      level: Math.round(finalLevel),
+      config: DIFFICULTY_LEVELS[Math.round(finalLevel)],
+      recommendation: this.getRecommendation(moduleId, finalLevel),
+      performance: perf
+    };
+  }
+
+  /**
+   * Record performance and adapt
+   */
+  async recordPerformance(moduleId, accuracy, speed, streak, metadata = {}) {
+    const perf = await this.getPerformance(moduleId);
+    
+    perf.sessions = (perf.sessions || 0) + 1;
+    perf.totalAccuracy = ((perf.totalAccuracy || 0) * (perf.sessions - 1) + accuracy) / perf.sessions;
+    perf.recentAccuracy = accuracy;  // Last session
+    
+    perf.speedHistory = perf.speedHistory ? 
+      [...perf.speedHistory.slice(-9), speed] : [speed];
+    perf.accuracyHistory = perf.accuracyHistory ? 
+      [...perf.accuracyHistory.slice(-9), accuracy] : [accuracy];
+    
+    perf.streak = streak;
+    perf.lastSession = Date.now();
+    
+    // Adaptive level adjustment
+    perf.level = await this.calculateModuleLevel(moduleId, perf);
+    
+    this.performance.set(moduleId, perf);
+    await this.persist();
+    
+    // Track globally
+    sessionTracker.trackActivity('difficulty', 'adapt', {
+      module: moduleId,
+      level: perf.level,
+      accuracy,
+      recommendation: this.getRecommendation(moduleId, perf.level)
+    });
+    
+    return perf.level;
+  }
+
+  /**
+   * Calculate optimal module level
+   */
+  async calculateModuleLevel(moduleId, perf) {
+    const history = perf.accuracyHistory || [];
+    
+    if (history.length < ADAPTATION_RULES.STABILITY_WINDOW) {
+      return perf.level || 1;
+    }
+    
+    const recentAvg = history.slice(-5).reduce((a, b) => a + b, 0) / 5;
+    const currentLevel = perf.level || 1;
+    
+    // Promotion criteria
+    if (recentAvg >= ADAPTATION_RULES.SPEED_UP.accuracy && 
+        perf.streak >= ADAPTATION_RULES.SPEED_UP.streak) {
+      return Math.min(5, currentLevel + ADAPTATION_RULES.MAX_LEVEL_CHANGE);
+    }
+    
+    // Demotion criteria  
+    if (recentAvg <= ADAPTATION_RULES.SLOW_DOWN.accuracy || 
+        perf.lapses >= ADAPTATION_RULES.SLOW_DOWN.lapses) {
+      return Math.max(1, currentLevel - ADAPTATION_RULES.MAX_LEVEL_CHANGE);
+    }
+    
+    return currentLevel;
+  }
+
+  /**
+   * SM-2 integration for difficulty
+   */
+  async getSM2Level(moduleId) {
+    const stats = await sm2Stats();
+    const dueRatio = stats.dueToday / Math.max(1, stats.total);
+    
+    // High due ratio = struggling → lower difficulty
+    return Math.max(1, 5 - Math.round(dueRatio * 3));
+  }
+
+  /**
+   * Get performance data for module
+   */
+  async getPerformance(moduleId) {
+    if (!this.performance.has(moduleId)) {
+      this.performance.set(moduleId, {
+        module: moduleId,
+        level: this.globalLevel,
+        sessions: 0,
+        totalAccuracy: 0,
+        recentAccuracy: 0,
+        speedHistory: [],
+        accuracyHistory: [],
+        streak: 0,
+        lapses: 0
+      });
+    }
+    return this.performance.get(moduleId);
+  }
+
+  /**
+   * Global recommendations
+   */
+  async getRecommendations() {
+    const recs = [];
+    
+    for (const [moduleId, perf] of this.performance) {
+      const diff = await this.getDifficulty(moduleId);
+      
+      if (perf.recentAccuracy < 70 && perf.sessions > 3) {
+        recs.push({
+          module: moduleId,
+          action: 'focus',
+          reason: `Struggling (${Math.round(perf.recentAccuracy)}%)`,
+          priority: 'high'
+        });
+      } else if (perf.recentAccuracy > 90 && perf.level < 5) {
+        recs.push({
+          module: moduleId,
+          action: 'advance', 
+          reason: `Ready for ${DIFFICULTY_LEVELS[perf.level + 1].id}`,
+          priority: 'medium'
+        });
+      }
+    }
+    
+    return recs.sort((a, b) => b.priority === 'high' ? 1 : -1);
+  }
+
+  /**
+   * Module category helper
+   */
+  getCategory(moduleId) {
+    for (const [category, modules] of Object.entries(MODULE_CATEGORIES)) {
+      if (modules.includes(moduleId)) return category;
+    }
+    return 'general';
+  }
+
+  /**
+   * Generate coaching recommendation
+   */
+  getRecommendation(moduleId, level) {
+    const nextLevel = Math.min(5, level + 1);
+    
+    if (level < 3) {
+      return `Master ${DIFFICULTY_LEVELS[level].id} before advancing`;
+    } else if (level < 5) {
+      return `Ready for ${DIFFICULTY_LEVELS[nextLevel].id} (${DIFFICULTY_LEVELS[nextLevel].tempo}BPM)`;
+    }
+    return 'Mastery achieved!';
+  }
+
+  /**
+   * Persist performance data
+   */
+  async persist() {
+    const data = Object.fromEntries(this.performance);
+    await saveJSON(STORAGE_KEYS.DIFFICULTY, data);
+  }
+
+  /**
+   * Reset module performance
+   */
+  async resetModule(moduleId) {
+    this.performance.delete(moduleId);
+    await this.persist();
+  }
+
+  /**
+   * Global stats
+   */
+  async getGlobalStats() {
+    const modules = Array.from(this.performance.values());
+    return {
+      avgLevel: modules.length > 0 ? 
+        modules.reduce((sum, m) => sum + (m.level || 1), 0) / modules.length : 1,
+      modulesAtMax: modules.filter(m => (m.level || 1) === 5).length,
+      struggling: modules.filter(m => m.recentAccuracy < 70).length
+    };
   }
 }
 
-export function setDifficulty(modeName, level) {
-  try {
-    const difficulties = loadJSON(STORAGE_KEYS.DIFFICULTY, {});
-    difficulties[modeName] = level;
-    saveJSON(STORAGE_KEYS.DIFFICULTY, difficulties);
-  } catch (err) {
-    console.error('Failed to save difficulty:', err);
-  }
-}
+// ======================================
+// GLOBAL INSTANCE
+// ======================================
 
-export function getItemPool(modeName, allItems) {
-  const level = getDifficulty(modeName);
-  const settings = DIFFICULTY_SETTINGS[modeName];
-  
-  if (!settings || !settings[level]) {
-    return allItems;
-  }
+const difficultyAdapter = new DifficultyAdapter();
 
-  const config = settings[level];
+export const getDifficulty = difficultyAdapter.getDifficulty.bind(difficultyAdapter);
+export const recordPerformance = difficultyAdapter.recordPerformance.bind(difficultyAdapter);
+export const getRecommendations = difficultyAdapter.getRecommendations.bind(difficultyAdapter);
+export const getGlobalStats = difficultyAdapter.getGlobalStats.bind(difficultyAdapter);
+export const resetModule = difficultyAdapter.resetModule.bind(difficultyAdapter);
 
-  // No restriction: use full set
-  if (!config.items) {
-    return allItems;
-  }
+export { DIFFICULTY_LEVELS, MODULE_CATEGORIES, ADAPTATION_RULES };
 
-  // If items are primitive values (e.g. note names as strings)
-  const first = allItems[0];
-  if (typeof first !== 'object' || first === null) {
-    return allItems.filter(item => config.items.includes(item));
-  }
+export default difficultyAdapter;
 
-  // Default: objects with .id fields
-  return allItems.filter(item => config.items.includes(item.id));
-}
-
-export function getBielerPool(level) {
-  const config = DIFFICULTY_SETTINGS.bieler[level];
-  
-  if (!config) {
-    return BIELER_VOCAB;
-  }
-
-  if (!config.categories) {
-    return BIELER_VOCAB;
-  }
-
-  let filtered = BIELER_VOCAB.filter(item => 
-    config.categories.includes(item.category)
-  );
-
-  if (config.itemCount && filtered.length > config.itemCount) {
-    filtered = filtered.slice(0, config.itemCount);
-  }
-
-  return filtered;
-}
-
-export function getBpmRange(level) {
-  const config = DIFFICULTY_SETTINGS.rhythm[level];
-  return config?.bpmRange || [60, 120];
-}
-
-export function getSpeedMultiplier(level) {
-  const config = DIFFICULTY_SETTINGS.intervals[level];
-  return config?.speedMultiplier || 1.0;
-}
-
-export function autoAdjustDifficulty(modeName, recentAccuracy, questionCount) {
-  if (questionCount < 10) {
-    return null;
-  }
-
-  const currentLevel = getDifficulty(modeName);
-  let newLevel = null;
-
-  if (recentAccuracy >= 85 && currentLevel === 'easy') {
-    newLevel = 'medium';
-  } else if (recentAccuracy >= 90 && currentLevel === 'medium') {
-    newLevel = 'hard';
-  } else if (recentAccuracy < 40 && currentLevel === 'hard') {
-    newLevel = 'medium';
-  } else if (recentAccuracy < 35 && currentLevel === 'medium') {
-    newLevel = 'easy';
-  }
-
-  if (newLevel && newLevel !== currentLevel) {
-    setDifficulty(modeName, newLevel);
-    return newLevel;
-  }
-
-  return null;
-}
-
-export function getDifficultyInfo(modeName) {
-  const level = getDifficulty(modeName);
-  const config = DIFFICULTY_SETTINGS[modeName]?.[level];
-
-  return {
-    level,
-    label: config?.label || level,
-    description: config?.description || ''
-  };
-}
