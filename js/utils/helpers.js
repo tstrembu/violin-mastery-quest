@@ -1,134 +1,284 @@
-// ========================================================
-// VMQ HELPERS - Pure Utility Functions
-// ========================================================
+// ======================================
+// VMQ UTILITIES v2.0 - 50+ Module Production
+// Music + AI + Performance Optimized
+// ======================================
 
 /**
- * Fisher-Yates shuffle
- * @param {Array} array - Array to shuffle
- * @returns {Array} Shuffled copy
+ * 🎵 MUSIC THEORY - Violin/MIDI Production
  */
-export function shuffle(array) {
-  const arr = [...array];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+export const MUSIC = {
+  // Note → MIDI (C4=60, G3=55, E5=76)
+  noteToMidi(note) {
+    const noteMap = {
+      'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'E': 4,
+      'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8, 'Ab': 8,
+      'A': 9, 'A#': 10, 'Bb': 10, 'B': 11
+    };
+    const match = note.match(/^([A-G][#b]?)(\d+)$/);
+    if (!match) return null;
+    const [, noteName, octave] = match;
+    return (parseInt(octave) + 1) * 12 + noteMap[noteName];
+  },
+
+  // MIDI → Frequency (A4=440Hz)
+  midiToFreq(midi) {
+    return 440 * Math.pow(2, (midi - 69) / 12);
+  },
+
+  // Violin open strings (G3=55, D4=62, A4=69, E5=76)
+  VIOLIN_STRINGS: [55, 62, 69, 76],
+  STRING_NAMES: ['G3', 'D4', 'A4', 'E5'],
+
+  // Position → Semitones (violin spacing)
+  positionToSemitones(pos, finger = 1) {
+    return (pos - 1) * 4 + (finger - 1) * 2;
+  },
+
+  // Interval quality
+  getIntervalQuality(semitones) {
+    const perfect = [0, 3, 4, 7];
+    const majorMinor = [1, 2, 5, 6, 8, 10];
+    if (perfect.includes(semitones)) return 'Perfect';
+    if (majorMinor.includes(semitones)) return semitones <= 6 ? 'Major' : 'Minor';
+    return 'Augmented/Diminished';
   }
-  return arr;
+};
+
+/**
+ * 🎯 CORE VMQ - Random + Shuffle (50+ modules)
+ */
+export function getRandom(array, exclude = []) {
+  const valid = array.filter(item => !exclude.includes(item));
+  return valid[Math.floor(Math.random() * valid.length)];
+}
+
+export function shuffle(array) {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
 }
 
 /**
- * Get random element from array
- * @param {Array} array - Source array
- * @returns {*} Random element
+ * 📊 AI STATS - SM-2 + Analytics Production
  */
-export function getRandom(array) {
-  return array[Math.floor(Math.random() * array.length)];
-}
-
-/**
- * Calculate accuracy percentage
- * @param {number} correct - Number correct
- * @param {number} total - Total attempts
- * @returns {number} Percentage (0-100)
- */
-export function calculateAccuracy(correct, total) {
+export function accuracy(correct, total) {
   return total > 0 ? Math.round((correct / total) * 100) : 0;
 }
 
-/**
- * Format large numbers with commas
- * @param {number} num - Number to format
- * @returns {string} Formatted string
- */
-export function formatNumber(num) {
-  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+export function grade(accuracy) {
+  return accuracy >= 95 ? 'S' : accuracy >= 90 ? 'A' : accuracy >= 85 ? 'B' :
+         accuracy >= 80 ? 'C' : accuracy >= 70 ? 'D' : 'F';
+}
+
+export function streakGrade(streak) {
+  return streak >= 30 ? '🏆 Master' : streak >= 14 ? '⭐ Pro' : 
+         streak >= 7 ? '🔥 Hot' : streak >= 3 ? '💪 Good' : 'New';
 }
 
 /**
- * Get time of day greeting
- * @returns {string} Greeting message
+ * ⏱️ TIME - Journal + Session Production
  */
-export function getGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
+export function formatDuration(ms) {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h}h ${m % 60}m`;
+  if (m > 0) return `${m}m ${s % 60}s`;
+  return `${s}s`;
 }
 
-/**
- * Calculate days between two dates
- * @param {Date} date1 - First date
- * @param {Date} date2 - Second date
- * @returns {number} Days difference
- */
-export function daysBetween(date1, date2) {
-  const oneDay = 24 * 60 * 60 * 1000;
-  return Math.round(Math.abs((date1 - date2) / oneDay));
-}
-
-/**
- * Normalize text for comparison (lowercase, trim, remove extra spaces)
- * @param {string} text - Text to normalize
- * @returns {string} Normalized text
- */
-export function normalizeText(text) {
-  return text.toLowerCase().trim().replace(/\s+/g, ' ');
-}
-
-/**
- * Fuzzy string match (simple token-based matching)
- * @param {string} answer - User's answer
- * @param {string} correct - Correct answer
- * @param {number} threshold - Match threshold (0-1)
- * @returns {boolean} Whether strings match closely enough
- */
-export function fuzzyMatch(answer, correct, threshold = 0.6) {
-  const answerTokens = normalizeText(answer).split(' ');
-  const correctTokens = normalizeText(correct).split(' ');
+export function formatDate(timestamp) {
+  const date = new Date(timestamp);
+  const today = new Date().toDateString();
+  const yesterday = new Date(Date.now() - 86400000).toDateString();
   
-  let matches = 0;
-  answerTokens.forEach(token => {
-    if (correctTokens.some(ct => ct.includes(token) || token.includes(ct))) {
-      matches++;
+  if (date.toDateString() === today) return 'Today';
+  if (date.toDateString() === yesterday) return 'Yesterday';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/**
+ * 🎮 GAME - VMQ Production (Snapshot/SpeedDrill)
+ */
+export function getDistractors(correct, pool, count = 3) {
+  return shuffle(pool.filter(n => n !== correct)).slice(0, count);
+}
+
+export function optionsGrid(correct, distractors) {
+  return shuffle([correct, ...distractors]);
+}
+
+/**
+ * 🚀 PERFORMANCE - React + 50+ modules
+ */
+export function debounce(fn, ms) {
+  let timeout;
+  return (...args) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => fn(...args), ms);
+  };
+}
+
+export function throttle(fn, limit) {
+  let inThrottle;
+  return function(...args) {
+    if (!inThrottle) {
+      fn.apply(this, args);
+      inThrottle = true;
+      setTimeout(() => inThrottle = false, limit);
     }
-  });
-  
-  return (matches / Math.max(answerTokens.length, correctTokens.length)) >= threshold;
+  };
+}
+
+export function shallowEqual(obj1, obj2) {
+  const keys1 = Object.keys(obj1);
+  const keys2 = Object.keys(obj2);
+  if (keys1.length !== keys2.length) return false;
+  return keys1.every(key => obj1[key] === obj2[key]);
 }
 
 /**
- * Clamp number between min and max
- * @param {number} value - Value to clamp
- * @param {number} min - Minimum value
- * @param {number} max - Maximum value
- * @returns {number} Clamped value
+ * 💾 STORAGE - Journal + SM-2 Production
  */
+export function generateId() {
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
 export function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
+  return Math.max(min, Math.min(max, value));
+}
+
+export function normalizeText(text) {
+  return text.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
 
 /**
- * Generate random integer between min and max (inclusive)
- * @param {number} min - Minimum value
- * @param {number} max - Maximum value
- * @returns {number} Random integer
+ * 📈 VMQ ANALYTICS - Coach + Dashboard
  */
-export function randomInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+export function groupBy(array, keyFn) {
+  return array.reduce((acc, item) => {
+    const key = keyFn(item);
+    acc[key] = acc[key] || [];
+    acc[key].push(item);
+    return acc;
+  }, {});
+}
+
+export function average(numbers) {
+  return numbers.length ? numbers.reduce((a, b) => a + b, 0) / numbers.length : 0;
+}
+
+export function statsSummary(data) {
+  const accs = data.map(d => d.accuracy || 0).filter(a => a > 0);
+  return {
+    avgAccuracy: Math.round(average(accs)),
+    best: Math.max(...accs),
+    sessions: data.length,
+    totalTime: data.reduce((sum, d) => sum + (d.engagedMs || 0), 0)
+  };
 }
 
 /**
- * Deep clone object (simple version, doesn't handle circular refs)
- * @param {*} obj - Object to clone
- * @returns {*} Cloned object
+ * 🎵 VIOLIN PRODUCTION - NoteLocator/Fingerboard
  */
-export function deepClone(obj) {
-  if (obj === null || typeof obj !== 'object') return obj;
-  if (Array.isArray(obj)) return obj.map(item => deepClone(item));
-  
-  const cloned = {};
-  Object.keys(obj).forEach(key => {
-    cloned[key] = deepClone(obj[key]);
-  });
-  return cloned;
+export function getNoteName(stringIdx, position, finger = 1) {
+  const open = MUSIC.VIOLIN_STRINGS[stringIdx];
+  const semitones = MUSIC.positionToSemitones(position, finger);
+  const midi = open + semitones;
+  const noteNames = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  return noteNames[midi % 12];
+}
+
+export function positionFromNote(noteMidi, stringIdx) {
+  const open = MUSIC.VIOLIN_STRINGS[stringIdx];
+  const semitones = noteMidi - open;
+  const pos = Math.floor(semitones / 4) + 1;
+  return clamp(pos, 1, 5);
+}
+
+/**
+ * 🚀 ASYNC - Production retry + sleep
+ */
+export function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+export async function retry(fn, maxAttempts = 3) {
+  for (let i = 0; i < maxAttempts; i++) {
+    try { return await fn(); }
+    catch (e) { if (i === maxAttempts - 1) throw e; await sleep(1000 * (i + 1)); }
+  }
+}
+
+/**
+ * 💾 EXPORT - Journal + DataManager
+ */
+export function downloadJSON(data, filename) {
+  const str = JSON.stringify(data, null, 2);
+  const blob = new Blob([str], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const el = document.createElement('textarea');
+    el.value = text; el.style.opacity = '0';
+    document.body.appendChild(el); el.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(el);
+    return ok;
+  }
+}
+
+/**
+ * 🎯 VMQ UX - Mobile + Accessibility
+ */
+export const DEVICE = {
+  isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry/i.test(navigator.userAgent),
+  isIOS: /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream,
+  isTouch: 'ontouchstart' in window
+};
+
+export function pluralize(count, singular, plural = null) {
+  return `${count} ${count === 1 ? singular : (plural || singular + 's')}`;
+}
+
+export function titleCase(str) {
+  return str.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+/**
+ * 🔗 ROUTING - Hash + Query Production
+ */
+export function getQueryParam(name) {
+  return new URLSearchParams(window.location.search).get(name);
+}
+
+export function setQueryParam(name, value) {
+  const url = new URL(window.location);
+  url.searchParams.set(name, value);
+  window.history.replaceState({}, '', url);
+}
+
+/**
+ * 🎮 VMQ GAMIFICATION - XP + Levels
+ */
+export function xpToLevel(xp) {
+  return Math.floor(xp / 1000) + 1;
+}
+
+export function levelProgress(currentXp) {
+  const level = xpToLevel(currentXp);
+  const levelStart = (level - 1) * 1000;
+  const levelEnd = level * 1000;
+  return Math.round(((currentXp - levelStart) / (levelEnd - levelStart)) * 100);
 }
