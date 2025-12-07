@@ -1,273 +1,478 @@
-/**
- * Dashboard Component
- * Main view showing daily goals, streak, quick module access
- */
+// ======================================
+// VMQ DASHBOARD v2.1.1 - Enhanced Learning Insights
+// Integrates: Gamification, Coach, Analytics, Session Tracking, Pedagogy
+// ======================================
 
-import { useState, useEffect } from 'react';
-import { 
-  updateStreak, 
-  getDailyGoalStatus, 
-  getXPProgress,
-  checkAchievements 
-} from '../engines/gamification.js';
-import { 
-  loadXP, 
-  loadLevel, 
-  loadStreak,
-  loadProfile 
-} from '../config/storage.js';
-import { getAllModuleStats, getRecommendations } from '../engines/analytics.js';
+const { createElement: h, useState, useEffect, useMemo } = React;
+import { loadJSON, saveJSON, STORAGE_KEYS } from '../config/storage.js';
+import { loadXP, loadStreak, getLevel, getNextLevelProgress } from '../engines/gamification.js';
+import { getCoachInsights } from '../engines/coachEngine.js';
+import { getRecentSessions, getWeeklyStats } from '../engines/sessionTracker.js';
+import { getModuleDifficulty } from '../engines/difficultyAdapter.js';
 
-export default function Dashboard({ navigate, showToast }) {
+export default function Dashboard({ onBack, onNavigate, refreshStats }) {
+  const [stats, setStats] = useState(null);
   const [xp, setXP] = useState(0);
-  const [level, setLevel] = useState(1);
-  const [streak, setStreak] = useState(0);
-  const [profile, setProfile] = useState('intermediate');
-  const [dailyGoal, setDailyGoal] = useState(null);
-  const [xpProgress, setXPProgress] = useState(null);
-  const [moduleStats, setModuleStats] = useState([]);
-  const [recommendations, setRecommendations] = useState([]);
+  const [streak, setStreak] = useState({ current: 0, longest: 0 });
+  const [level, setLevel] = useState({ level: 1, title: 'Beginner', badge: '🎻' });
+  const [insights, setInsights] = useState(null);
+  const [recentSessions, setRecentSessions] = useState([]);
+  const [weeklyStats, setWeeklyStats] = useState(null);
+  const [timeframe, setTimeframe] = useState('week'); // week, month, all
+  const [loading, setLoading] = useState(true);
 
+  // Load all data
   useEffect(() => {
-    // Load all dashboard data
     loadDashboardData();
-  }, []);
+  }, [timeframe]);
 
-  const loadDashboardData = () => {
-    // Update streak on dashboard load
-    const currentStreak = updateStreak();
-    
-    // Load user data
-    const currentXP = loadXP();
-    const currentLevel = loadLevel();
-    const currentProfile = loadProfile();
-    
-    setXP(currentXP);
-    setLevel(currentLevel);
-    setStreak(currentStreak);
-    setProfile(currentProfile);
-    
-    // Load progress data
-    setXPProgress(getXPProgress());
-    setDailyGoal(getDailyGoalStatus(currentProfile));
-    setModuleStats(getAllModuleStats());
-    setRecommendations(getRecommendations());
-    
-    // Check for achievements
-    const newAchievements = checkAchievements('dashboard', { streak: currentStreak });
-    if (newAchievements.length > 0) {
-      newAchievements.forEach(achievement => {
-        showToast(`🏆 Achievement Unlocked: ${achievement.name}!`, 'success');
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+
+      // Core stats
+      const loadedStats = loadJSON(STORAGE_KEYS.STATS, {
+        total: 0,
+        correct: 0,
+        byModule: {},
+        byDifficulty: { easy: 0, medium: 0, hard: 0 }
       });
+
+      // Gamification data
+      const currentXP = loadXP();
+      const streakData = loadStreak();
+      const currentLevel = getLevel(currentXP);
+
+      // Coach insights (AI-powered recommendations)
+      const coachData = getCoachInsights(loadedStats);
+
+      // Session tracking
+      const sessions = getRecentSessions(timeframe);
+      const weekly = getWeeklyStats();
+
+      setStats(loadedStats);
+      setXP(currentXP);
+      setStreak(streakData);
+      setLevel(currentLevel);
+      setInsights(coachData);
+      setRecentSessions(sessions);
+      setWeeklyStats(weekly);
+    } catch (error) {
+      console.error('[Dashboard] Load failed:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return '🌅 Good morning';
-    if (hour < 17) return '☀️ Good afternoon';
-    return '🌙 Good evening';
-  };
+  // Computed metrics
+  const metrics = useMemo(() => {
+    if (!stats) return null;
 
-  const handleModuleClick = (moduleId) => {
-    navigate(moduleId);
-  };
+    const overallAccuracy = stats.total > 0 
+      ? Math.round((stats.correct / stats.total) * 100) 
+      : 0;
 
-  return React.createElement('div', { className: 'dashboard-container' },
-    // Header Section
-    React.createElement('div', { className: 'card' },
-      React.createElement('h2', null, `${getGreeting()}, Violinist!`),
+    const grade = overallAccuracy >= 95 ? 'S' :
+                  overallAccuracy >= 90 ? 'A' :
+                  overallAccuracy >= 80 ? 'B' :
+                  overallAccuracy >= 70 ? 'C' :
+                  overallAccuracy >= 60 ? 'D' : 'F';
+
+    const gradeColor = grade === 'S' || grade === 'A' ? 'success' :
+                       grade === 'B' || grade === 'C' ? 'warning' : 'danger';
+
+    // Module performance
+    const moduleStats = Object.entries(stats.byModule || {}).map(([module, data]) => {
+      const accuracy = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
+      const difficulty = getModuleDifficulty(module);
       
-      // Stats Row
-      React.createElement('div', { 
-        style: { 
-          display: 'flex', 
-          gap: '20px', 
-          marginTop: '16px',
-          flexWrap: 'wrap'
-        } 
-      },
-        // Level
-        React.createElement('div', { style: { flex: '1', minWidth: '120px' } },
-          React.createElement('div', { className: 'small', style: { color: '#6c757d' } }, 'Level'),
-          React.createElement('div', { style: { fontSize: '1.5rem', fontWeight: 'bold', color: '#007bff' } }, 
-            level
+      return {
+        module,
+        accuracy,
+        total: data.total,
+        correct: data.correct,
+        difficulty,
+        grade: accuracy >= 90 ? 'A' : accuracy >= 80 ? 'B' : accuracy >= 70 ? 'C' : 'D',
+        needsWork: accuracy < 75 && data.total > 5,
+        mastered: accuracy >= 90 && data.total >= 20
+      };
+    }).sort((a, b) => b.total - a.total);
+
+    // Practice consistency (from weekly stats)
+    const practiceStreak = weeklyStats?.streak || 0;
+    const avgDaily = weeklyStats?.avgDaily || 0;
+
+    // Learning velocity (XP per day)
+    const velocity = weeklyStats?.xpPerDay || 0;
+
+    return {
+      overallAccuracy,
+      grade,
+      gradeColor,
+      moduleStats,
+      practiceStreak,
+      avgDaily,
+      velocity,
+      totalModules: moduleStats.length,
+      masteredModules: moduleStats.filter(m => m.mastered).length
+    };
+  }, [stats, weeklyStats]);
+
+  if (loading) {
+    return h('div', { className: 'module-container' },
+      h('div', { className: 'loading-screen' },
+        h('div', { className: 'loading-spinner' }),
+        h('p', null, 'Loading dashboard...')
+      )
+    );
+  }
+
+  if (!stats || !metrics) {
+    return h('div', { className: 'module-container' },
+      h('div', { className: 'card card-warning' },
+        h('h3', null, '📊 No Data Yet'),
+        h('p', null, 'Complete training modules to see your dashboard.'),
+        h('button', { 
+          className: 'btn btn-primary', 
+          onClick: () => onNavigate('intervals') 
+        }, 'Start Training →')
+      )
+    );
+  }
+
+  const nextLevelProgress = getNextLevelProgress(xp);
+
+  return h('div', { className: 'module-container dashboard' },
+    // Header
+    h('header', { className: 'module-header' },
+      h('button', { className: 'btn-back', onClick: onBack }, '← Back'),
+      h('h2', null, '📊 Dashboard'),
+      h('div', { className: 'stats-inline' },
+        h('span', { className: 'live-dot' }),
+        h('span', null, 'Live Stats')
+      )
+    ),
+
+    // Hero Card - Level & Streak
+    h('div', { className: 'card card-elevated hero-card' },
+      h('div', { className: 'hero-content' },
+        h('div', { className: 'level-badge-large' },
+          h('div', { className: 'badge-icon' }, level.badge),
+          h('div', { className: 'badge-info' },
+            h('h3', null, level.title),
+            h('p', { className: 'text-muted' }, `Level ${level.level}`)
           )
         ),
-        
-        // XP
-        React.createElement('div', { style: { flex: '1', minWidth: '120px' } },
-          React.createElement('div', { className: 'small', style: { color: '#6c757d' } }, 'Total XP'),
-          React.createElement('div', { style: { fontSize: '1.5rem', fontWeight: 'bold', color: '#28a745' } }, 
-            xp
-          )
-        ),
-        
-        // Streak
-        React.createElement('div', { style: { flex: '1', minWidth: '120px' } },
-          React.createElement('div', { className: 'small', style: { color: '#6c757d' } }, 'Streak'),
-          React.createElement('div', { className: 'streak-indicator' }, 
-            React.createElement('span', null, '🔥'),
-            React.createElement('span', null, `${streak} days`)
+        h('div', { className: 'hero-stats' },
+          h('div', { className: 'stat-card compact' },
+            h('div', { className: 'stat-value' }, xp.toLocaleString()),
+            h('div', { className: 'stat-label' }, 'Total XP')
+          ),
+          h('div', { className: 'stat-card compact streak' },
+            h('div', { className: 'stat-value' }, `${streak.current} 🔥`),
+            h('div', { className: 'stat-label' }, 'Day Streak')
+          ),
+          h('div', { className: 'stat-card compact' },
+            h('div', { className: 'stat-value grade', className: `grade-${metrics.grade}` }, 
+              metrics.grade
+            ),
+            h('div', { className: 'stat-label' }, 'Overall Grade')
           )
         )
       ),
       
-      // XP Progress Bar
-      xpProgress && !xpProgress.maxLevel && React.createElement('div', { style: { marginTop: '20px' } },
-        React.createElement('div', { className: 'small', style: { marginBottom: '8px' } },
-          `Progress to Level ${level + 1}: ${xpProgress.current}/${xpProgress.needed} XP`
+      // Progress to next level
+      h('div', { className: 'progress-section' },
+        h('div', { className: 'progress-label' },
+          h('span', null, `Progress to Level ${level.level + 1}`),
+          h('span', { className: 'text-muted' }, 
+            `${nextLevelProgress.current} / ${nextLevelProgress.required} XP`
+          )
         ),
-        React.createElement('div', { className: 'xp-bar' },
-          React.createElement('div', { 
-            className: 'xp-bar-fill',
-            style: { width: `${xpProgress.progress}%` }
+        h('div', { className: 'progress-bar' },
+          h('div', { 
+            className: 'progress-fill',
+            style: { width: `${nextLevelProgress.percentage}%` }
           })
         )
       )
     ),
-    
-    // Daily Goal Card
-    dailyGoal && React.createElement('div', { className: 'dashboard-card' },
-      React.createElement('h3', null, '🎯 Today\'s Goal'),
-      
-      React.createElement('div', { className: 'goal-progress' },
-        // XP Goal
-        React.createElement('div', { className: 'goal-stat' },
-          React.createElement('span', { className: 'goal-stat-label' }, 'XP Earned'),
-          React.createElement('span', { className: 'goal-stat-value' }, 
-            `${dailyGoal.xpEarned}/${dailyGoal.xpTarget}`
+
+    // Quick Stats Grid
+    h('div', { className: 'stats-grid-4' },
+      h('div', { className: 'stat-card' },
+        h('div', { className: 'stat-icon' }, '🎯'),
+        h('div', { className: 'stat-value' }, stats.total.toLocaleString()),
+        h('div', { className: 'stat-label' }, 'Total Questions')
+      ),
+      h('div', { className: 'stat-card' },
+        h('div', { className: 'stat-icon' }, '✅'),
+        h('div', { 
+          className: 'stat-value',
+          style: { color: `var(--${metrics.gradeColor})` }
+        }, `${metrics.overallAccuracy}%`),
+        h('div', { className: 'stat-label' }, 'Accuracy')
+      ),
+      h('div', { className: 'stat-card' },
+        h('div', { className: 'stat-icon' }, '📚'),
+        h('div', { className: 'stat-value' }, 
+          `${metrics.masteredModules}/${metrics.totalModules}`
+        ),
+        h('div', { className: 'stat-label' }, 'Modules Mastered')
+      ),
+      h('div', { className: 'stat-card' },
+        h('div', { className: 'stat-icon' }, '⚡'),
+        h('div', { className: 'stat-value' }, Math.round(metrics.velocity)),
+        h('div', { className: 'stat-label' }, 'XP/Day')
+      )
+    ),
+
+    // Coach Insights (AI Recommendations)
+    insights && insights.recommendations.length > 0 && h('div', { className: 'card card-live' },
+      h('div', { className: 'card-header' },
+        h('h3', null, '🤖 AI Coach Recommendations'),
+        h('span', { className: 'badge badge-success' }, 'Powered by Pedagogy Engine')
+      ),
+      h('div', { className: 'coach-insights' },
+        insights.recommendations.slice(0, 4).map((rec, i) =>
+          h('div', { 
+            key: i, 
+            className: `insight insight-${rec.priority}`,
+            onClick: rec.action ? () => onNavigate(rec.action) : null,
+            style: { cursor: rec.action ? 'pointer' : 'default' }
+          },
+            h('div', { className: 'insight-header' },
+              h('span', { className: 'insight-icon' }, rec.icon || '💡'),
+              h('strong', null, rec.area),
+              rec.priority === 'urgent' && h('span', { className: 'badge badge-danger' }, 'Focus')
+            ),
+            h('p', null, rec.suggestion),
+            rec.action && h('span', { className: 'insight-cta' }, '→ Practice Now')
           )
-        ),
-        React.createElement('div', { className: 'progress-wrapper' },
-          React.createElement('div', { 
-            className: 'progress-bar',
-            style: { width: `${dailyGoal.xpProgress}%` }
-          })
-        ),
-        
-        // Items Goal
-        React.createElement('div', { className: 'goal-stat', style: { marginTop: '12px' } },
-          React.createElement('span', { className: 'goal-stat-label' }, 'Items Completed'),
-          React.createElement('span', { className: 'goal-stat-value' }, 
-            `${dailyGoal.itemsCompleted}/${dailyGoal.itemsTarget}`
+        )
+      )
+    ),
+
+    // Module Performance Breakdown
+    h('div', { className: 'card' },
+      h('div', { className: 'card-header' },
+        h('h3', null, '📈 Module Performance'),
+        h('div', { className: 'timeframe-toggle' },
+          ['week', 'month', 'all'].map(tf =>
+            h('button', {
+              key: tf,
+              className: `btn btn-sm ${timeframe === tf ? 'btn-primary' : 'btn-outline'}`,
+              onClick: () => setTimeframe(tf)
+            }, tf.charAt(0).toUpperCase() + tf.slice(1))
           )
-        ),
-        React.createElement('div', { className: 'progress-wrapper' },
-          React.createElement('div', { 
-            className: 'progress-bar',
-            style: { width: `${dailyGoal.itemsProgress}%` }
-          })
         )
       ),
       
-      dailyGoal.completed && React.createElement('div', {
-        style: {
-          marginTop: '16px',
-          padding: '12px',
-          background: 'linear-gradient(135deg, #28a745 0%, #20c997 100%)',
-          color: 'white',
-          borderRadius: '8px',
-          textAlign: 'center',
-          fontWeight: 'bold'
-        }
-      }, '✅ Daily Goal Completed!')
+      metrics.moduleStats.length === 0 
+        ? h('div', { className: 'empty-state' },
+            h('p', { className: 'text-muted' }, '📚 Complete training modules to see performance data'),
+            h('button', { 
+              className: 'btn btn-primary', 
+              onClick: () => onNavigate('intervals') 
+            }, 'Start Training')
+          )
+        : h('div', { className: 'module-performance-list' },
+            metrics.moduleStats.map(mod =>
+              h('div', { 
+                key: mod.module, 
+                className: 'module-performance-item',
+                onClick: () => onNavigate(mod.module.toLowerCase())
+              },
+                h('div', { className: 'module-info' },
+                  h('div', { className: 'module-name' },
+                    h('h4', null, mod.module),
+                    mod.mastered && h('span', { className: 'badge badge-success' }, '⭐ Mastered'),
+                    mod.needsWork && h('span', { className: 'badge badge-warning' }, '⚠️ Needs Work')
+                  ),
+                  h('div', { className: 'module-meta' },
+                    h('span', { className: 'text-muted' }, `${mod.total} attempts`),
+                    h('span', { className: 'difficulty-badge', className: `difficulty-${mod.difficulty}` },
+                      mod.difficulty
+                    )
+                  )
+                ),
+                h('div', { className: 'module-stats' },
+                  h('div', { 
+                    className: 'accuracy-badge',
+                    className: `grade-${mod.grade}` 
+                  }, `${mod.accuracy}%`),
+                  h('div', { className: 'progress-mini' },
+                    h('div', { className: 'progress-bar' },
+                      h('div', { 
+                        className: 'progress-fill',
+                        style: { width: `${mod.accuracy}%` }
+                      })
+                    )
+                  )
+                ),
+                h('div', { className: 'module-action' },
+                  h('span', { className: 'arrow' }, '→')
+                )
+              )
+            )
+          )
     ),
-    
-    // Recommendations Card
-    recommendations.length > 0 && React.createElement('div', { className: 'dashboard-card' },
-      React.createElement('h3', null, '💡 Recommended Practice'),
-      React.createElement('div', null,
-        recommendations.map(rec => 
-          React.createElement('div', {
-            key: rec.module,
-            style: {
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '12px',
-              marginBottom: '8px',
-              background: '#f8f9fa',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              transition: 'transform 0.2s ease'
-            },
-            onClick: () => handleModuleClick(rec.module),
-            onMouseEnter: (e) => e.currentTarget.style.transform = 'translateX(4px)',
-            onMouseLeave: (e) => e.currentTarget.style.transform = 'translateX(0)'
-          },
-            React.createElement('span', { style: { fontSize: '1.5rem' } }, rec.icon),
-            React.createElement('div', { style: { flex: 1 } },
-              React.createElement('div', { style: { fontWeight: 'bold' } }, rec.name),
-              React.createElement('div', { className: 'small', style: { color: '#6c757d' } }, rec.reason)
+
+    // Weekly Practice Activity
+    weeklyStats && h('div', { className: 'card' },
+      h('h3', null, '📅 Weekly Activity'),
+      h('div', { className: 'weekly-chart' },
+        weeklyStats.days.map((day, i) =>
+          h('div', { key: i, className: 'day-column' },
+            h('div', { 
+              className: 'day-bar',
+              style: { 
+                height: `${Math.min(100, (day.questions / weeklyStats.maxDaily) * 100)}%`,
+                background: day.questions > 0 ? 'var(--success)' : 'var(--border)'
+              },
+              title: `${day.questions} questions on ${day.name}`
+            }),
+            h('div', { className: 'day-label' }, day.name.slice(0, 1))
+          )
+        )
+      ),
+      h('div', { className: 'weekly-summary' },
+        h('span', null, `${weeklyStats.totalQuestions} questions this week`),
+        h('span', { className: 'text-muted' }, 
+          `Avg: ${Math.round(weeklyStats.avgDaily)}/day`
+        )
+      )
+    ),
+
+    // Recent Sessions
+    recentSessions.length > 0 && h('div', { className: 'card' },
+      h('h3', null, '🕐 Recent Sessions'),
+      h('div', { className: 'session-list' },
+        recentSessions.slice(0, 5).map((session, i) =>
+          h('div', { key: i, className: 'session-item' },
+            h('div', { className: 'session-icon' },
+              getModuleIcon(session.module)
             ),
-            React.createElement('span', null, '→')
+            h('div', { className: 'session-info' },
+              h('div', { className: 'session-module' }, session.module),
+              h('div', { className: 'session-meta' },
+                h('span', { className: 'text-muted' }, formatRelativeTime(session.timestamp)),
+                h('span', null, `${session.duration}min`)
+              )
+            ),
+            h('div', { className: 'session-stats' },
+              h('span', { 
+                className: 'session-accuracy',
+                style: { color: session.accuracy >= 80 ? 'var(--success)' : 'var(--warning)' }
+              }, `${session.accuracy}%`),
+              h('span', { className: 'text-muted' }, `+${session.xpGained} XP`)
+            )
           )
         )
       )
     ),
-    
-    // Quick Access Modules
-    React.createElement('div', { className: 'dashboard-card', style: { gridColumn: '1 / -1' } },
-      React.createElement('h3', null, '📚 Training Modules'),
-      React.createElement('div', { className: 'module-grid' },
-        moduleStats.map(module => 
-          React.createElement('div', {
-            key: module.id,
-            className: 'module-card',
-            onClick: () => handleModuleClick(module.id)
-          },
-            React.createElement('div', { style: { fontSize: '2rem', marginBottom: '8px' } }, module.icon),
-            React.createElement('div', { className: 'module-card-title' }, module.name),
-            React.createElement('div', { className: 'module-card-accuracy' },
-              module.total > 0 
-                ? `${module.accuracy}% accuracy (${module.total} attempts)`
-                : 'Not started'
-            ),
-            React.createElement('div', {
-              style: {
-                marginTop: '8px',
-                padding: '4px 8px',
-                background: module.status.color,
-                color: 'white',
-                borderRadius: '4px',
-                fontSize: '0.75rem',
-                textAlign: 'center'
-              }
-            }, module.status.label)
+
+    // Achievements Preview
+    h('div', { className: 'card' },
+      h('div', { className: 'card-header' },
+        h('h3', null, '🏆 Recent Achievements'),
+        h('button', { 
+          className: 'btn btn-sm btn-outline',
+          onClick: () => onNavigate('achievements')
+        }, 'View All')
+      ),
+      h('div', { className: 'achievements-preview' },
+        getRecentAchievements().map((achievement, i) =>
+          h('div', { key: i, className: 'achievement-badge' },
+            h('div', { className: 'achievement-icon' }, achievement.icon),
+            h('div', { className: 'achievement-name' }, achievement.name)
           )
         )
       )
     ),
-    
-    // Bottom Navigation
-    React.createElement('div', { 
-      style: { 
-        gridColumn: '1 / -1',
-        display: 'flex',
-        gap: '12px',
-        marginTop: '20px'
-      } 
-    },
-      React.createElement('button', {
-        className: 'btn-primary',
-        onClick: () => navigate('practicePlanner')
-      }, '📝 Practice Planner'),
-      
-      React.createElement('button', {
-        className: 'btn-secondary',
-        onClick: () => navigate('analytics')
-      }, '📈 View Analytics'),
-      
-      React.createElement('button', {
-        className: 'btn-secondary',
-        onClick: () => navigate('settings')
-      }, '⚙️ Settings'),
-      
-      React.createElement('button', {
-        className: 'btn-outline',
-        onClick: () => navigate('menu')
-      }, 'Main Menu')
+
+    // Quick Actions
+    h('div', { className: 'card' },
+      h('h3', null, '⚡ Quick Actions'),
+      h('div', { className: 'grid-2' },
+        h('button', { 
+          className: 'btn btn-primary btn-lg', 
+          onClick: () => onNavigate('intervals') 
+        }, 
+          h('span', null, '🎵'),
+          h('span', null, 'Practice Intervals')
+        ),
+        h('button', { 
+          className: 'btn btn-primary btn-lg', 
+          onClick: () => onNavigate('keys') 
+        }, 
+          h('span', null, '🎼'),
+          h('span', null, 'Study Keys')
+        ),
+        h('button', { 
+          className: 'btn btn-secondary btn-lg', 
+          onClick: () => onNavigate('rhythm') 
+        }, 
+          h('span', null, '🥁'),
+          h('span', null, 'Rhythm Drills')
+        ),
+        h('button', { 
+          className: 'btn btn-secondary btn-lg', 
+          onClick: () => onNavigate('flashcards') 
+        }, 
+          h('span', null, '🗂️'),
+          h('span', null, 'Flashcards (SM-2)')
+        )
+      )
+    ),
+
+    // Practice Planner Link
+    h('div', { className: 'card card-cta' },
+      h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+        h('div', null,
+          h('h3', null, '📋 Practice Planner'),
+          h('p', { className: 'text-muted' }, 'Create a structured practice routine based on your goals')
+        ),
+        h('button', { 
+          className: 'btn btn-primary',
+          onClick: () => onNavigate('planner')
+        }, 'Open Planner →')
+      )
     )
   );
+}
+
+// ======================================
+// HELPER FUNCTIONS
+// ======================================
+
+function getModuleIcon(moduleName) {
+  const icons = {
+    Intervals: '🎵',
+    KeySignatures: '🎼',
+    Rhythm: '🥁',
+    Bieler: '🎻',
+    Fingerboard: '🎸',
+    Scales: '🎹',
+    EarTraining: '👂',
+    Flashcards: '🗂️'
+  };
+  return icons[moduleName] || '📚';
+}
+
+function formatRelativeTime(timestamp) {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
+}
+
+function getRecentAchievements() {
+  const achievements = loadJSON(STORAGE_KEYS.ACHIEVEMENTS, { unlocked: [] });
+  return achievements.unlocked.slice(-3).reverse();
 }
