@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VMQ - Offline</title>
+  <style>
+    /* VMQ Design System - Offline Fallback */
+    :root {
+      --primary: #3a5ba0;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #475569;
+      --border: #e2e8f0;
+      --radius: 12px;
+      --shadow: 0 10px 15px rgba(0,0,0,0.1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg); 
+      color: var(--text);
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      min-height: 100vh; 
+      text-align: center; 
+      line-height: 1.6;
+      padding: 1rem;
+    }
+
+    .offline-card { 
+      background: var(--card); 
+      padding: clamp(2rem, 5vw, 3rem); 
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      max-width: min(90vw, 400px);
+      border: 1px solid var(--border);
+      animation: slideUp 0.5s ease-out;
+    }
+
+    .logo { 
+      font-size: clamp(2rem, 8vw, 3.5rem); 
+      background: linear-gradient(135deg, var(--primary), #5a7bc0);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 1rem;
+      font-weight: 700;
+    }
+
+    .icon { 
+      font-size: clamp(3rem, 12vw, 4rem); 
+      margin-bottom: 1rem; 
+    }
+
+    h1 { 
+      color: var(--primary); 
+      font-size: clamp(1.5rem, 6vw, 2rem);
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+
+    p { 
+      margin-bottom: 1.5rem; 
+      opacity: 0.9;
+      font-size: 1.1rem;
+    }
+
+    .btn-retry {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.875rem 2rem;
+      background: linear-gradient(135deg, var(--primary), #2f4b7e);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 1rem;
+      font-weight: 600;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(58, 91, 160, 0.3);
+    }
+
+    .btn-retry:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(58, 91, 160, 0.4);
+    }
+
+    .btn-retry:active {
+      transform: translateY(0);
+    }
+
+    .status {
+      margin-top: 1.5rem;
+      padding: 0.75rem 1rem;
+      background: rgba(58, 91, 160, 0.1);
+      border-radius: 6px;
+      font-size: 0.9rem;
+      opacity: 0.8;
+    }
+
+    /* Animations */
+    @keyframes slideUp {
+      from { 
+        opacity: 0; 
+        transform: translateY(20px); 
+      }
+      to { 
+        opacity: 1; 
+        transform: translateY(0); 
+      }
+    }
+
+    /* PWA Safe Area */
+    @supports (padding: max(0px)) {
+      body {
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-top: env(safe-area-inset-top);
+      }
+    }
+
+    /* Dark mode support */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --card: #1e293b;
+        --text: #e2e8f0;
+        --border: #334155;
+      }
+    }
+
+    /* Print fallback */
+    @media print {
+      body { background: white; color: black; }
+      .offline-card { box-shadow: none; border: 1px solid #ccc; }
+    }
+  </style>
+</head>
+<body>
+  <div class="offline-card">
+    <div class="logo">VMQ</div>
+    <div class="icon">🎻</div>
+    <h1>You're Offline</h1>
+    <p>VMQ is fully cached for offline practice. All 50+ modules work without internet.</p>
+    <p style="font-size: 0.95em; opacity: 0.8;">
+      <strong>Progress syncs automatically</strong> when you reconnect.
+    </p>
+    
+    <button class="btn-retry" onclick="retryConnection()">
+      🔄 Retry Connection
+    </button>
+    
+    <div class="status">
+      💾 <strong>Cached:</strong> 8 Engines + 50+ Modules + Audio
+    </div>
+  </div>
+
+  <script>
+    // 🎯 Smart retry logic
+    let retryCount = 0;
+    const MAX_RETRIES = 5;
+
+    async function retryConnection() {
+      retryCount++;
+      const btn = document.querySelector('.btn-retry');
+      btn.innerHTML = '⏳ Checking...';
+      btn.disabled = true;
+      
+      try {
+        // 1. Network check
+        await fetch('./manifest.json', { method: 'HEAD', cache: 'no-store' });
+        
+        // 2. Service Worker check
+        if (navigator.serviceWorker.controller) {
+          const channel = new MessageChannel();
+          const swResponse = new Promise(resolve => {
+            channel.port1.onmessage = (event) => {
+              if (event.data && event.data.type === 'CACHE_STATUS_REPLY') {
+                resolve(event.data);
+              }
+            };
+            setTimeout(() => resolve(null), 1000);
+          });
+          navigator.serviceWorker.controller.postMessage({ type: 'CACHE_STATUS' }, [channel.port2]);
+          await swResponse;
+        }
+
+        // Online + SW healthy → reload app
+        window.location.reload();
+      } catch (error) {
+        console.log('Retry failed:', error);
+        if (retryCount < MAX_RETRIES) {
+          btn.innerHTML = `🔄 Retry (${retryCount}/${MAX_RETRIES})`;
+          setTimeout(() => retryConnection(), 2000);
+        } else {
+          btn.innerHTML = '❌ Still Offline';
+          btn.onclick = () => window.location.reload();
+        }
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
