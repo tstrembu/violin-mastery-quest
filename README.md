@@ -1,6 +1,6 @@
 # 🎻 Violin Mastery Quest
 
-**Adaptive violin and music theory practice app with spaced repetition for violinists looking to level up their knowledge.**.**
+**Adaptive violin and music theory practice app with spaced repetition for violinists looking to level up their knowledge.**
 
 **[🚀 Try Live Demo](https://tstrembu.github.io/violin-mastery-quest/)** | [Report Bug](https://github.com/tstrembu/violin-mastery-quest/issues) | [Request Feature](https://github.com/tstrembu/violin-mastery-quest/issues) | [View Documentation](#overview)
 
