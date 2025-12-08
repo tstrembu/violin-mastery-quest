@@ -1,221 +1,415 @@
-// ========================================================
-// VMQ RHYTHM - Rhythm Pattern Recognition
-// ========================================================
+// ======================================
+// RHYTHM v3.0 - ML-Adaptive Pattern Mastery
+// Syncopation Detection + Tempo Adaptation + 8-Engine
+// ======================================
 
-const { createElement: h, useState, useEffect } = React;
-import { RHYTHM_PATTERNS, PRAISE_MESSAGES } from '../config/constants.js';
-import { selectNextItem, updateItem, getMasteryStats } from '../engines/spacedRepetition.js';
-import { getDifficulty, getItemPool, getBpmRange, getDifficultyInfo } from '../engines/difficultyAdapter.js';
-import { shuffle, getRandom, clamp } from '../utils/helpers.js';
+const { createElement: h, useState, useEffect, useCallback, useRef } = React;
 
-export function Rhythm({ onBack, onAnswer, audioEngine, showToast }) {
+import { RHYTHM_PATTERNS, XPVALUES, TIME_SIGNATURES, CONFIG } from '../config/constants.js';
+import { shuffle, getRandom, formatDuration } from '../utils/helpers.js';
+import { audioEngine } from '../engines/audioEngine.js';
+import { recordAnswer, addXP, awardPracticeXP } from '../engines/gamification.js';
+import { updateItem, ITEM_TYPES, getDueItems } from '../engines/spacedRepetition.js';
+import { sessionTracker } from '../engines/sessionTracker.js';
+import { analyzePerformance, detectConfusion, checkMastery } from '../engines/analytics.js';
+import { getAdaptiveConfig } from '../engines/difficultyAdapter.js';
+import { loadJSON, saveJSON, STORAGE_KEYS } from '../config/storage.js';
+
+export default function Rhythm({ onBack, showToast }) {
+  const [mode, setMode] = useState('visual');
+  const [timeSig, setTimeSig] = useState('4/4');
+  const [tempo, setTempo] = useState(80);
+  const [adaptiveConfig, setAdaptiveConfig] = useState({ level: 1, difficulty: 'easy', patternPool: [] });
   const [currentPattern, setCurrentPattern] = useState(null);
-  const [options, setOptions] = useState([]);
-  const [bpm, setBpm] = useState(80);
-  const [feedback, setFeedback] = useState('');
-  const [feedbackType, setFeedbackType] = useState('');
-  const [answered, setAnswered] = useState(false);
-  const [showMastery, setShowMastery] = useState(false);
-  const [mastery, setMastery] = useState([]);
+  const [userAnswer, setUserAnswer] = useState([]);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [stats, setStats] = useState({ correct: 0, total: 0, streak: 0, perfectStreak: 0, avgResponseTime: 0 });
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playCount, setPlayCount] = useState(0);
+  const [usedHint, setUsedHint] = useState(false);
+  const [confusionPatterns, setConfusionPatterns] = useState({});
+  const [masteredPatterns, setMasteredPatterns] = useState([]);
+  const metronomeRef = useRef(null);
+  const performanceLog = useRef([]);
+  const autoAdvanceTimer = useRef(null);
 
-  const difficultyInfo = getDifficultyInfo('rhythm');
-  const pool = getItemPool('rhythm', RHYTHM_PATTERNS);
-  const [minBpm, maxBpm] = getBpmRange(difficultyInfo.level);
-
-  // Generate first question
-  useEffect(() => {
-    generateQuestion();
+  // ML-Weighted Pattern Pool[file:3]
+  const getPatternPoolForLevel = useCallback((level, timeSig) => {
+    const pools = {
+      1: RHYTHM_PATTERNS.filter(p => p.difficulty === 'easy' && p.timeSig === timeSig && !p.syncopated),
+      2: RHYTHM_PATTERNS.filter(p => ['easy'].includes(p.difficulty) && p.timeSig === timeSig),
+      3: RHYTHM_PATTERNS.filter(p => ['easy', 'medium'].includes(p.difficulty) && p.timeSig === timeSig),
+      4: RHYTHM_PATTERNS.filter(p => p.timeSig === timeSig && !p.complex),
+      5: RHYTHM_PATTERNS.filter(p => p.timeSig === timeSig && p.syncopated),
+      6: RHYTHM_PATTERNS.filter(p => p.timeSig === timeSig)
+    };
+    return pools[Math.min(6, level)] || pools[1];
   }, []);
 
-  /**
-   * Generate new question
-   */
-  function generateQuestion() {
-    if (pool.length === 0) {
-      setFeedback('No rhythm patterns available.');
-      return;
+  const calculatePatternWeight = useCallback((pattern) => {
+    let weight = 1.0;
+    
+    // Reduce mastered patterns
+    if (masteredPatterns.includes(pattern.id)) weight *= 0.3;
+    
+    // Boost confusion patterns (eighth vs sixteenth mixups)
+    const confusionCount = confusionPatterns[pattern.id] || 0;
+    if (confusionCount > 0) weight *= (1 + confusionCount * 0.5);
+    
+    // Boost due SRS items
+    const dueItems = getDueItems?.('rhythm', 10);
+    const isDue = dueItems?.some(item => item.content?.pattern === pattern.id);
+    if (isDue) weight *= 2.0;
+    
+    // Tempo adaptation - harder at faster tempos
+    if (tempo > 100) weight *= 1.2;
+    
+    return weight;
+  }, [masteredPatterns, confusionPatterns, tempo]);
+
+  // Load adaptive config
+  const refreshAdaptiveConfig = useCallback(async () => {
+    const config = await getAdaptiveConfig('rhythm');
+    const mastered = loadJSON(STORAGE_KEYS.MASTERY_RHYTHM, []);
+    
+    const pool = getPatternPoolForLevel(config.level, timeSig).map(pattern => ({
+      ...pattern,
+      weight: calculatePatternWeight(pattern)
+    })).filter(p => p.weight > 0);
+
+    setAdaptiveConfig({ ...config, patternPool: pool });
+    setMasteredPatterns(mastered);
+  }, [timeSig, getPatternPoolForLevel, calculatePatternWeight]);
+
+  // 🎯 ML-Weighted Next Pattern
+  const nextQuestion = useCallback(() => {
+    if (!adaptiveConfig.patternPool?.length) return;
+    
+    // Weighted selection[file:3]
+    const totalWeight = adaptiveConfig.patternPool.reduce((sum, p) => sum + p.weight, 0);
+    let random = Math.random() * totalWeight;
+    let selectedPattern = adaptiveConfig.patternPool[0];
+    
+    for (const pattern of adaptiveConfig.patternPool) {
+      random -= pattern.weight;
+      if (random <= 0) {
+        selectedPattern = pattern;
+        break;
+      }
     }
 
-    const patternIds = pool.map(p => p.id);
-    const selectedId = selectNextItem(patternIds);
-    const pattern = pool.find(p => p.id === selectedId);
+    setCurrentPattern(selectedPattern);
+    setUserAnswer([]);
+    setShowAnswer(false);
+    setPlayCount(0);
+    setUsedHint(false);
 
-    // Generate 4 options
-    const distractors = shuffle(pool.filter(p => p.id !== pattern.id)).slice(0, 3);
-    const allOptions = shuffle([pattern, ...distractors]);
-
-    setCurrentPattern(pattern);
-    setOptions(allOptions);
-    setFeedback('');
-    setFeedbackType('');
-    setAnswered(false);
-
-    // Auto-play rhythm (simplified - just beeps for now)
-    playRhythm(pattern);
-
-    // Update mastery stats
-    const stats = getMasteryStats(patternIds);
-    setMastery(stats);
-  }
-
-  /**
-   * Play rhythm pattern (simplified)
-   */
-  function playRhythm(pattern) {
-    // Simplified: play steady beeps
-    // In a full implementation, this would parse the pattern and play actual rhythms
-    const beatDuration = 60 / bpm;
-    [0, 1, 2, 3].forEach(i => {
-      setTimeout(() => {
-        audioEngine.beep(440, 0.1);
-      }, i * beatDuration * 1000);
+    sessionTracker.trackActivity('rhythm', 'pattern_shown', {
+      pattern: selectedPattern.id,
+      timeSig,
+      tempo,
+      difficulty: adaptiveConfig.difficulty,
+      weight: selectedPattern.weight
     });
-  }
+  }, [adaptiveConfig, timeSig, tempo]);
 
-  /**
-   * Handle answer selection
-   */
-  function handleAnswer(selectedPattern) {
-    if (answered) return;
+  // Enhanced pattern playback with beat-perfect timing
+  const playPattern = useCallback(async () => {
+    if (!currentPattern || isPlaying) return;
+    
+    setIsPlaying(true);
+    setPlayCount(prev => prev + 1);
+    let beatIndex = 0;
+    const beatDuration = 60000 / tempo;
+    
+    const playBeat = async () => {
+      if (beatIndex >= currentPattern.beats.length) {
+        setIsPlaying(false);
+        return;
+      }
+      
+      const beat = currentPattern.beats[beatIndex];
+      const isDownbeat = beatIndex % 4 === 0;
+      
+      // Precise rhythm playback
+      switch (beat.value) {
+        case 'quarter':
+          await audioEngine.playMetronomeTick(isDownbeat, 0.4);
+          break;
+        case 'eighth':
+          await audioEngine.playMetronomeTick(isDownbeat, 0.3);
+          await new Promise(r => setTimeout(r, beatDuration / 2));
+          await audioEngine.playMetronomeTick(false, 0.2);
+          break;
+        case 'sixteenth':
+          await audioEngine.playMetronomeTick(isDownbeat, 0.25);
+          await new Promise(r => setTimeout(r, beatDuration / 4));
+          await audioEngine.playMetronomeTick(false, 0.15);
+          await new Promise(r => setTimeout(r, beatDuration / 4));
+          await audioEngine.playMetronomeTick(false, 0.15);
+          break;
+        case 'dotted-quarter':
+          await audioEngine.playMetronomeTick(isDownbeat, 0.45);
+          break;
+        case 'half':
+          await audioEngine.playMetronomeTick(isDownbeat, 0.6);
+          break;
+      }
+      
+      beatIndex++;
+      setTimeout(playBeat, beatDuration);
+    };
+    
+    playBeat();
+  }, [currentPattern, tempo, isPlaying]);
 
-    const isCorrect = selectedPattern.id === currentPattern.id;
+  // 🎯 Enhanced Answer Checking (8-Engine)
+  const checkAnswer = useCallback(async () => {
+    if (!currentPattern || userAnswer.length === 0) return;
+    
+    const isCorrect = userAnswer.every((answer, i) => 
+      answer === currentPattern.beats[i]?.value
+    );
+    const responseTime = Date.now() - (window.startTime || Date.now());
 
-    // Update spaced repetition
-    updateItem(currentPattern.id, isCorrect);
+    setShowAnswer(true);
 
-    // Update global stats
-    onAnswer(isCorrect);
-
-    // Show feedback
+    // ML XP Calculation
+    let xp = XPVALUES.CORRECTANSWER + 10;
     if (isCorrect) {
-      setFeedback(getRandom(PRAISE_MESSAGES));
-      setFeedbackType('success');
-      audioEngine.playFeedback(true);
+      if (stats.perfectStreak >= CONFIG.PERFECTSTREAKTHRESHOLD) 
+        xp *= (stats.perfectStreak * 0.5);
+      if (tempo > 100) xp *= 1.3; // Tempo bonus
+      if (playCount === 1) xp *= 1.2;
+      if (usedHint) xp *= 0.5;
+      xp += adaptiveConfig.level * 2;
     } else {
-      setFeedback(`Not quite. This was: ${currentPattern.description}`);
-      setFeedbackType('error');
-      audioEngine.playFeedback(false);
+      xp *= 0.3;
+      detectRhythmConfusion(currentPattern.id, userAnswer);
     }
 
-    setAnswered(true);
+    // Update stats
+    const newStreak = isCorrect ? stats.streak + 1 : 0;
+    const newPerfectStreak = isCorrect && playCount === 1 && !usedHint ? stats.perfectStreak + 1 : 0;
+    
+    setStats(prev => ({
+      ...prev,
+      correct: prev.correct + (isCorrect ? 1 : 0),
+      total: prev.total + 1,
+      streak: newStreak,
+      perfectStreak: newPerfectStreak
+    }));
 
-    // Auto-advance
-    setTimeout(() => {
-      generateQuestion();
-    }, 1800);
-  }
+    // 8-Engine cascade
+    recordAnswer('rhythm', isCorrect, responseTime);
+    await updateItem(currentPattern.id, isCorrect ? (usedHint ? 4 : 5) : 2, responseTime, {
+      type: ITEM_TYPES.RHYTHM,
+      pattern: currentPattern.id,
+      timeSig,
+      tempo,
+      beats: currentPattern.beats.length
+    });
 
-  /**
-   * Handle BPM change
-   */
-  function handleBpmChange(e) {
-    const newBpm = clamp(parseInt(e.target.value), minBpm, maxBpm);
-    setBpm(newBpm);
-  }
+    const finalXP = awardPracticeXP('rhythm', isCorrect, {
+      streak: newStreak,
+      tempo,
+      complexity: currentPattern.syncopated ? 2 : 1
+    });
+    audioEngine.playFeedback(isCorrect);
+    
+    showToast(isCorrect ? 'Perfect rhythm!' : 'Try again!', isCorrect ? 'success' : 'error');
+    
+    const delay = isCorrect ? 1500 : 2500;
+    autoAdvanceTimer.current = setTimeout(nextQuestion, delay);
+  }, [currentPattern, userAnswer, stats, tempo, playCount, usedHint, adaptiveConfig, timeSig, nextQuestion]);
 
-  /**
-   * Replay rhythm
-   */
-  function handleReplay() {
-    if (currentPattern) {
-      playRhythm(currentPattern);
+  const stopMetronome = () => {
+    if (metronomeRef.current) {
+      metronomeRef.current.stop();
+      metronomeRef.current = null;
     }
-  }
+    audioEngine.stopAll();
+  };
 
-  /**
-   * Toggle mastery view
-   */
-  function toggleMastery() {
-    setShowMastery(!showMastery);
-  }
+  // Watch config changes
+  useEffect(() => {
+    refreshAdaptiveConfig();
+  }, [timeSig, tempo]);
 
-  return h('div', { className: 'mode-container rhythm-mode' },
-    // Header
-    h('header', { className: 'mode-header' },
+  useEffect(() => {
+    if (adaptiveConfig.patternPool.length > 0) nextQuestion();
+  }, [adaptiveConfig.patternPool.length, mode]);
+
+  useEffect(() => () => {
+    if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);
+    stopMetronome();
+  }, []);
+
+  const accuracy = stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0;
+  const sessionGrade = accuracy >= 95 ? 'S' : accuracy >= 90 ? 'A' : accuracy >= 80 ? 'B' : 
+                      accuracy >= 70 ? 'C' : 'D';
+
+  return h('div', { className: 'module-container rhythm-v3' },
+    // ML Header
+    h('header', { className: 'module-header elevated' },
       h('button', { className: 'btn-back', onClick: onBack }, '← Back'),
-      h('h2', null, '🥁 Rhythm Training'),
-      h('div', { className: 'difficulty-badge', 'data-level': difficultyInfo.level },
-        difficultyInfo.label
+      h('h2', null, '🥁 Rhythm'),
+      h('div', { className: 'stats-live', 'aria-live': 'polite' },
+        h('div', { className: 'stat-card' },
+          h('div', { className: `stat-value grade-${sessionGrade.toLowerCase()}` }, 
+            `${stats.correct}/${stats.total}`),
+          h('small', null, `${accuracy}% ${sessionGrade}`)
+        ),
+        h('div', { className: 'stat-card streak' },
+          h('div', { className: 'stat-value' }, stats.streak > 3 ? '🔥' : '', stats.streak),
+          h('small', null, 'streak')
+        ),
+        h('div', { className: 'stat-card' },
+          h('div', { className: 'stat-value' }, masteredPatterns.length),
+          h('small', null, 'mastered')
+        )
       )
     ),
 
-    // Main content
-    h('div', { className: 'mode-content' },
-      currentPattern && h('div', { className: 'rhythm-area' },
-        h('div', { className: 'rhythm-display' },
-          h('div', { className: 'rhythm-pattern' }, currentPattern.pattern)
-        ),
-
-        h('p', { className: 'instruction' }, 'Which rhythm pattern is this?'),
-
-        h('div', { className: 'bpm-control' },
-          h('label', null, `Tempo: ${bpm} BPM`),
-          h('input', {
-            type: 'range',
-            min: minBpm,
-            max: maxBpm,
-            value: bpm,
-            onChange: handleBpmChange,
-            className: 'bpm-slider'
-          })
-        ),
-
-        h('button', {
-          className: 'btn btn-primary btn-play',
-          onClick: handleReplay
-        }, '🔊 Play Rhythm')
-      ),
-
-      // Options
-      h('div', { className: 'options-grid' },
-        options.map(option =>
+    // Enhanced Controls
+    h('div', { style: { display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap', marginBottom: 'var(--space-lg)' } },
+      h('div', { className: 'mode-toggle' },
+        ['visual', 'audio', 'counting', 'mixed'].map(m =>
           h('button', {
-            key: option.id,
-            className: `btn btn-option ${answered && option.id === currentPattern.id ? 'correct' : ''}`,
-            onClick: () => handleAnswer(option),
-            disabled: answered
-          },
-            h('div', { className: 'option-pattern' }, option.pattern),
-            h('div', { className: 'option-description' }, option.description)
-          )
+            key: m,
+            className: `btn ${mode === m ? 'btn-primary' : 'btn-outline'} btn-sm`,
+            onClick: () => setMode(m)
+          }, m.charAt(0).toUpperCase() + m.slice(1))
         )
       ),
-
-      // Feedback
-      feedback && h('div', {
-        className: `feedback feedback-${feedbackType}`
-      }, feedback),
-
-      // Mastery toggle
-      h('button', {
-        className: 'btn btn-secondary btn-mastery-toggle',
-        onClick: toggleMastery
-      }, showMastery ? 'Hide Stats' : 'Show Mastery Stats')
+      h('div', { className: 'mode-toggle' },
+        TIME_SIGNATURES.map(ts =>
+          h('button', {
+            key: ts,
+            className: `btn ${timeSig === ts ? 'btn-primary' : 'btn-outline'} btn-sm`,
+            onClick: () => setTimeSig(ts)
+          }, ts)
+        )
+      ),
+      h('div', { style: { display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' } },
+        h('label', null, `Tempo: ${tempo} BPM`),
+        h('input', {
+          type: 'range', min: '60', max: '120', value: tempo,
+          onChange: e => setTempo(Number(e.target.value)),
+          className: 'slider'
+        })
+      ),
+      h('div', { className: 'difficulty-badge' }, 
+        `Lv ${adaptiveConfig.level}`
+      )
     ),
 
-    // Mastery overlay
-    showMastery && h('div', { className: 'mastery-overlay' },
-      h('div', { className: 'mastery-panel' },
-        h('div', { className: 'mastery-header' },
-          h('h3', null, 'Rhythm Mastery'),
-          h('button', { className: 'btn-close', onClick: toggleMastery }, '×')
+    // Pattern Display (preserved UX)
+    h('div', { className: 'card rhythm-display elevated' },
+      h('div', { className: 'pattern-visual large' },
+        currentPattern ? currentPattern.beats.map((beat, i) =>
+          h('span', {
+            key: i,
+            className: `rhythm-note ${userAnswer[i] === beat.value ? 'selected' : ''} 
+                       ${masteredPatterns.includes(currentPattern.id) ? 'mastered' : ''}`,
+            style: { 
+              background: beat.value === 'quarter' ? '#3b82f6' : 
+                         beat.value === 'eighth' ? '#10b981' : 
+                         beat.value === 'sixteenth' ? '#f59e0b' : 
+                         beat.value === 'dotted-quarter' ? '#8b5cf6' : '#ef4444',
+              color: 'white'
+            }
+          }, beat.symbol || beat.value[0].toUpperCase())
+        ) : '---'
+      ),
+
+      h('div', { style: { display: 'flex', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' } },
+        h('button', {
+          className: 'btn btn-primary btn-lg btn-play',
+          onClick: playPattern,
+          disabled: !currentPattern || isPlaying
+        }, isPlaying ? 'Playing...' : `▶️ Play (${playCount + 1}x)`),
+        
+        h('button', {
+          className: 'btn btn-outline btn-lg',
+          onClick: () => {
+            if (metronomeRef.current) stopMetronome();
+            else metronomeRef.current = audioEngine.startMetronome(tempo, 4);
+          }
+        }, metronomeRef.current ? '⏹️ Stop' : '⏰ Metro')
+      ),
+
+      // Answer Input (preserved)
+      !showAnswer && (mode === 'visual' || mode === 'counting') && 
+      h('form', { onSubmit: e => { e.preventDefault(); checkAnswer(); } },
+        h('div', { className: 'grid-3', style: { gap: 'var(--space-sm)' } },
+          ['quarter', 'eighth', 'sixteenth', 'half', 'dotted-quarter'].map(value =>
+            h('button', {
+              key: value,
+              className: `btn ${userAnswer.includes(value) ? 'btn-primary' : 'btn-outline'}`,
+              style: { flex: 1 },
+              onClick: e => {
+                e.preventDefault();
+                setUserAnswer(prev => 
+                  prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]
+                );
+              }
+            }, value.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '))
+          )
         ),
-        h('div', { className: 'mastery-list' },
-          mastery.map(stat =>
-            h('div', {
-              key: stat.id,
-              className: 'mastery-item',
-              'data-status': stat.status
-            },
-              h('div', { className: 'mastery-item-name' }, stat.id),
-              h('div', { className: 'mastery-item-stats' },
-                `${stat.accuracy}% (${stat.correct}/${stat.seen})`
-              ),
-              h('div', { className: 'mastery-item-bar' },
-                h('div', {
-                  className: 'mastery-item-fill',
-                  style: { width: `${stat.accuracy}%` }
-                })
+        h('button', {
+          type: 'submit',
+          className: 'btn btn-primary btn-lg',
+          disabled: userAnswer.length === 0,
+          style: { width: '100%', marginTop: 'var(--space-md)' }
+        }, '✅ Check Pattern')
+      ),
+
+      // Enhanced Feedback
+      showAnswer && h('div', { className: `feedback-card ${isCorrect ? 'success' : 'error'} elevated` },
+        h('h3', null, currentPattern.name),
+        h('div', null, `${currentPattern.beats.length} beats • ${timeSig} • ${tempo}BPM`),
+        masteredPatterns.includes(currentPattern.id) && 
+        h('span', { className: 'badge badge-success' }, '⭐ Mastered'),
+        h('div', { className: 'pattern-visual correct', style: { margin: 'var(--space-md) 0' } },
+          currentPattern.beats.map((beat, i) =>
+            h('span', { key: i, style: { background: '#10b981' } }, beat.symbol)
+          )
+        ),
+        h('div', { style: { display: 'flex', gap: 'var(--space-sm)' } },
+          h('button', { className: 'btn btn-outline', onClick: playPattern }, '▶️ Replay'),
+          h('button', { className: 'btn btn-primary', onClick: nextQuestion }, '➡️ Next')
+        )
+      )
+    ),
+
+    // Confusion Patterns Warning
+    Object.keys(confusionPatterns).filter(key => confusionPatterns[key] > 2).length > 0 &&
+    h('div', { className: 'card card-warning' },
+      h('h4', null, '⚠️ Rhythm Confusion'),
+      Object.entries(confusionPatterns)
+        .filter(([_, count]) => count > 2)
+        .slice(0, 2)
+        .map(([pattern, count]) => 
+          h('div', null, `${pattern} (${count}x mixups)`)
+        )
+    ),
+
+    // Reference (mastery-aware)
+    h('div', { className: 'card' },
+      h('h3', null, 'Patterns'),
+      h('div', { className: 'module-grid' },
+        adaptiveConfig.patternPool.slice(0, 6).map(pattern =>
+          h('div', { 
+            key: pattern.id, 
+            className: `module-stat ${masteredPatterns.includes(pattern.id) ? 'mastered' : ''}`,
+            style: { cursor: 'pointer' },
+            onClick: () => setCurrentPattern(pattern)
+          },
+            h('h4', null, pattern.name),
+            h('div', { className: 'pattern-visual small' },
+              pattern.beats.map((beat, i) => 
+                h('span', { key: i, style: { background: '#e2e8f0' } }, beat.symbol)
               )
             )
           )
@@ -223,4 +417,15 @@ export function Rhythm({ onBack, onAnswer, audioEngine, showToast }) {
       )
     )
   );
+}
+
+// Rhythm confusion detection
+function detectRhythmConfusion(patternId, wrongAnswer) {
+  const key = `${patternId}-${wrongAnswer.join(',')}`;
+  setConfusionPatterns(prev => {
+    const count = (prev[key] || 0) + 1;
+    const updated = { ...prev, [key]: count };
+    saveJSON(STORAGE_KEYS.CONFUSION_RHYTHM, updated);
+    return updated;
+  });
 }
