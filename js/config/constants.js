@@ -1,5 +1,5 @@
 // ======================================
-// VMQ CONSTANTS - Complete Pedagogical Reference System - Violin Mastery Quest
+// VMQ CONSTANTS - Complete PedagogICAL Reference System - Violin Mastery Quest
 // ======================================
 
 import { VMQ_VERSION } from './version.js';
@@ -42,7 +42,8 @@ export const INTERVALS = [
     repertoire: [
       { piece: 'All repertoire', measure: 'Repeated notes', context: 'Fundamental' }
     ],
-    suzukiLevel: 'All'
+    suzukiLevel: 'All',
+    tag: 'foundation'
   },
   { 
     id: 'm2', 
@@ -56,7 +57,8 @@ export const INTERVALS = [
     ],
     etudes: ['Ševčík Op. 1 No. 14 (chromatic)'],
     suzukiLevel: 'Book 3-4',
-    bielerNote: 'Requires finger contraction/extension'
+    bielerNote: 'Requires finger contraction/extension',
+    tag: 'chromatic'
   },
   { 
     id: 'M2', 
@@ -71,7 +73,8 @@ export const INTERVALS = [
     ],
     etudes: ['Ševčík Op. 1 No. 1'],
     suzukiLevel: 'Book 1',
-    bielerNote: 'Foundation of hand frame - 1st to 2nd finger'
+    bielerNote: 'Foundation of hand frame - 1st to 2nd finger',
+    tag: 'scalar'
   },
   { 
     id: 'm3', 
@@ -85,7 +88,8 @@ export const INTERVALS = [
     ],
     etudes: ['Kreutzer No. 13 (minor scales)'],
     suzukiLevel: 'Book 4-5',
-    bielerNote: 'Low-2 finger position in minor keys'
+    bielerNote: 'Low-2 finger position in minor keys',
+    tag: 'minor'
   },
   { 
     id: 'M3', 
@@ -99,7 +103,8 @@ export const INTERVALS = [
     ],
     etudes: ['Kreutzer No. 2 (arpeggios)'],
     suzukiLevel: 'Book 2-3',
-    bielerNote: 'High-2 finger position in major keys'
+    bielerNote: 'High-2 finger position in major keys',
+    tag: 'major'
   },
   { 
     id: 'P4', 
@@ -113,7 +118,8 @@ export const INTERVALS = [
     ],
     etudes: ['Kreutzer No. 9 (4th finger placement)'],
     suzukiLevel: 'Book 3-4',
-    bielerNote: 'Hand frame foundation - 1st to 4th finger, defines position'
+    bielerNote: 'Hand frame foundation - 1st to 4th finger, defines position',
+    tag: 'frame'
   },
   { 
     id: 'tritone', 
@@ -125,7 +131,8 @@ export const INTERVALS = [
       { piece: 'Modern works', measure: 'various', context: 'Tension/dissonance' }
     ],
     suzukiLevel: 'Book 6+',
-    bielerNote: 'Chromatic awareness essential'
+    bielerNote: 'Chromatic awareness essential',
+    tag: 'advanced'
   },
   { 
     id: 'P5', 
@@ -139,7 +146,8 @@ export const INTERVALS = [
     ],
     etudes: ['Ševčík Op. 1 No. 8 (5ths)'],
     suzukiLevel: 'Book 4+',
-    bielerNote: 'String crossing preparation - anticipate both strings in double-stops'
+    bielerNote: 'String crossing preparation - anticipate both strings in double-stops',
+    tag: 'ringing'
   },
   { 
     id: 'm6', 
@@ -151,7 +159,8 @@ export const INTERVALS = [
       { piece: 'Romantic works', measure: 'various', context: 'Expressive leap' }
     ],
     suzukiLevel: 'Book 5+',
-    bielerNote: 'Requires position shift or extended hand frame'
+    bielerNote: 'Requires position shift or extended hand frame',
+    tag: 'leap'
   },
   { 
     id: 'M6', 
@@ -165,7 +174,8 @@ export const INTERVALS = [
     ],
     etudes: ['Ševčík Op. 1 No. 6'],
     suzukiLevel: 'Book 5-6',
-    bielerNote: 'Common in double-stop passages'
+    bielerNote: 'Common in double-stop passages',
+    tag: 'double-stop'
   },
   { 
     id: 'm7', 
@@ -177,7 +187,8 @@ export const INTERVALS = [
       { piece: 'Jazz transcriptions', measure: 'various', context: 'Dominant 7th chords' }
     ],
     suzukiLevel: 'Book 6+',
-    bielerNote: 'Position shift typically required'
+    bielerNote: 'Position shift typically required',
+    tag: 'jazz'
   },
   { 
     id: 'M7', 
@@ -189,7 +200,8 @@ export const INTERVALS = [
       { piece: 'Contemporary classical', measure: 'various', context: 'Modern harmony' }
     ],
     suzukiLevel: 'Book 6+',
-    bielerNote: 'Leading tone to tonic - strong resolution tendency'
+    bielerNote: 'Leading tone to tonic - strong resolution tendency',
+    tag: 'leading-tone'
   },
   { 
     id: 'P8', 
@@ -202,9 +214,16 @@ export const INTERVALS = [
     ],
     etudes: ['All Kreutzer études'],
     suzukiLevel: 'All levels',
-    bielerNote: 'Essential for position changes and harmonic framework'
+    bielerNote: 'Essential for position changes and harmonic framework',
+    tag: 'octave'
   }
 ];
+
+// Derived index: id → interval for fast lookup in engines/analytics.
+export const INTERVAL_INDEX = INTERVALS.reduce((map, interval) => {
+  map[interval.id] = interval;
+  return map;
+}, {});
 
 // ======================================
 // KEY SIGNATURES - Complete Circle of Fifths (24 Keys)
@@ -212,7 +231,7 @@ export const INTERVALS = [
 // ======================================
 
 export const KEY_SIGNATURES = [
-  // -------------------- MAJOR KEYS - SHARPS --------------------
+  // MAJOR KEYS - SHARPS
   {
     id: 'C', 
     name: 'C Major', 
@@ -234,6 +253,7 @@ export const KEY_SIGNATURES = [
     flats: 0,
     accidentals: ['F#'],
     bielerHandMap: 'G(high-2) D(high-2) A(low-2) E(low-2)',
+    openStrings: ['G', 'D', 'A', 'E'],
     commonRepertoire: ['Allegro (Suzuki 2)', 'Minuet 1', 'May Song'],
     difficulty: 1,
     practiceNotes: 'First sharp - F# on E string requires high-2 extension'
@@ -246,6 +266,7 @@ export const KEY_SIGNATURES = [
     flats: 0,
     accidentals: ['F#', 'C#'],
     bielerHandMap: 'G(high-2) D(high-2) A(high-2) E(low-2)',
+    openStrings: ['D', 'A'],
     commonRepertoire: ['Chorus from Judas Maccabaeus', 'Bourrée (Handel)'],
     difficulty: 1,
     practiceNotes: 'Two sharps - C# requires high-2 on A string'
@@ -258,6 +279,7 @@ export const KEY_SIGNATURES = [
     flats: 0,
     accidentals: ['F#', 'C#', 'G#'],
     bielerHandMap: 'G#(high-2) D(high-2) A(high-2) E(high-2)',
+    openStrings: ['A', 'E'],
     commonRepertoire: ['Kreutzer No. 2', 'Ševčík Op. 1 No. 8'],
     difficulty: 2,
     practiceNotes: 'Three sharps - G# requires high-2 on G string'
@@ -270,6 +292,7 @@ export const KEY_SIGNATURES = [
     flats: 0,
     accidentals: ['F#', 'C#', 'G#', 'D#'],
     bielerHandMap: 'G#(high-2) D#(high-2) A(high-2) E(high-2)',
+    openStrings: ['E', 'A'],
     commonRepertoire: ['Gavotte (Gossec)', 'Partita No. 3 Preludio (Bach)'],
     difficulty: 2,
     practiceNotes: 'Four sharps - D# on D string, challenging hand frame'
@@ -282,6 +305,7 @@ export const KEY_SIGNATURES = [
     flats: 0,
     accidentals: ['F#', 'C#', 'G#', 'D#', 'A#'],
     bielerHandMap: 'G#(high-2) D#(high-2) A#(high-2) E(high-2)',
+    openStrings: [],
     commonRepertoire: ['Orchestra excerpts', 'Advanced études'],
     difficulty: 3,
     practiceNotes: 'Five sharps - A# requires high-2 across all but E string'
@@ -294,6 +318,7 @@ export const KEY_SIGNATURES = [
     flats: 0,
     accidentals: ['F#', 'C#', 'G#', 'D#', 'A#', 'E#'],
     bielerHandMap: 'G#(high-2) D#(high-2) A#(high-2) E#(high-2)',
+    openStrings: [],
     commonRepertoire: ['Romantic repertoire', 'Tchaikovsky Concerto passages'],
     difficulty: 3,
     practiceNotes: 'Six sharps - E# = F natural, enharmonic thinking required'
@@ -306,12 +331,13 @@ export const KEY_SIGNATURES = [
     flats: 0,
     accidentals: ['F#', 'C#', 'G#', 'D#', 'A#', 'E#', 'B#'],
     bielerHandMap: 'Every note shifted high-2 except open strings',
+    openStrings: [],
     commonRepertoire: ['Rare - Beethoven String Quartet Op. 131'],
     difficulty: 4,
     practiceNotes: 'Seven sharps - theoretical key, enharmonic with Db Major'
   },
 
-  // -------------------- MAJOR KEYS - FLATS --------------------
+  // MAJOR KEYS - FLATS
   {
     id: 'F', 
     name: 'F Major', 
@@ -320,6 +346,7 @@ export const KEY_SIGNATURES = [
     flats: 1,
     accidentals: ['Bb'],
     bielerHandMap: 'G(low-2) D(low-2) A(low-1) E(low-1)',
+    openStrings: ['C', 'F'] /* conceptual */,
     commonRepertoire: ['Suzuki Book 3', 'Mozart Concerto No. 3'],
     difficulty: 1,
     practiceNotes: 'One flat - Bb requires low-2 contraction on G string'
@@ -332,6 +359,7 @@ export const KEY_SIGNATURES = [
     flats: 2,
     accidentals: ['Bb', 'Eb'],
     bielerHandMap: 'G(low-2) D(low-2) A(low-2) E(low-1)',
+    openStrings: [],
     commonRepertoire: ['Orchestra parts', 'Suzuki Book 4'],
     difficulty: 2,
     practiceNotes: 'Two flats - Eb on D string requires low-2'
@@ -344,6 +372,7 @@ export const KEY_SIGNATURES = [
     flats: 3,
     accidentals: ['Bb', 'Eb', 'Ab'],
     bielerHandMap: 'G(low-2) D(low-2) A(low-2) E(low-2)',
+    openStrings: [],
     commonRepertoire: ['Beethoven Romances', 'Symphony excerpts'],
     difficulty: 2,
     practiceNotes: 'Three flats - Ab on A string'
@@ -356,6 +385,7 @@ export const KEY_SIGNATURES = [
     flats: 4,
     accidentals: ['Bb', 'Eb', 'Ab', 'Db'],
     bielerHandMap: 'G(low-2) D(low-2) A(low-2) E(low-2) with Db',
+    openStrings: [],
     commonRepertoire: ['Romantic works', 'Brahms Concerto'],
     difficulty: 3,
     practiceNotes: 'Four flats - Db on D string'
@@ -368,6 +398,7 @@ export const KEY_SIGNATURES = [
     flats: 5,
     accidentals: ['Bb', 'Eb', 'Ab', 'Db', 'Gb'],
     bielerHandMap: 'Low-2 dominant on all strings except E',
+    openStrings: [],
     commonRepertoire: ['Chopin (transcriptions)', 'Late Romantic works'],
     difficulty: 3,
     practiceNotes: 'Five flats - Gb on G string'
@@ -380,6 +411,7 @@ export const KEY_SIGNATURES = [
     flats: 6,
     accidentals: ['Bb', 'Eb', 'Ab', 'Db', 'Gb', 'Cb'],
     bielerHandMap: 'Extensive low-2 contraction - Cb = B natural',
+    openStrings: [],
     commonRepertoire: ['Rare orchestral passages'],
     difficulty: 4,
     practiceNotes: 'Six flats - enharmonic thinking essential'
@@ -392,12 +424,13 @@ export const KEY_SIGNATURES = [
     flats: 7,
     accidentals: ['Bb', 'Eb', 'Ab', 'Db', 'Gb', 'Cb', 'Fb'],
     bielerHandMap: 'Theoretical key - all notes contracted',
+    openStrings: [],
     commonRepertoire: ['Theoretical only - use B Major instead'],
     difficulty: 4,
     practiceNotes: 'Seven flats - enharmonic with B Major'
   },
 
-  // -------------------- MINOR KEYS --------------------
+  // MINOR KEYS
   {
     id: 'Am', 
     name: 'A minor', 
@@ -535,13 +568,18 @@ export const KEY_SIGNATURES = [
   }
 ];
 
+// Fast lookup: id → key signature (for KeySignatures module & analytics)
+export const KEY_SIGNATURE_INDEX = KEY_SIGNATURES.reduce((map, keySig) => {
+  map[keySig.id] = keySig;
+  return map;
+}, {});
+
 // ======================================
 // RHYTHM PATTERNS - Complete Library (40+ Patterns)
-// Elementary → Advanced
 // ======================================
 
 export const RHYTHM_PATTERNS = [
-  // -------------------- ELEMENTARY (Suzuki 1-2) --------------------
+  // ELEMENTARY (Suzuki 1-2)
   { 
     id: 'whole', 
     pattern: '𝅝', 
@@ -615,7 +653,7 @@ export const RHYTHM_PATTERNS = [
     suzukiLevel: 'All'
   },
 
-  // -------------------- INTERMEDIATE (Suzuki 3-5) --------------------
+  // INTERMEDIATE (Suzuki 3-5)
   { 
     id: 'dotted_quarter', 
     pattern: '♩. ♪', 
@@ -689,7 +727,7 @@ export const RHYTHM_PATTERNS = [
     suzukiLevel: 'Book 4'
   },
 
-  // -------------------- ADVANCED (Suzuki 6+, Kreutzer) --------------------
+  // ADVANCED (Suzuki 6+, Kreutzer)
   { 
     id: 'sixteenths_full', 
     pattern: '♬♬♬♬', 
@@ -751,7 +789,7 @@ export const RHYTHM_PATTERNS = [
     suzukiLevel: 'Expert'
   },
 
-  // -------------------- SYNCOPATION --------------------
+  // SYNCOPATION
   { 
     id: 'syncopation_basic', 
     pattern: '♪ ♩ ♪', 
@@ -777,7 +815,7 @@ export const RHYTHM_PATTERNS = [
     suzukiLevel: 'Book 5+'
   },
 
-  // -------------------- COMPOUND METER (6/8, 9/8, 12/8) --------------------
+  // COMPOUND METER (6/8, 9/8, 12/8)
   { 
     id: 'six_eight_basic', 
     pattern: '♪♪♪ ♪♪♪', 
@@ -815,7 +853,7 @@ export const RHYTHM_PATTERNS = [
     suzukiLevel: 'Book 5+'
   },
 
-  // -------------------- POLYRHYTHMS & COMPLEX --------------------
+  // POLYRHYTHMS & COMPLEX
   { 
     id: 'three_against_two', 
     pattern: '3:2', 
@@ -853,7 +891,7 @@ export const RHYTHM_PATTERNS = [
     suzukiLevel: 'Expert'
   },
 
-  // -------------------- SPECIFIC REPERTOIRE PATTERNS --------------------
+  // SPECIFIC REPERTOIRE PATTERNS
   { 
     id: 'bach_double', 
     pattern: '♬♬♬♬ continuous', 
@@ -879,7 +917,7 @@ export const RHYTHM_PATTERNS = [
     suzukiLevel: 'Book 6+'
   },
 
-  // -------------------- ORNAMENTS --------------------
+  // ORNAMENTS
   { 
     id: 'single_grace', 
     pattern: '𝄁 ♩', 
@@ -917,7 +955,7 @@ export const RHYTHM_PATTERNS = [
     suzukiLevel: 'Book 5+'
   },
 
-  // -------------------- BOWING TECHNIQUES --------------------
+  // BOWING TECHNIQUES
   { 
     id: 'spiccato_eighths', 
     pattern: '♪ ♪ ♪ ♪ (off string)', 
@@ -956,27 +994,47 @@ export const RHYTHM_PATTERNS = [
   }
 ];
 
+// For analytics/ML: difficulty buckets for quick aggregation.
+export const DIFFICULTY_BANDS = {
+  intervals: {
+    easy: INTERVALS.filter(i => i.difficulty === 1).map(i => i.id),
+    medium: INTERVALS.filter(i => i.difficulty === 2).map(i => i.id),
+    hard: INTERVALS.filter(i => i.difficulty >= 3).map(i => i.id)
+  },
+  rhythm: {
+    easy: RHYTHM_PATTERNS.filter(r => r.difficulty === 1).map(r => r.id),
+    medium: RHYTHM_PATTERNS.filter(r => r.difficulty === 2).map(r => r.id),
+    hard: RHYTHM_PATTERNS.filter(r => r.difficulty >= 3).map(r => r.id)
+  }
+};
+
 // ======================================
 // TEMPO MARKINGS - Complete List with BPM Ranges
 // ======================================
 
 export const TEMPO_MARKINGS = [
   { term: 'Larghissimo', bpm: 20, bpmRange: [20, 25], meaning: 'Extremely slow, solemn', emoji: '🐌' },
-  { term: 'Grave', bpm: 40, bpmRange: [25, 45], meaning: 'Very slow, serious', emoji: '🕰️' },
-  { term: 'Largo', bpm: 50, bpmRange: [45, 60], meaning: 'Slow and large, broad', emoji: '🐢' },
-  { term: 'Lento', bpm: 53, bpmRange: [45, 60], meaning: 'Very Slow', emoji: '🚶‍♂️' },
-  { term: 'Larghetto', bpm: 63, bpmRange: [60, 66], meaning: 'Rather broadly', emoji: '🎭' },
-  { term: 'Adagio', bpm: 71, bpmRange: [66, 76], meaning: 'Slow, majestic, stately', emoji: '👑' },
-  { term: 'Adagietto', bpm: 74, bpmRange: [72, 76], meaning: 'Slightly faster than adagio', emoji: '🌙' },
-  { term: 'Andante', bpm: 92, bpmRange: [76, 108], meaning: 'Walking pace', emoji: '👣' },
-  { term: 'Andantino', bpm: 94, bpmRange: [80, 108], meaning: 'Slightly faster than andante', emoji: '🚶' },
-  { term: 'Moderato', bpm: 114, bpmRange: [108, 120], meaning: 'Moderate pace', emoji: '🚶‍♀️' },
-  { term: 'Allegretto', bpm: 116, bpmRange: [112, 120], meaning: 'Medium pace with motion', emoji: '🎵' },
-  { term: 'Allegro', bpm: 144, bpmRange: [120, 156], meaning: 'Fast and happy cheerful', emoji: '😊' },
-  { term: 'Vivace', bpm: 172, bpmRange: [156, 176], meaning: 'Lively, brisk', emoji: '⚡' },
-  { term: 'Presto', bpm: 184, bpmRange: [168, 200], meaning: 'Very fast', emoji: '🏃' },
-  { term: 'Prestissimo', bpm: 210, bpmRange: [200, 240], meaning: 'Extremely fast', emoji: '🚀' }
+  { term: 'Grave',       bpm: 40, bpmRange: [25, 45], meaning: 'Very slow, serious',      emoji: '🕰️' },
+  { term: 'Largo',       bpm: 50, bpmRange: [45, 60], meaning: 'Slow and large, broad',   emoji: '🐢' },
+  { term: 'Lento',       bpm: 53, bpmRange: [45, 60], meaning: 'Very Slow',               emoji: '🚶‍♂️' },
+  { term: 'Larghetto',   bpm: 63, bpmRange: [60, 66], meaning: 'Rather broadly',          emoji: '🎭' },
+  { term: 'Adagio',      bpm: 71, bpmRange: [66, 76], meaning: 'Slow, majestic, stately', emoji: '👑' },
+  { term: 'Adagietto',   bpm: 74, bpmRange: [72, 76], meaning: 'Slightly faster than adagio', emoji: '🌙' },
+  { term: 'Andante',     bpm: 92, bpmRange: [76, 108], meaning: 'Walking pace',           emoji: '👣' },
+  { term: 'Andantino',   bpm: 94, bpmRange: [80, 108], meaning: 'Slightly faster than andante', emoji: '🚶' },
+  { term: 'Moderato',    bpm: 114, bpmRange: [108, 120], meaning: 'Moderate pace',        emoji: '🚶‍♀️' },
+  { term: 'Allegretto',  bpm: 116, bpmRange: [112, 120], meaning: 'Medium pace with motion', emoji: '🎵' },
+  { term: 'Allegro',     bpm: 144, bpmRange: [120, 156], meaning: 'Fast and happy cheerful', emoji: '😊' },
+  { term: 'Vivace',      bpm: 172, bpmRange: [156, 176], meaning: 'Lively, brisk',        emoji: '⚡' },
+  { term: 'Presto',      bpm: 184, bpmRange: [168, 200], meaning: 'Very fast',            emoji: '🏃' },
+  { term: 'Prestissimo', bpm: 210, bpmRange: [200, 240], meaning: 'Extremely fast',       emoji: '🚀' }
 ];
+
+// Fast lookup for tempo terms → BPM range.
+export const TEMPO_INDEX = TEMPO_MARKINGS.reduce((map, t) => {
+  map[t.term.toLowerCase()] = t;
+  return map;
+}, {});
 
 // ======================================
 // BIELER TAXONOMY - Complete Left & Right Hand Systems
@@ -1150,37 +1208,44 @@ export const BIELER_TAXONOMY = {
 
 export const BIELER_VOCAB = [
   // Left Hand
-  { term: 'Hand Frame', definition: 'Perfect 4th between 1st and 4th finger', category: 'left_hand', appearsIn: 'First Trained Function' },
-  { term: 'Extension', definition: 'Stretching hand frame for high-2', category: 'left_hand', appearsIn: 'Sharp keys' },
-  { term: 'Contraction', definition: 'Compressing hand frame for low-2', category: 'left_hand', appearsIn: 'Flat keys' },
-  { term: 'High-2', definition: '2nd finger close to 3rd (sharp keys)', category: 'left_hand', appearsIn: 'G, D, A Major' },
-  { term: 'Low-2', definition: '2nd finger close to 1st (flat keys)', category: 'left_hand', appearsIn: 'F, Bb Major' },
-  { term: 'Low-1', definition: '1st finger backward extension', category: 'left_hand', appearsIn: 'F Major on E string' },
-  { term: 'Fingers Down', definition: 'Keeping fingers on string when not playing', category: 'left_hand', appearsIn: 'First Trained Function' },
+  { term: 'Hand Frame',  definition: 'Perfect 4th between 1st and 4th finger', category: 'left_hand',  appearsIn: 'First Trained Function' },
+  { term: 'Extension',   definition: 'Stretching hand frame for high-2',      category: 'left_hand',  appearsIn: 'Sharp keys' },
+  { term: 'Contraction', definition: 'Compressing hand frame for low-2',      category: 'left_hand',  appearsIn: 'Flat keys' },
+  { term: 'High-2',      definition: '2nd finger close to 3rd (sharp keys)',  category: 'left_hand',  appearsIn: 'G, D, A Major' },
+  { term: 'Low-2',       definition: '2nd finger close to 1st (flat keys)',   category: 'left_hand',  appearsIn: 'F, Bb Major' },
+  { term: 'Low-1',       definition: '1st finger backward extension',         category: 'left_hand',  appearsIn: 'F Major on E string' },
+  { term: 'Fingers Down',definition: 'Keeping fingers on string when not playing', category: 'left_hand', appearsIn: 'First Trained Function' },
   { term: 'Left-Side Contact', definition: 'Placing fingers on left side of fingertip', category: 'left_hand', appearsIn: 'All technique' },
   { term: 'Guide Finger', definition: 'Finger that slides during position shifts', category: 'left_hand', appearsIn: 'Shifting technique' },
   { term: 'Ringing Tone', definition: 'In-tune note that resonates with open string', category: 'left_hand', appearsIn: 'Intonation practice' },
   
   // Right Hand
   { term: 'Contact Point', definition: 'Where bow meets string (sound point)', category: 'right_hand', appearsIn: 'Tone production' },
-  { term: 'Bow Division', definition: 'Distributing bow length for musical phrases', category: 'right_hand', appearsIn: 'All repertoire' },
-  { term: 'Détaché', definition: 'Separate bow strokes', category: 'right_hand', appearsIn: 'Basic technique' },
-  { term: 'Legato', definition: 'Smooth, connected bow strokes', category: 'right_hand', appearsIn: 'Lyrical passages' },
-  { term: 'Spiccato', definition: 'Controlled bouncing bow', category: 'right_hand', appearsIn: 'Fast passages' },
-  { term: 'Sautillé', definition: 'Fast, on-the-string bouncing', category: 'right_hand', appearsIn: 'Virtuoso works' },
-  { term: 'Martelé', definition: 'Hammered bow stroke', category: 'right_hand', appearsIn: 'Accented passages' },
-  { term: 'Staccato', definition: 'Multiple notes in one bow direction, separated', category: 'right_hand', appearsIn: 'Advanced technique' },
-  { term: 'Collé', definition: 'Pinched stroke at string', category: 'right_hand', appearsIn: 'Advanced bow technique' },
-  { term: 'Ricochet', definition: 'Thrown, bouncing bow stroke', category: 'right_hand', appearsIn: 'Paganini, virtuoso works' },
+  { term: 'Bow Division',  definition: 'Distributing bow length for musical phrases', category: 'right_hand', appearsIn: 'All repertoire' },
+  { term: 'Détaché',       definition: 'Separate bow strokes', category: 'right_hand', appearsIn: 'Basic technique' },
+  { term: 'Legato',        definition: 'Smooth, connected bow strokes', category: 'right_hand', appearsIn: 'Lyrical passages' },
+  { term: 'Spiccato',      definition: 'Controlled bouncing bow', category: 'right_hand', appearsIn: 'Fast passages' },
+  { term: 'Sautillé',      definition: 'Fast, on-the-string bouncing', category: 'right_hand', appearsIn: 'Virtuoso works' },
+  { term: 'Martelé',       definition: 'Hammered bow stroke', category: 'right_hand', appearsIn: 'Accented passages' },
+  { term: 'Staccato',      definition: 'Multiple notes in one bow direction, separated', category: 'right_hand', appearsIn: 'Advanced technique' },
+  { term: 'Collé',         definition: 'Pinched stroke at string', category: 'right_hand', appearsIn: 'Advanced bow technique' },
+  { term: 'Ricochet',      definition: 'Thrown, bouncing bow stroke', category: 'right_hand', appearsIn: 'Paganini, virtuoso works' },
   
   // Musical Terms
-  { term: 'Ringing Tone', definition: 'Perfect intonation creating sympathetic resonance', category: 'intonation', appearsIn: 'All practice' },
-  { term: 'Harmonic', definition: 'Lightly touched overtone', category: 'technique', appearsIn: 'Advanced repertoire' },
-  { term: 'Sul ponticello', definition: 'Bowing near the bridge', category: 'right_hand', appearsIn: 'Special effects' },
-  { term: 'Sul tasto', definition: 'Bowing over the fingerboard', category: 'right_hand', appearsIn: 'Soft, ethereal tone' },
-  { term: 'Portamento', definition: 'Audible slide between notes', category: 'left_hand', appearsIn: 'Expressive playing' },
-  { term: 'Glissando', definition: 'Continuous pitch slide', category: 'left_hand', appearsIn: 'Contemporary works' }
+  { term: 'Ringing Tone',  definition: 'Perfect intonation creating sympathetic resonance', category: 'intonation', appearsIn: 'All practice' },
+  { term: 'Harmonic',      definition: 'Lightly touched overtone', category: 'technique', appearsIn: 'Advanced repertoire' },
+  { term: 'Sul ponticello',definition: 'Bowing near the bridge', category: 'right_hand', appearsIn: 'Special effects' },
+  { term: 'Sul tasto',     definition: 'Bowing over the fingerboard', category: 'right_hand', appearsIn: 'Soft, ethereal tone' },
+  { term: 'Portamento',    definition: 'Audible slide between notes', category: 'left_hand', appearsIn: 'Expressive playing' },
+  { term: 'Glissando',     definition: 'Continuous pitch slide', category: 'left_hand', appearsIn: 'Contemporary works' }
 ];
+
+// For semantic search / ML coach: quick grouping by category.
+export const BIELER_VOCAB_BY_CATEGORY = BIELER_VOCAB.reduce((acc, term) => {
+  if (!acc[term.category]) acc[term.category] = [];
+  acc[term.category].push(term);
+  return acc;
+}, {});
 
 // ======================================
 // PROGRESSION LADDERS - Suzuki + Conservatory System
@@ -1246,6 +1311,12 @@ export const PROGRESSION_LADDERS = {
   ]
 };
 
+// Quick lookup: ladder level → requirements (for analytics dashboards).
+export const PROGRESSION_INDEX = PROGRESSION_LADDERS.intervals.reduce((m, step) => {
+  m[step.level] = step.requirements;
+  return m;
+}, {});
+
 // ======================================
 // REFLECTION PROMPTS - Metacognitive Development
 // ======================================
@@ -1274,279 +1345,13 @@ export const REFLECTION_PROMPTS = {
     ]
   },
   longSession: {
-    trigger: (duration) => duration > 20,
+    trigger: (durationMinutes) => durationMinutes > 20,
     question: 'How was your focus throughout the session?',
     options: [
       'Sharp throughout',
       'Started strong, faded later',
       'Took multiple breaks',
-      'Struggled early, found rhythm later'
-    ]
-  },
-  fastWrong: {
-    trigger: (stats) => stats.avgResponseTime < 1500 && stats.accuracy < 60,
-    question: 'You\'re making quick guesses. What\'s happening?',
-    options: [
-      'Feeling rushed/anxious',
-      'Pattern recognition (educated guess)',
-      'Not fully processing the question',
-      'Trying to finish quickly'
-    ]
-  },
-  plateau: {
-    trigger: (stats) => stats.recentSessions >= 5 && stats.improvement < 2,
-    question: 'Your progress has plateaued. What might help?',
-    options: [
-      'Change practice routine',
-      'Focus on weak spots specifically',
-      'Take a short break',
-      'Try different module',
-      'Review fundamentals'
+      'Hard to focus today'
     ]
   }
 };
-
-// ======================================
-// XP VALUES - Gamification System
-// ======================================
-
-export const XP_VALUES = {
-  correctAnswer: 10,
-  streakBonus: 5,
-  perfectRound: 50,
-  moduleComplete: 100,
-  achievementUnlock: 200,
-  dailyGoal: 30,
-  firstPractice: 25,
-  levelUpBonus: 100,
-  weekStreak: 75,
-  monthStreak: 250
-};
-
-// ======================================
-// LEVEL DEFINITIONS - Student Progression
-// ======================================
-
-export const LEVELS = [
-  { level: 1, title: 'Beginner', badge: '🎵', minXP: 0 },
-  { level: 2, title: 'Novice', badge: '🎶', minXP: 100 },
-  { level: 3, title: 'Apprentice', badge: '🎼', minXP: 300 },
-  { level: 4, title: 'Intermediate', badge: '🎹', minXP: 600 },
-  { level: 5, title: 'Advanced', badge: '🎸', minXP: 1000 },
-  { level: 6, title: 'Expert', badge: '🎻', minXP: 1500 },
-  { level: 7, title: 'Virtuoso', badge: '🏆', minXP: 2200 },
-  { level: 8, title: 'Master', badge: '👑', minXP: 3000 },
-  { level: 9, title: 'Legend', badge: '⭐', minXP: 4000 },
-  { level: 10, title: 'Maestro', badge: '🌟', minXP: 5000 }
-];
-
-// ======================================
-// BASIC NOTE DATA
-// ======================================
-
-export const NATURAL_NOTES = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
-
-export const NOTES = [
-  'C', 'C#', 'Db', 'D', 'D#', 'Eb', 'E', 'F', 
-  'F#', 'Gb', 'G', 'G#', 'Ab', 'A', 'A#', 'Bb', 'B'
-];
-
-// ======================================
-// FINGERBOARD DATA - Violin Standard Tuning
-// ======================================
-
-export const FINGERBOARD_DATA = [
-  // G string (lowest)
-  { string: 'G', pos: 0, note: 'G', octave: 3, finger: 0 },
-  { string: 'G', pos: 1, note: 'A', octave: 3, finger: 1 },
-  { string: 'G', pos: 2, note: 'B', octave: 3, finger: 2 },
-  { string: 'G', pos: 3, note: 'C', octave: 4, finger: 3 },
-  { string: 'G', pos: 4, note: 'D', octave: 4, finger: 4 },
-  
-  // D string
-  { string: 'D', pos: 0, note: 'D', octave: 4, finger: 0 },
-  { string: 'D', pos: 1, note: 'E', octave: 4, finger: 1 },
-  { string: 'D', pos: 2, note: 'F#', octave: 4, finger: 2 },
-  { string: 'D', pos: 3, note: 'G', octave: 4, finger: 3 },
-  { string: 'D', pos: 4, note: 'A', octave: 4, finger: 4 },
-  
-  // A string
-  { string: 'A', pos: 0, note: 'A', octave: 4, finger: 0 },
-  { string: 'A', pos: 1, note: 'B', octave: 4, finger: 1 },
-  { string: 'A', pos: 2, note: 'C#', octave: 5, finger: 2 },
-  { string: 'A', pos: 3, note: 'D', octave: 5, finger: 3 },
-  { string: 'A', pos: 4, note: 'E', octave: 5, finger: 4 },
-  
-  // E string (highest)
-  { string: 'E', pos: 0, note: 'E', octave: 5, finger: 0 },
-  { string: 'E', pos: 1, note: 'F#', octave: 5, finger: 1 },
-  { string: 'E', pos: 2, note: 'G#', octave: 5, finger: 2 },
-  { string: 'E', pos: 3, note: 'A', octave: 5, finger: 3 },
-  { string: 'E', pos: 4, note: 'B', octave: 5, finger: 4 }
-];
-
-// ======================================
-// ARPEGGIO PATTERNS - Chord Theory
-// ======================================
-
-export const ARPEGGIO_PATTERNS = [
-  { 
-    id: 'major-triad', 
-    name: 'Major Triad', 
-    notes: ['root', 'major3', 'perfect5'], 
-    difficulty: 1, 
-    description: 'Happy, bright sound',
-    example: 'C-E-G'
-  },
-  { 
-    id: 'minor-triad', 
-    name: 'Minor Triad', 
-    notes: ['root', 'minor3', 'perfect5'], 
-    difficulty: 1, 
-    description: 'Sad, dark sound',
-    example: 'A-C-E'
-  },
-  { 
-    id: 'diminished', 
-    name: 'Diminished Triad', 
-    notes: ['root', 'minor3', 'diminished5'], 
-    difficulty: 3, 
-    description: 'Tense, unstable',
-    example: 'B-D-F'
-  },
-  { 
-    id: 'augmented', 
-    name: 'Augmented Triad', 
-    notes: ['root', 'major3', 'augmented5'], 
-    difficulty: 3, 
-    description: 'Mysterious, bright',
-    example: 'C-E-G#'
-  },
-  { 
-    id: 'major7', 
-    name: 'Major 7th', 
-    notes: ['root', 'major3', 'perfect5', 'major7'], 
-    difficulty: 2, 
-    description: 'Jazzy, sophisticated',
-    example: 'C-E-G-B'
-  },
-  { 
-    id: 'minor7', 
-    name: 'Minor 7th', 
-    notes: ['root', 'minor3', 'perfect5', 'minor7'], 
-    difficulty: 2, 
-    description: 'Cool, relaxed',
-    example: 'A-C-E-G'
-  },
-  { 
-    id: 'dominant7', 
-    name: 'Dominant 7th', 
-    notes: ['root', 'major3', 'perfect5', 'minor7'], 
-    difficulty: 2, 
-    description: 'Bluesy, resolves strongly',
-    example: 'G-B-D-F'
-  }
-];
-
-// ======================================
-// UTILITY FUNCTIONS
-// ======================================
-
-/**
- * Convert MIDI note number to frequency (Hz)
- * @param {number} midi - MIDI note number (0-127)
- * @returns {number} Frequency in Hz
- */
-export function midiToFreq(midi) {
-  return 440 * Math.pow(2, (midi - 69) / 12);
-}
-
-/**
- * Normalize text for comparison
- * @param {string} text - Text to normalize
- * @returns {string} Normalized text
- */
-export function normalizeText(text) {
-  return text.toLowerCase().trim().replace(/\s+/g, ' ');
-}
-
-/**
- * Shuffle array (Fisher-Yates algorithm)
- * @param {Array} array - Array to shuffle
- * @returns {Array} Shuffled copy of array
- */
-export function shuffle(array) {
-  const newArray = [...array];
-  for (let i = newArray.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
-  }
-  return newArray;
-}
-
-/**
- * Get random item from array
- * @param {Array} array - Source array
- * @returns {*} Random item
- */
-export function getRandom(array) {
-  return array[Math.floor(Math.random() * array.length)];
-}
-
-/**
- * Get random integer in range (inclusive)
- * @param {number} min - Minimum value
- * @param {number} max - Maximum value
- * @returns {number} Random integer
- */
-export function getRandomInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-/**
- * Format duration in ms to readable string
- * @param {number} ms - Duration in milliseconds
- * @returns {string} Formatted duration
- */
-export function formatDuration(ms) {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  
-  if (hours > 0) {
-    return `${hours}h ${minutes % 60}m`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${seconds % 60}s`;
-  } else {
-    return `${seconds}s`;
-  }
-}
-
-/**
- * Clamp value between min and max
- * @param {number} value - Value to clamp
- * @param {number} min - Minimum
- * @param {number} max - Maximum
- * @returns {number} Clamped value
- */
-export function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
-
-/**
- * Migration function
- */
-export function migrateData() {
-  const currentVersion = loadJSON(STORAGE_KEYS.VERSION);
-  
-  if (currentVersion === VMQ_VERSION) {
-    return;
-  }
-  
-  console.log(`[Migration] ${currentVersion || 'legacy'} → ${VMQ_VERSION}`);
-  
-  // Future: Add version-specific migration logic here
-  
-  saveJSON(STORAGE_KEYS.VERSION, VMQ_VERSION);
-  console.log('[Migration] Complete');
-}
