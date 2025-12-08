@@ -1,153 +1,236 @@
-// VMQ SERVICE WORKER v2.1.1 - GitHub Pages Optimized
-const VMQ_VERSION = '2.1.1';
-const BUILD_DATE = '2024-12-06';
-const CACHE_NAME = `vmq-v${VMQ_VERSION}-${BUILD_DATE}`;
+// ======================================
+// VMQ SERVICE WORKER v3.0.0 - PRODUCTION
+// ======================================
 
-// Dynamic base path detection
-const getBasePath = () => self.location.pathname.replace('/sw.js', '');
-const BASE = getBasePath();
+const VMQ_VERSION = '3.0.0';
+const CACHE_CORE = `vmq-core-v${VMQ_VERSION}`;
+const CACHE_MODULES = `vmq-modules-v${VMQ_VERSION}`;
+const CACHE_RUNTIME = `vmq-runtime-v${VMQ_VERSION}`;
+const OFFLINE_URL = './offline.html';
 
-// Helper for full paths
-const p = (path) => {
-  if (path.startsWith('http')) return path;
-  return `${BASE}/${path.replace(/^\.?\//, '')}`.replace(/\/+/g, '/');
-};
-
-// Core files (always needed)
+// 🎯 VMQ CORE FILES
 const CORE_FILES = [
-  '', 'index.html', 'manifest.json', 'offline.html',
-  'css/base.css', 'css/components.css', 'css/themes.css', 'css/animations.css',
-  'js/App.js', 'js/config/constants.js', 'js/config/storage.js', 'js/config/version.js',
-  'js/utils/helpers.js', 'js/utils/keyboard.js', 'js/utils/router.js',
-  'icons/icon-192.png', 'icons/icon-512.png',
+  './',
+  './index.html',
+  './manifest.json',
+  './css/base.css',
+  './css/components.css',
+  './css/themes.css',
+  './css/animations.css',
+  './js/App.js',
+  './js/bootstrap.js',
+  './js/config/constants.js',
+  './js/config/storage.js',
+  './js/config/repertoirePlans.js',
+  './js/utils/helpers.js',
+  './js/utils/keyboard.js',
+  './js/utils/router.js',
+  './js/contexts/AppContext.js',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  // React CDN fallback (if you keep using CDN)
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js'
-].map(p);
+];
 
-// All 50+ module files (learning components)
+// 🎯 COMPLETE MODULE LIST
 const MODULE_FILES = [
   // Engines
-  'js/engines/audioEngine.js', 'js/engines/spacedRepetition.js',
-  'js/engines/gamification.js', 'js/engines/sessionTracker.js',
-  'js/engines/difficultyAdapter.js',
-  
-  // Core UI
-  'js/components/Toast.js', 'js/components/MainMenu.js',
-  'js/components/Dashboard.js', 'js/components/Settings.js',
-  'js/components/Welcome.js', 'js/components/Analytics.js',
-  
-  // Music Theory
-  'js/components/Intervals.js', 'js/components/KeySignatures.js',
-  'js/components/Rhythm.js', 'js/components/Bieler.js',
-  'js/components/Fingerboard.js', 'js/components/ScalesLab.js',
-  'js/components/PositionCharts.js',
-  
-  // Ear Training
-  'js/components/IntervalEarTester.js', 'js/components/IntervalSprint.js',
-  'js/components/KeyTester.js',
-  
-  // Drills
-  'js/components/RhythmDrills.js', 'js/components/SpeedDrill.js',
-  'js/components/TempoTrainer.js', 'js/components/CustomDrill.js',
-  'js/components/Snapshot.js', 'js/components/NoteLocator.js',
-  
-  // Gamification
-  'js/components/CoachPanel.js', 'js/components/DailyGoals.js',
-  'js/components/Achievements.js', 'js/components/PracticeJournal.js',
-  'js/components/PracticePlanner.js', 'js/components/StatsVisualizer.js',
-  
-  // Advanced
-  'js/components/Flashcards.js', 'js/components/DataManager.js',
-  'js/components/ReferenceLibrary.js'
-].map(p);
+  './js/engines/audioEngine.js',
+  './js/engines/spacedRepetition.js',
+  './js/engines/gamification.js',
+  './js/engines/analytics.js',
+  './js/engines/coachEngine.js',
+  './js/engines/pedagogyEngine.js',
+  './js/engines/sessionTracker.js',
+  './js/engines/difficultyAdapter.js',
 
-const ALL_FILES = [...CORE_FILES, ...MODULE_FILES];
+  // Components - Core
+  './js/components/Toast.js',
+  './js/components/MainMenu.js',
+  './js/components/Dashboard.js',
+  './js/components/Analytics.js',
+  './js/components/Settings.js',
+  './js/components/Welcome.js',
 
-// Install - cache everything
+  // Components - Learning
+  './js/components/Intervals.js',
+  './js/components/KeySignatures.js',
+  './js/components/Rhythm.js',
+  './js/components/Bieler.js',
+  './js/components/Fingerboard.js',
+  './js/components/ScalesLab.js',
+  './js/components/PositionCharts.js',
+
+  // Components - Ear Training & Drills
+  './js/components/IntervalEarTester.js',
+  './js/components/IntervalSprint.js',
+  './js/components/KeyTester.js',
+  './js/components/RhythmDrills.js',
+  './js/components/BielerLab.js',
+  './js/components/TempoTrainer.js',
+
+  // Components - Advanced
+  './js/components/CoachPanel.js',
+  './js/components/DailyGoals.js',
+  './js/components/Achievements.js',
+  './js/components/PracticePlanner.js',
+  './js/components/PracticeJournal.js',
+  './js/components/StatsVisualizer.js',
+  './js/components/SpeedDrill.js',
+  './js/components/Snapshot.js',
+  './js/components/NoteLocator.js',
+  './js/components/CustomDrill.js',
+  './js/components/Flashcards.js',
+  './js/components/DataManager.js',
+  './js/components/ReferenceLibrary.js',
+  './js/components/Testers.js'
+];
+
+// Utility: only cache safe same‑origin GETs
+function shouldCacheRuntime(request, response) {
+  if (request.method !== 'GET') return false;
+  if (!response || response.status !== 200) return false;
+  // Do not cache cross‑origin except React CDNs already in CORE
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return false;
+  if (response.type !== 'basic' && response.type !== 'default') return false;
+  return true;
+}
+
+// 🎯 INSTALL
 self.addEventListener('install', event => {
-  console.log(`[VMQ SW] Installing v${VMQ_VERSION}...`);
   self.skipWaiting();
-  
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(ALL_FILES))
-      .then(() => console.log(`[VMQ SW] ✅ Cached ${ALL_FILES.length} files`))
+    Promise.all([
+      caches.open(CACHE_CORE).then(cache => cache.addAll(CORE_FILES)),
+      caches.open(CACHE_MODULES).then(cache => cache.addAll(MODULE_FILES))
+    ])
+      .then(() => {
+        console.log('[SW] VMQ core+modules cached v' + VMQ_VERSION);
+      })
       .catch(err => {
-        console.warn('[VMQ SW] ⚠️ Cache failed (partial):', err);
-        // Continue anyway - some files may still work
+        console.error('[SW] Caching during install failed:', err);
       })
   );
 });
 
-// Activate - cleanup old caches
+// 🎯 ACTIVATE (Cleanup)
 self.addEventListener('activate', event => {
-  console.log(`[VMQ SW] Activating v${VMQ_VERSION}...`);
   event.waitUntil(
     caches.keys()
-      .then(names => Promise.all(
-        names
-          .filter(n => n.startsWith('vmq-') && n !== CACHE_NAME)
-          .map(n => {
-            console.log('[VMQ SW] 🗑️ Deleting old cache:', n);
-            return caches.delete(n);
+      .then(cacheNames => {
+        const validCaches = [CACHE_CORE, CACHE_MODULES, CACHE_RUNTIME];
+        return Promise.all(
+          cacheNames.map(cacheName => {
+            if (cacheName.startsWith('vmq-') && !validCaches.includes(cacheName)) {
+              console.log('[SW] Deleting old cache:', cacheName);
+              return caches.delete(cacheName);
+            }
+            return null;
           })
-      ))
+        );
+      })
       .then(() => self.clients.claim())
   );
 });
 
-// Fetch - stale-while-revalidate strategy
+// 🎯 FETCH (Stale‑While‑Revalidate + offline.html for navigation)
 self.addEventListener('fetch', event => {
-  const url = event.request.url;
-  
-  // Skip non-GET requests
-  if (event.request.method !== 'GET') return;
-  
-  // Skip external resources (except React CDN)
-  if (!url.startsWith(self.location.origin) && 
-      !url.includes('unpkg.com/react')) {
-    return;
-  }
-  
-  // Handle navigation requests
-  if (event.request.mode === 'navigate') {
+  const { request } = event;
+
+  // Navigation requests → HTML shell or offline page
+  if (request.mode === 'navigate') {
     event.respondWith(
-      caches.match(p('index.html'))
-        .then(cached => cached || fetch(event.request))
-        .catch(() => caches.match(p('offline.html')))
+      (async () => {
+        try {
+          // Try network first to get latest shell
+          const networkResponse = await fetch(request);
+          if (networkResponse && networkResponse.ok) {
+            const cache = await caches.open(CACHE_RUNTIME);
+            cache.put('./index.html', networkResponse.clone());
+            return networkResponse;
+          }
+          const cachedIndex = await caches.match('./index.html');
+          return cachedIndex || (await caches.match(OFFLINE_URL));
+        } catch {
+          const cachedIndex = await caches.match('./index.html');
+          return cachedIndex || (await caches.match(OFFLINE_URL));
+        }
+      })()
     );
     return;
   }
-  
-  // Stale-while-revalidate for all other requests
+
+  // Static/assets: stale‑while‑revalidate
   event.respondWith(
-    caches.match(event.request)
-      .then(cached => {
-        const fetchPromise = fetch(event.request)
-          .then(response => {
-            if (response.ok) {
-              caches.open(CACHE_NAME)
-                .then(cache => cache.put(event.request, response.clone()));
+    caches.match(request).then(cachedResponse => {
+      if (cachedResponse) {
+        // Update in background
+        fetch(request)
+          .then(networkResponse => {
+            if (shouldCacheRuntime(request, networkResponse)) {
+              caches.open(CACHE_RUNTIME).then(cache => {
+                cache.put(request, networkResponse);
+              });
             }
-            return response;
           })
-          .catch(() => cached);
-        
-        return cached || fetchPromise;
-      })
+          .catch(() => {});
+        return cachedResponse;
+      }
+
+      // Not in cache → network, then optionally cache
+      return fetch(request)
+        .then(networkResponse => {
+          if (shouldCacheRuntime(request, networkResponse)) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_RUNTIME).then(cache => cache.put(request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(async () => {
+          // Offline fallback for navigations already handled above
+          if (request.destination === 'document') {
+            return (await caches.match(OFFLINE_URL)) || Response.error();
+          }
+          return Response.error();
+        });
+    })
   );
 });
 
-// Message handling
+// 🎯 APP COMMUNICATION / ANALYTICS HOOKS
 self.addEventListener('message', event => {
-  if (event.data?.type === 'SKIP_WAITING') {
+  const data = event.data || {};
+
+  if (data.type === 'CACHE_STATUS' && event.ports && event.ports[0]) {
+    event.ports[0].postMessage({
+      type: 'CACHE_STATUS_REPLY',
+      version: VMQ_VERSION,
+      status: 'active',
+      caches: [CACHE_CORE, CACHE_MODULES, CACHE_RUNTIME]
+    });
+  }
+
+  if (data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
-  if (event.data?.type === 'CACHE_STATUS') {
-    event.ports[0]?.postMessage({
-      version: VMQ_VERSION,
-      cacheSize: ALL_FILES.length,
-      basePath: BASE
+
+  // Used by share.html to attach extra metadata to IndexedDB/local storage via clients
+  if (data.type === 'HANDLE_SHARE') {
+    // Broadcast to all clients; App/bootstrap can route into analytics/storage engines.
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+      clients.forEach(client => {
+        client.postMessage({
+          type: 'HANDLE_SHARE',
+          payload: {
+            title: data.title,
+            text: data.text,
+            url: data.url,
+            timestamp: Date.now()
+          }
+        });
+      });
     });
   }
 });
