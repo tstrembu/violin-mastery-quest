@@ -1,9 +1,11 @@
 // ======================================
-// VMQ ROUTER v2.0 - 50+ Module Navigation
+// VMQ ROUTER v2.1 - 50+ Module Navigation
 // Coach → Goals → Analytics → Deep Links
 // ======================================
 
-const { useState, useEffect, useCallback, useMemo } = React;
+const { useState, useEffect, useCallback, useMemo, useContext } = React;
+import { AppContext } from '../contexts/AppContext.js';
+import sessionTracker from '../engines/sessionTracker.js';
 
 // 🎯 VMQ ROUTE CONFIG (50+ modules)
 export const VMQ_ROUTES = {
@@ -49,19 +51,33 @@ export const VMQ_ROUTES = {
   PRIORITY: 'priority'
 };
 
+// Backward-compat alias (older code may import VMQROUTES)
+export const VMQROUTES = VMQ_ROUTES;
+
 // 🎯 PRODUCTION ROUTER HOOK
 export function useVMQRouter() {
-  const [currentRoute, setCurrentRoute] = useState(decodeURIComponent(window.location.hash.slice(1)) || VMQ_ROUTES.HOME);
-  const [queryParams, setQueryParams] = useState(new URLSearchParams(window.location.search));
+  const appContext = useContext(AppContext);
+
+  const [currentRoute, setCurrentRoute] = useState(
+    decodeURIComponent(window.location.hash.slice(1)) || VMQ_ROUTES.HOME
+  );
+  const [queryParams, setQueryParams] = useState(
+    new URLSearchParams(window.location.search)
+  );
 
   // 🎯 PARSE ROUTE + PARAMS (Production)
   const parseRoute = useCallback((hash) => {
-    const cleanHash = decodeURIComponent(hash).slice(1).toLowerCase().trim();
-    const [route, paramStr] = cleanHash.split('?');
+    const cleanHash = decodeURIComponent(hash || '')
+      .slice(1)
+      .toLowerCase()
+      .trim();
+    
+    const [routePart, paramStr = ''] = cleanHash.split('?');
     const params = new URLSearchParams(paramStr);
+    const routeKey = routePart?.toUpperCase?.() || '';
     
     return {
-      route: VMQ_ROUTES[route.toUpperCase()] || route || VMQ_ROUTES.HOME,
+      route: VMQ_ROUTES[routeKey] || routePart || VMQ_ROUTES.HOME,
       params: Object.fromEntries(params.entries()),
       raw: cleanHash
     };
@@ -73,12 +89,16 @@ export function useVMQRouter() {
     const handleHashChange = () => {
       clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
-        const parsed = parseRoute(window.location.hash);
+        const parsed = parseRoute(window.location.hash || '');
         setCurrentRoute(parsed.route);
         setQueryParams(new URLSearchParams(parsed.params));
         
         // 🎯 SESSION TRACKING
-        sessionTracker?.trackNavigation?.(parsed.route, parsed.params);
+        try {
+          sessionTracker?.trackNavigation?.(parsed.route, parsed.params);
+        } catch (e) {
+          console.warn('[Router] sessionTracker.trackNavigation failed', e);
+        }
       }, 50); // 50ms debounce
     };
 
@@ -92,74 +112,99 @@ export function useVMQRouter() {
   }, [parseRoute]);
 
   // 🎯 PRODUCTION NAVIGATION (50+ modules)
-  const navigate = useCallback((route, params = {}, replace = false) => {
-    const targetRoute = typeof route === 'string' 
-      ? VMQ_ROUTES[route.toUpperCase()] || route 
-      : route;
-    
-    const paramStr = new URLSearchParams(params).toString();
-    const hash = paramStr ? `${targetRoute}?${paramStr}` : targetRoute;
-    
-    if (replace) {
-      window.location.replace(`#${encodeURIComponent(hash)}`);
-    } else {
-      window.location.hash = encodeURIComponent(hash);
-    }
-    
-    // 🎯 COACH CONTEXT
-    if (targetRoute === VMQ_ROUTES.COACH) {
-      dispatchCoachRefresh();
-    }
-  }, []);
+  const navigate = useCallback(
+    (route, params = {}, replace = false) => {
+      const targetRoute =
+        typeof route === 'string'
+          ? VMQ_ROUTES[route.toUpperCase()] || route
+          : route;
+      
+      const paramStr = new URLSearchParams(params).toString();
+      const hash = paramStr ? `${targetRoute}?${paramStr}` : targetRoute;
+      const encoded = `#${encodeURIComponent(hash)}`;
+      
+      if (replace) {
+        window.location.replace(encoded);
+      } else {
+        window.location.hash = encoded;
+      }
+      
+      // 🎯 COACH CONTEXT – refresh when entering Coach
+      if (targetRoute === VMQ_ROUTES.COACH) {
+        try {
+          appContext?.actions?.getRecommendations?.();
+        } catch (e) {
+          console.warn('[Router] Coach refresh failed', e);
+        }
+      }
+    },
+    [appContext]
+  );
 
   // 🎯 SMART NAVIGATION (Coach → Goals → Priority)
-  const navigateSmart = useCallback((type, module = null) => {
-    switch (type) {
-      case 'coach-recommended':
-        navigate(VMQ_ROUTES.COACH, { tab: 'recommended' });
-        break;
-      case 'priority-module':
-        navigate(module || VMQ_ROUTES.INTERVAL_EAR);
-        break;
-      case 'sm2-due':
-        navigate(VMQ_ROUTES.FLASHCARDS, { filter: 'due' });
-        break;
-      case 'daily-goal':
-        navigate(VMQ_ROUTES.GOALS);
-        break;
-      default:
-        navigate(VMQ_ROUTES.DASHBOARD);
-    }
-  }, [navigate]);
+  const navigateSmart = useCallback(
+    (type, module = null) => {
+      switch (type) {
+        case 'coach-recommended':
+          navigate(VMQ_ROUTES.COACH, { tab: 'recommended' });
+          break;
+        case 'priority-module':
+          navigate(module || VMQ_ROUTES.INTERVAL_EAR);
+          break;
+        case 'sm2-due':
+          navigate(VMQ_ROUTES.FLASHCARDS, { filter: 'due' });
+          break;
+        case 'daily-goal':
+          navigate(VMQ_ROUTES.GOALS);
+          break;
+        default:
+          navigate(VMQ_ROUTES.DASHBOARD);
+      }
+    },
+    [navigate]
+  );
 
   // 🎯 QUERY PARAM HELPERS
-  const updateQueryParam = useCallback((key, value) => {
-    const newParams = new URLSearchParams(queryParams);
-    if (value === null || value === '') {
-      newParams.delete(key);
-    } else {
-      newParams.set(key, value);
-    }
-    setQueryParams(newParams);
-  }, [queryParams]);
+  const updateQueryParam = useCallback(
+    (key, value) => {
+      const newParams = new URLSearchParams(queryParams);
+      if (value === null || value === '') {
+        newParams.delete(key);
+      } else {
+        newParams.set(key, value);
+      }
+      setQueryParams(newParams);
+    },
+    [queryParams]
+  );
 
-  const getQueryParam = useCallback((key, defaultValue = null) => {
-    return queryParams.get(key) || defaultValue;
-  }, [queryParams]);
+  const getQueryParam = useCallback(
+    (key, defaultValue = null) => {
+      return queryParams.get(key) ?? defaultValue;
+    },
+    [queryParams]
+  );
 
   // 🎯 ROUTE VALIDATION
   const isValidRoute = useCallback((route) => {
-    return VMQ_ROUTES[route.toUpperCase()] === route || Object.values(VMQ_ROUTES).includes(route);
+    if (!route) return false;
+    const key = route.toUpperCase?.() || '';
+    return VMQ_ROUTES[key] === route || Object.values(VMQ_ROUTES).includes(route);
   }, []);
 
   // 🎯 ACTIVE ROUTE INFO (Production)
-  const routeInfo = useMemo(() => ({
-    current: currentRoute,
-    isValid: isValidRoute(currentRoute),
-    params: Object.fromEntries(queryParams.entries()),
-    path: `${currentRoute}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`,
-    category: getRouteCategory(currentRoute)
-  }), [currentRoute, queryParams, isValidRoute]);
+  const routeInfo = useMemo(
+    () => ({
+      current: currentRoute,
+      isValid: isValidRoute(currentRoute),
+      params: Object.fromEntries(queryParams.entries()),
+      path: `${currentRoute}${
+        queryParams.toString() ? `?${queryParams.toString()}` : ''
+      }`,
+      category: getRouteCategory(currentRoute)
+    }),
+    [currentRoute, queryParams, isValidRoute]
+  );
 
   return {
     route: currentRoute,
@@ -196,22 +241,19 @@ export function getCurrentRoute() {
   return decodeURIComponent(window.location.hash.slice(1)) || VMQ_ROUTES.HOME;
 }
 
-// 🎯 COACH INTEGRATION
-export function dispatchCoachRefresh() {
-  // Trigger coach engine refresh via context
-  const context = useContext(AppContext);
-  context?.actions?.getRecommendations?.();
-}
-
-// 🎯 DEEP LINKS (Shareable)
-export const DEEP_LINKS = {
-  shareProgress: () => `${VMQ_ROUTES.DASHBOARD}?tab=week`,
-  priorityPractice: (module) => `${VMQ_ROUTES[module.toUpperCase()]}?mode=priority`,
-  sm2Due: () => `${VMQ_ROUTES.FLASHCARDS}?filter=due`
-};
-
 // 🎯 BACKWARD COMPATIBILITY
 export function useHashRoute() {
   const router = useVMQRouter();
   return [router.route, router.navigate];
 }
+
+// 🎯 DEEP LINKS (Shareable)
+export const DEEP_LINKS = {
+  shareProgress: () => `${VMQ_ROUTES.DASHBOARD}?tab=week`,
+  priorityPractice: (module) =>
+    `${VMQ_ROUTES[module.toUpperCase()] || module}?mode=priority`,
+  sm2Due: () => `${VMQ_ROUTES.FLASHCARDS}?filter=due`
+};
+
+// Backward-compat alias (older code uses DEEPLINKS)
+export const DEEPLINKS = DEEP_LINKS;
