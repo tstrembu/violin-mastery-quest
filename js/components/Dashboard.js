@@ -1,14 +1,16 @@
 // ======================================
-// VMQ DASHBOARD v2.1.1 - Enhanced Learning Insights
-// Integrates: Gamification, Coach, Analytics, Session Tracking, Pedagogy
+// VMQ DASHBOARD v3.0 - ML-Powered Learning Intelligence
+// Full Analytics v3.0 + Coach + Gamification + Session + SM-2
 // ======================================
 
-const { createElement: h, useState, useEffect, useMemo } = React;
-import { loadJSON, saveJSON, STORAGE_KEYS } from '../config/storage.js';
+const { createElement: h, useState, useEffect, useMemo, useCallback } = React;
+import { loadJSON, STORAGE_KEYS } from '../config/storage.js';
 import { loadXP, loadStreak, getLevel, getNextLevelProgress } from '../engines/gamification.js';
 import { getCoachInsights } from '../engines/coachEngine.js';
 import { getRecentSessions, getWeeklyStats } from '../engines/sessionTracker.js';
 import { getModuleDifficulty } from '../engines/difficultyAdapter.js';
+import { analyzePerformance, generateSmartRecommendations } from '../engines/analytics.js';
+import { getStats as getSM2Stats } from '../engines/spacedRepetition.js';
 
 export default function Dashboard({ onBack, onNavigate, refreshStats }) {
   const [stats, setStats] = useState(null);
@@ -16,61 +18,72 @@ export default function Dashboard({ onBack, onNavigate, refreshStats }) {
   const [streak, setStreak] = useState({ current: 0, longest: 0 });
   const [level, setLevel] = useState({ level: 1, title: 'Beginner', badge: '🎻' });
   const [insights, setInsights] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
   const [recentSessions, setRecentSessions] = useState([]);
   const [weeklyStats, setWeeklyStats] = useState(null);
-  const [timeframe, setTimeframe] = useState('week'); // week, month, all
+  const [sm2Stats, setSM2Stats] = useState(null);
+  const [timeframe, setTimeframe] = useState('week');
   const [loading, setLoading] = useState(true);
 
-  // Load all data
-  useEffect(() => {
-    loadDashboardData();
-  }, [timeframe]);
-
-  const loadDashboardData = async () => {
+  // Load all ML-powered data
+  const loadDashboardData = useCallback(async () => {
     try {
       setLoading(true);
 
       // Core stats
       const loadedStats = loadJSON(STORAGE_KEYS.STATS, {
-        total: 0,
-        correct: 0,
-        byModule: {},
-        byDifficulty: { easy: 0, medium: 0, hard: 0 }
+        total: 0, correct: 0, byModule: {}, byDifficulty: { easy: 0, medium: 0, hard: 0 }
       });
 
-      // Gamification data
+      // Gamification
       const currentXP = loadXP();
       const streakData = loadStreak();
       const currentLevel = getLevel(currentXP);
 
-      // Coach insights (AI-powered recommendations)
+      // ML Analytics (v3.0 full power)
+      const mlAnalysis = await analyzePerformance(timeframe, {
+        includePredictions: true,
+        includePatterns: true,
+        includeOptimization: true,
+        includeBreakthrough: true
+      });
+
+      // Coach insights
       const coachData = getCoachInsights(loadedStats);
 
       // Session tracking
-      const sessions = getRecentSessions(timeframe);
-      const weekly = getWeeklyStats();
+      const sessions = await getRecentSessions(timeframe);
+      const weekly = await getWeeklyStats();
+
+      // SM-2 integration
+      const sm2 = getSM2Stats ? getSM2Stats() : null;
 
       setStats(loadedStats);
       setXP(currentXP);
       setStreak(streakData);
       setLevel(currentLevel);
+      setAnalysis(mlAnalysis);
       setInsights(coachData);
       setRecentSessions(sessions);
       setWeeklyStats(weekly);
+      setSM2Stats(sm2);
     } catch (error) {
-      console.error('[Dashboard] Load failed:', error);
+      console.error('[Dashboard v3.0] Load failed:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [timeframe]);
 
-  // Computed metrics
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  // Enhanced computed metrics with ML predictions
   const metrics = useMemo(() => {
-    if (!stats) return null;
+    if (!stats || !analysis) return null;
 
     const overallAccuracy = stats.total > 0 
-      ? Math.round((stats.correct / stats.total) * 100) 
-      : 0;
+      ? Math.round((stats.correct / stats.total) * 100) : 0;
 
     const grade = overallAccuracy >= 95 ? 'S' :
                   overallAccuracy >= 90 ? 'A' :
@@ -81,48 +94,40 @@ export default function Dashboard({ onBack, onNavigate, refreshStats }) {
     const gradeColor = grade === 'S' || grade === 'A' ? 'success' :
                        grade === 'B' || grade === 'C' ? 'warning' : 'danger';
 
-    // Module performance
-    const moduleStats = Object.entries(stats.byModule || {}).map(([module, data]) => {
-      const accuracy = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
-      const difficulty = getModuleDifficulty(module);
-      
-      return {
-        module,
-        accuracy,
-        total: data.total,
-        correct: data.correct,
-        difficulty,
-        grade: accuracy >= 90 ? 'A' : accuracy >= 80 ? 'B' : accuracy >= 70 ? 'C' : 'D',
-        needsWork: accuracy < 75 && data.total > 5,
-        mastered: accuracy >= 90 && data.total >= 20
-      };
-    }).sort((a, b) => b.total - a.total);
-
-    // Practice consistency (from weekly stats)
-    const practiceStreak = weeklyStats?.streak || 0;
-    const avgDaily = weeklyStats?.avgDaily || 0;
-
-    // Learning velocity (XP per day)
-    const velocity = weeklyStats?.xpPerDay || 0;
+    // Module performance with ML mastery scoring
+    const moduleStats = analysis.modules?.map(mod => ({
+      ...mod,
+      grade: mod.accuracy >= 90 ? 'A' : mod.accuracy >= 80 ? 'B' : 
+             mod.accuracy >= 70 ? 'C' : 'D',
+      needsWork: mod.accuracy < 75 && mod.attempts > 5,
+      mastered: mod.mastery >= 90,
+      breakthroughReady: analysis.predictions?.breakthroughModules?.some(
+        b => b.moduleKey === mod.moduleKey
+      )
+    })) || [];
 
     return {
       overallAccuracy,
       grade,
       gradeColor,
       moduleStats,
-      practiceStreak,
-      avgDaily,
-      velocity,
+      practiceStreak: analysis.trends?.currentStreak || 0,
+      weeklyDays: analysis.trends?.sessionsPerDay ? 
+        Math.round(analysis.trends.sessionsPerDay * 7) : 0,
+      velocity: analysis.predictions?.nextWeekAccuracy?.predicted || 0,
+      plateauRisk: analysis.predictions?.plateauRisk?.risk || 'low',
+      retention: analysis.retentionMetrics?.currentRetention || 0,
       totalModules: moduleStats.length,
-      masteredModules: moduleStats.filter(m => m.mastered).length
+      masteredModules: moduleStats.filter(m => m.mastered).length,
+      breakthroughCount: moduleStats.filter(m => m.breakthroughReady).length
     };
-  }, [stats, weeklyStats]);
+  }, [stats, analysis]);
 
   if (loading) {
     return h('div', { className: 'module-container' },
       h('div', { className: 'loading-screen' },
         h('div', { className: 'loading-spinner' }),
-        h('p', null, 'Loading dashboard...')
+        h('p', null, 'Loading ML insights...')
       )
     );
   }
@@ -131,11 +136,11 @@ export default function Dashboard({ onBack, onNavigate, refreshStats }) {
     return h('div', { className: 'module-container' },
       h('div', { className: 'card card-warning' },
         h('h3', null, '📊 No Data Yet'),
-        h('p', null, 'Complete training modules to see your dashboard.'),
+        h('p', null, 'Complete training modules to unlock your dashboard.'),
         h('button', { 
           className: 'btn btn-primary', 
           onClick: () => onNavigate('intervals') 
-        }, 'Start Training →')
+        }, '🎵 Start with Intervals →')
       )
     );
   }
@@ -143,17 +148,18 @@ export default function Dashboard({ onBack, onNavigate, refreshStats }) {
   const nextLevelProgress = getNextLevelProgress(xp);
 
   return h('div', { className: 'module-container dashboard' },
+
     // Header
     h('header', { className: 'module-header' },
       h('button', { className: 'btn-back', onClick: onBack }, '← Back'),
       h('h2', null, '📊 Dashboard'),
       h('div', { className: 'stats-inline' },
-        h('span', { className: 'live-dot' }),
-        h('span', null, 'Live Stats')
+        h('span', { className: 'live-dot', 'aria-live': 'polite' }),
+        h('span', null, 'ML-Powered Insights')
       )
     ),
 
-    // Hero Card - Level & Streak
+    // Hero Card - Enhanced with ML predictions
     h('div', { className: 'card card-elevated hero-card' },
       h('div', { className: 'hero-content' },
         h('div', { className: 'level-badge-large' },
@@ -173,20 +179,20 @@ export default function Dashboard({ onBack, onNavigate, refreshStats }) {
             h('div', { className: 'stat-label' }, 'Day Streak')
           ),
           h('div', { className: 'stat-card compact' },
-            h('div', { className: 'stat-value grade', className: `grade-${metrics.grade}` }, 
-              metrics.grade
-            ),
-            h('div', { className: 'stat-label' }, 'Overall Grade')
+            h('div', { 
+              className: `stat-value grade-${metrics.grade}` 
+            }, metrics.grade),
+            h('div', { className: 'stat-label' }, 'Grade')
           )
         )
       ),
       
-      // Progress to next level
+      // Next Level Progress
       h('div', { className: 'progress-section' },
         h('div', { className: 'progress-label' },
-          h('span', null, `Progress to Level ${level.level + 1}`),
+          h('span', null, `To Level ${level.level + 1}`),
           h('span', { className: 'text-muted' }, 
-            `${nextLevelProgress.current} / ${nextLevelProgress.required} XP`
+            `${nextLevelProgress.current}/${nextLevelProgress.required} XP`
           )
         ),
         h('div', { className: 'progress-bar' },
@@ -195,15 +201,31 @@ export default function Dashboard({ onBack, onNavigate, refreshStats }) {
             style: { width: `${nextLevelProgress.percentage}%` }
           })
         )
+      ),
+
+      // ML Prediction Banner
+      analysis.predictions && h('div', { className: 'ml-prediction-banner' },
+        h('div', null,
+          h('strong', null, '🎯 Next Week Prediction'),
+          h('span', { className: 'text-muted' }, 
+            `${analysis.predictions.nextWeekAccuracy?.predicted || '?'}% accuracy`
+          )
+        ),
+        analysis.predictions.nextWeekAccuracy?.trend !== 'stable' &&
+        h('span', { 
+          className: `prediction-trend ${analysis.predictions.nextWeekAccuracy.trend}` 
+        },
+          analysis.predictions.nextWeekAccuracy.trend
+        )
       )
     ),
 
-    // Quick Stats Grid
-    h('div', { className: 'stats-grid-4' },
+    // ML Quick Stats (5 key metrics)
+    h('div', { className: 'stats-grid-5' },
       h('div', { className: 'stat-card' },
         h('div', { className: 'stat-icon' }, '🎯'),
         h('div', { className: 'stat-value' }, stats.total.toLocaleString()),
-        h('div', { className: 'stat-label' }, 'Total Questions')
+        h('div', { className: 'stat-label' }, 'Questions')
       ),
       h('div', { className: 'stat-card' },
         h('div', { className: 'stat-icon' }, '✅'),
@@ -214,49 +236,89 @@ export default function Dashboard({ onBack, onNavigate, refreshStats }) {
         h('div', { className: 'stat-label' }, 'Accuracy')
       ),
       h('div', { className: 'stat-card' },
-        h('div', { className: 'stat-icon' }, '📚'),
+        h('div', { className: 'stat-icon' }, '⭐'),
         h('div', { className: 'stat-value' }, 
-          `${metrics.masteredModules}/${metrics.totalModules}`
-        ),
-        h('div', { className: 'stat-label' }, 'Modules Mastered')
+          `${metrics.masteredModules}/${metrics.totalModules}`),
+        h('div', { className: 'stat-label' }, 'Mastered')
       ),
       h('div', { className: 'stat-card' },
-        h('div', { className: 'stat-icon' }, '⚡'),
-        h('div', { className: 'stat-value' }, Math.round(metrics.velocity)),
-        h('div', { className: 'stat-label' }, 'XP/Day')
+        h('div', { className: 'stat-icon' }, '🧠'),
+        h('div', { className: 'stat-value' }, `${metrics.retention?.toFixed(0)}%`),
+        h('div', { className: 'stat-label' }, 'Retention')
+      ),
+      h('div', { className: 'stat-card' },
+        h('div', { className: 'stat-icon' }, '🚀'),
+        h('div', { className: 'stat-value' }, metrics.breakthroughCount),
+        h('div', { className: 'stat-label' }, 'Breakthroughs Ready')
       )
     ),
 
-    // Coach Insights (AI Recommendations)
-    insights && insights.recommendations.length > 0 && h('div', { className: 'card card-live' },
+    // Smart Recommendations (ML + Coach fusion)
+    h('div', { className: 'card card-live' },
       h('div', { className: 'card-header' },
-        h('h3', null, '🤖 AI Coach Recommendations'),
-        h('span', { className: 'badge badge-success' }, 'Powered by Pedagogy Engine')
+        h('h3', null, '🎯 Smart Recommendations'),
+        h('span', { className: 'badge badge-primary' }, 'ML + Coach')
       ),
       h('div', { className: 'coach-insights' },
-        insights.recommendations.slice(0, 4).map((rec, i) =>
+        (insights?.recommendations || []).slice(0, 3).concat(
+          analysis?.recommendations?.slice(0, 2) || []
+        ).map((rec, i) =>
           h('div', { 
             key: i, 
-            className: `insight insight-${rec.priority}`,
-            onClick: rec.action ? () => onNavigate(rec.action) : null,
-            style: { cursor: rec.action ? 'pointer' : 'default' }
+            className: `insight insight-${rec.priority || 'medium'}`,
+            onClick: rec.action ? () => onNavigate(rec.action.replace('#', '')) : null,
+            style: { cursor: rec.action ? 'pointer' : 'default' },
+            title: rec.reasoning || rec.message
           },
             h('div', { className: 'insight-header' },
               h('span', { className: 'insight-icon' }, rec.icon || '💡'),
-              h('strong', null, rec.area),
-              rec.priority === 'urgent' && h('span', { className: 'badge badge-danger' }, 'Focus')
+              h('strong', null, rec.title || rec.area),
+              (rec.priority === 'urgent' || rec.priority === 'high') &&
+              h('span', { className: 'badge badge-danger' }, rec.priority)
             ),
-            h('p', null, rec.suggestion),
-            rec.action && h('span', { className: 'insight-cta' }, '→ Practice Now')
+            h('p', null, rec.message || rec.suggestion),
+            rec.mlConfidence && h('small', { className: 'ml-confidence' },
+              `ML Confidence: ${(rec.mlConfidence * 100).toFixed(0)}%`
+            )
           )
         )
       )
     ),
 
-    // Module Performance Breakdown
+    // Breakthrough Opportunities (ML-powered)
+    analysis?.predictions?.breakthroughModules?.length > 0 && 
+    h('div', { className: 'card card-breakthrough' },
+      h('div', { className: 'card-header' },
+        h('h3', null, '🚀 Breakthrough Ready'),
+        h('span', { className: 'badge badge-success' }, 
+          `${analysis.predictions.breakthroughModules.length} modules`
+        )
+      ),
+      h('div', { className: 'breakthrough-list' },
+        analysis.predictions.breakthroughModules.slice(0, 3).map((mod, i) =>
+          h('div', { 
+            key: i, 
+            className: 'breakthrough-item',
+            onClick: () => onNavigate(mod.moduleKey)
+          },
+            h('div', null,
+              h('strong', null, mod.module),
+              h('small', { className: 'text-muted' }, 
+                `${mod.breakthroughLikelihood}% chance • ~${mod.estimatedDays} days`
+              )
+            ),
+            h('span', { className: 'breakthrough-score' }, 
+              `+${(95 - mod.currentAccuracy).toFixed(0)}%`
+            )
+          )
+        )
+      )
+    ),
+
+    // Module Performance with ML mastery scores
     h('div', { className: 'card' },
       h('div', { className: 'card-header' },
-        h('h3', null, '📈 Module Performance'),
+        h('h3', null, '📊 Module Mastery'),
         h('div', { className: 'timeframe-toggle' },
           ['week', 'month', 'all'].map(tf =>
             h('button', {
@@ -267,40 +329,38 @@ export default function Dashboard({ onBack, onNavigate, refreshStats }) {
           )
         )
       ),
-      
       metrics.moduleStats.length === 0 
         ? h('div', { className: 'empty-state' },
-            h('p', { className: 'text-muted' }, '📚 Complete training modules to see performance data'),
-            h('button', { 
-              className: 'btn btn-primary', 
-              onClick: () => onNavigate('intervals') 
-            }, 'Start Training')
-          )
+            h('p', { className: 'text-muted' }, 
+              'Practice modules to see your mastery progress'),
+            h('button', { className: 'btn btn-primary', onClick: () => onNavigate('intervals') },
+              '🎵 Start Intervals'))
         : h('div', { className: 'module-performance-list' },
-            metrics.moduleStats.map(mod =>
+            metrics.moduleStats.slice(0, 8).map(mod =>
               h('div', { 
-                key: mod.module, 
-                className: 'module-performance-item',
-                onClick: () => onNavigate(mod.module.toLowerCase())
+                key: mod.moduleKey || mod.module, 
+                className: `module-performance-item 
+                  ${mod.mastered ? 'mastered' : ''} 
+                  ${mod.breakthroughReady ? 'breakthrough' : ''}`,
+                onClick: () => onNavigate(mod.moduleKey || mod.module.toLowerCase().replace(/\s+/g, ''))
               },
                 h('div', { className: 'module-info' },
                   h('div', { className: 'module-name' },
                     h('h4', null, mod.module),
-                    mod.mastered && h('span', { className: 'badge badge-success' }, '⭐ Mastered'),
-                    mod.needsWork && h('span', { className: 'badge badge-warning' }, '⚠️ Needs Work')
+                    mod.mastered && h('span', { className: 'badge badge-success' }, '⭐'),
+                    mod.breakthroughReady && h('span', { className: 'badge badge-primary' }, '🚀'),
+                    mod.needsWork && h('span', { className: 'badge badge-warning' }, '⚠️')
                   ),
                   h('div', { className: 'module-meta' },
-                    h('span', { className: 'text-muted' }, `${mod.total} attempts`),
-                    h('span', { className: 'difficulty-badge', className: `difficulty-${mod.difficulty}` },
-                      mod.difficulty
+                    h('span', { className: 'text-muted' }, `${mod.attempts || mod.total} att`),
+                    h('span', { className: `difficulty-badge difficulty-${mod.difficulty}` },
+                      mod.difficulty || 'med'
                     )
                   )
                 ),
                 h('div', { className: 'module-stats' },
-                  h('div', { 
-                    className: 'accuracy-badge',
-                    className: `grade-${mod.grade}` 
-                  }, `${mod.accuracy}%`),
+                  h('div', { className: `accuracy-badge grade-${mod.grade}` }, 
+                    `${mod.accuracy}%`),
                   h('div', { className: 'progress-mini' },
                     h('div', { className: 'progress-bar' },
                       h('div', { 
@@ -308,6 +368,9 @@ export default function Dashboard({ onBack, onNavigate, refreshStats }) {
                         style: { width: `${mod.accuracy}%` }
                       })
                     )
+                  ),
+                  mod.mastery && h('div', { className: 'mastery-score' }, 
+                    `M:${mod.mastery}%`
                   )
                 ),
                 h('div', { className: 'module-action' },
@@ -318,161 +381,83 @@ export default function Dashboard({ onBack, onNavigate, refreshStats }) {
           )
     ),
 
-    // Weekly Practice Activity
-    weeklyStats && h('div', { className: 'card' },
-      h('h3', null, '📅 Weekly Activity'),
-      h('div', { className: 'weekly-chart' },
-        weeklyStats.days.map((day, i) =>
-          h('div', { key: i, className: 'day-column' },
-            h('div', { 
-              className: 'day-bar',
-              style: { 
-                height: `${Math.min(100, (day.questions / weeklyStats.maxDaily) * 100)}%`,
-                background: day.questions > 0 ? 'var(--success)' : 'var(--border)'
-              },
-              title: `${day.questions} questions on ${day.name}`
-            }),
-            h('div', { className: 'day-label' }, day.name.slice(0, 1))
+    // Weekly + Retention Chart
+    h('div', { className: 'grid-2' },
+      // Weekly Activity
+      weeklyStats && h('div', { className: 'card' },
+        h('h3', null, '📅 This Week'),
+        h('div', { className: 'weekly-chart' },
+          weeklyStats.days.map((day, i) =>
+            h('div', { key: i, className: 'day-column' },
+              h('div', { 
+                className: 'day-bar',
+                style: { 
+                  height: `${Math.min(100, (day.questions / weeklyStats.maxDaily) * 100)}%`,
+                  background: day.questions > 0 ? 'var(--success)' : 'var(--border)'
+                }
+              }),
+              h('div', { className: 'day-label' }, day.name.slice(0, 1))
+            )
           )
+        ),
+        h('div', { className: 'weekly-summary' },
+          h('span', null, `${weeklyStats.totalQuestions} questions`),
+          h('span', { className: 'text-muted' }, `Avg ${Math.round(weeklyStats.avgDaily)}/day`)
         )
       ),
-      h('div', { className: 'weekly-summary' },
-        h('span', null, `${weeklyStats.totalQuestions} questions this week`),
-        h('span', { className: 'text-muted' }, 
-          `Avg: ${Math.round(weeklyStats.avgDaily)}/day`
+
+      // SM-2 Retention
+      sm2Stats && h('div', { className: 'card' },
+        h('h3', null, '🧠 Retention'),
+        h('div', { className: 'retention-metrics' },
+          h('div', { className: 'stat-large' }, `${metrics.retention?.toFixed(0)}%`),
+          h('div', { className: 'retention-breakdown' },
+            h('div', null, `📚 ${sm2Stats.dueToday || 0} due`),
+            h('div', null, `⭐ ${sm2Stats.mature || 0} mature`)
+          )
+        ),
+        h('div', { className: 'progress-bar' },
+          h('div', { 
+            className: 'progress-fill',
+            style: { width: `${metrics.retention || 0}%` }
+          })
         )
       )
     ),
 
-    // Recent Sessions
+    // Recent Sessions (condensed)
     recentSessions.length > 0 && h('div', { className: 'card' },
-      h('h3', null, '🕐 Recent Sessions'),
-      h('div', { className: 'session-list' },
-        recentSessions.slice(0, 5).map((session, i) =>
-          h('div', { key: i, className: 'session-item' },
-            h('div', { className: 'session-icon' },
-              getModuleIcon(session.module)
-            ),
-            h('div', { className: 'session-info' },
-              h('div', { className: 'session-module' }, session.module),
-              h('div', { className: 'session-meta' },
-                h('span', { className: 'text-muted' }, formatRelativeTime(session.timestamp)),
-                h('span', null, `${session.duration}min`)
+      h('h3', null, '🕐 Recent'),
+      h('div', { className: 'session-list compact' },
+        recentSessions.slice(0, 4).map((session, i) =>
+          h('div', { key: i, className: 'session-item compact' },
+            h('div', { className: 'session-icon' }, getModuleIcon(session.module)),
+            h('div', { className: 'session-info compact' },
+              h('div', null, session.module),
+              h('div', { className: 'session-meta compact' },
+                h('span', null, `${session.accuracy}%`),
+                h('span', null, `+${session.xpGained}XP`)
               )
-            ),
-            h('div', { className: 'session-stats' },
-              h('span', { 
-                className: 'session-accuracy',
-                style: { color: session.accuracy >= 80 ? 'var(--success)' : 'var(--warning)' }
-              }, `${session.accuracy}%`),
-              h('span', { className: 'text-muted' }, `+${session.xpGained} XP`)
             )
           )
         )
-      )
-    ),
-
-    // Achievements Preview
-    h('div', { className: 'card' },
-      h('div', { className: 'card-header' },
-        h('h3', null, '🏆 Recent Achievements'),
-        h('button', { 
-          className: 'btn btn-sm btn-outline',
-          onClick: () => onNavigate('achievements')
-        }, 'View All')
-      ),
-      h('div', { className: 'achievements-preview' },
-        getRecentAchievements().map((achievement, i) =>
-          h('div', { key: i, className: 'achievement-badge' },
-            h('div', { className: 'achievement-icon' }, achievement.icon),
-            h('div', { className: 'achievement-name' }, achievement.name)
-          )
-        )
-      )
-    ),
-
-    // Quick Actions
-    h('div', { className: 'card' },
-      h('h3', null, '⚡ Quick Actions'),
-      h('div', { className: 'grid-2' },
-        h('button', { 
-          className: 'btn btn-primary btn-lg', 
-          onClick: () => onNavigate('intervals') 
-        }, 
-          h('span', null, '🎵'),
-          h('span', null, 'Practice Intervals')
-        ),
-        h('button', { 
-          className: 'btn btn-primary btn-lg', 
-          onClick: () => onNavigate('keys') 
-        }, 
-          h('span', null, '🎼'),
-          h('span', null, 'Study Keys')
-        ),
-        h('button', { 
-          className: 'btn btn-secondary btn-lg', 
-          onClick: () => onNavigate('rhythm') 
-        }, 
-          h('span', null, '🥁'),
-          h('span', null, 'Rhythm Drills')
-        ),
-        h('button', { 
-          className: 'btn btn-secondary btn-lg', 
-          onClick: () => onNavigate('flashcards') 
-        }, 
-          h('span', null, '🗂️'),
-          h('span', null, 'Flashcards (SM-2)')
-        )
-      )
-    ),
-
-    // Practice Planner Link
-    h('div', { className: 'card card-cta' },
-      h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
-        h('div', null,
-          h('h3', null, '📋 Practice Planner'),
-          h('p', { className: 'text-muted' }, 'Create a structured practice routine based on your goals')
-        ),
-        h('button', { 
-          className: 'btn btn-primary',
-          onClick: () => onNavigate('planner')
-        }, 'Open Planner →')
       )
     )
   );
 }
 
-// ======================================
-// HELPER FUNCTIONS
-// ======================================
-
+// Enhanced helper functions
 function getModuleIcon(moduleName) {
   const icons = {
-    Intervals: '🎵',
-    KeySignatures: '🎼',
-    Rhythm: '🥁',
-    Bieler: '🎻',
-    Fingerboard: '🎸',
-    Scales: '🎹',
-    EarTraining: '👂',
-    Flashcards: '🗂️'
+    'intervals': '🎵', 'keysignatures': '🎼', 'rhythm': '🥁', 
+    'bieler': '🎻', 'fingerboard': '🎸', 'scales': '🎹',
+    'interval-ear': '👂', 'flashcards': '🗂️'
   };
-  return icons[moduleName] || '📚';
+  return icons[moduleName?.toLowerCase()] || '📚';
 }
 
 function formatRelativeTime(timestamp) {
   const now = Date.now();
-  const diff = now - timestamp;
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  return `${days}d ago`;
-}
-
-function getRecentAchievements() {
-  const achievements = loadJSON(STORAGE_KEYS.ACHIEVEMENTS, { unlocked: [] });
-  return achievements.unlocked.slice(-3).reverse();
+  const diff = Math.floor((now - timestamp) / 60000);
+  return diff < 60 ? `${diff}m ago` : `${Math.floor(diff/60)}h ago`;
 }
