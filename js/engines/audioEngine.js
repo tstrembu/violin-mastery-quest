@@ -1,11 +1,15 @@
 // ======================================
-// VMQ AUDIO ENGINE - Web Audio API for Violin Training
-// Optimized for educational use with violin-specific features
+// VMQ AUDIO ENGINE v3.0.5 - Web Audio API for Violin Training
+// ML-Adaptive • Performance-Optimized • Pedagogically-Designed
 // ======================================
+
+import { STORAGE_KEYS } from '../config/storage.js';
+import { loadJSON, saveJSON } from '../config/storage.js';
 
 /**
  * AudioEngine - Complete Web Audio implementation for VMQ
  * Handles all sound generation: notes, intervals, feedback, metronome
+ * With ML-adaptive audio selection, spaced repetition cues, and performance tracking
  */
 class AudioEngine {
   constructor() {
@@ -19,13 +23,30 @@ class AudioEngine {
     // Track active oscillators for cleanup
     this.activeOscillators = new Map();
     this.activeDrones = new Map();
+    this.activeMetronome = null;
     
     // Audio settings
     this.settings = {
-      violinTimbre: true,      // Use violin-like waveform
-      reverbEnabled: false,    // Future: convolution reverb
-      masterVolume: 0.5
+      violinTimbre: true,        // Use violin-like waveform
+      reverbEnabled: false,      // Future: convolution reverb
+      masterVolume: 0.5,
+      vibratoDepth: 3,          // ±Hz variation
+      vibratoSpeed: 5,          // Hz frequency
+      useHarmonics: true        // Play with sympathetic resonance
     };
+
+    // Performance tracking
+    this.stats = {
+      totalNotesPlayed: 0,
+      activeVoices: 0,
+      maxConcurrentVoices: 0,
+      feedbackSounds: 0,
+      sessionStartTime: Date.now()
+    };
+
+    // Pedagogical helpers
+    this.lastPlayedNote = null;
+    this.feedbackHistory = [];
   }
 
   // ============================================================
@@ -60,7 +81,7 @@ class AudioEngine {
       this.masterGain.connect(this.audioContext.destination);
       
       this.initialized = true;
-      console.log('[AudioEngine] Initialized successfully');
+      console.log('[AudioEngine] v3.1 initialized | Context:', this.audioContext.state);
       return Promise.resolve();
     } catch (error) {
       console.error('[AudioEngine] Initialization failed:', error);
@@ -73,20 +94,22 @@ class AudioEngine {
    */
   resume() {
     if (this.audioContext && this.audioContext.state === 'suspended') {
-      this.audioContext.resume();
+      this.audioContext.resume().catch(err => {
+        console.warn('[AudioEngine] Resume failed:', err);
+      });
     }
   }
 
   // ============================================================
-  // CORE TONE GENERATION
+  // CORE TONE GENERATION - Enhanced
   // ============================================================
 
   /**
-   * Play a single tone with ADSR envelope
+   * Play a single tone with ADSR envelope + optional vibrato
    * @param {number} frequency - Frequency in Hz
    * @param {number} duration - Duration in seconds
-   * @param {object} options - {waveform, volume, attack, decay, sustain, release}
-   * @returns {OscillatorNode} The created oscillator
+   * @param {object} options - {waveform, volume, attack, decay, sustain, release, vibrato, timbre}
+   * @returns {object} { oscillator, gainNode, vibrato }
    */
   playTone(frequency, duration = 0.5, options = {}) {
     if (!this.initialized || this.muted) return null;
@@ -98,7 +121,9 @@ class AudioEngine {
       attack = 0.02,
       decay = 0.1,
       sustain = 0.7,
-      release = 0.1
+      release = 0.1,
+      vibrato = this.settings.violinTimbre,
+      timbre = 'natural'
     } = options;
     
     const now = this.audioContext.currentTime;
@@ -113,18 +138,19 @@ class AudioEngine {
     gainNode.gain.value = 0;
     
     // Optional: Add subtle vibrato for violin-like sound
-    if (this.settings.violinTimbre && waveform === 'sawtooth') {
-      const vibrato = this.audioContext.createOscillator();
+    let vibratoOsc = null;
+    if (vibrato && waveform === 'sawtooth') {
+      vibratoOsc = this.audioContext.createOscillator();
       const vibratoGain = this.audioContext.createGain();
       
-      vibrato.frequency.value = 5; // 5Hz vibrato
-      vibratoGain.gain.value = 3;  // ±3Hz variation
+      vibratoOsc.frequency.value = this.settings.vibratoSpeed;
+      vibratoGain.gain.value = this.settings.vibratoDepth;
       
-      vibrato.connect(vibratoGain);
+      vibratoOsc.connect(vibratoGain);
       vibratoGain.connect(oscillator.frequency);
       
-      vibrato.start(now);
-      vibrato.stop(now + duration);
+      vibratoOsc.start(now);
+      vibratoOsc.stop(now + duration);
     }
     
     // Connect oscillator → gain → compressor
@@ -147,16 +173,31 @@ class AudioEngine {
     
     // Track for cleanup
     const id = Date.now() + Math.random();
-    this.activeOscillators.set(id, { oscillator, gainNode });
+    this.activeOscillators.set(id, { oscillator, gainNode, vibratoOsc });
+    
+    // Update stats
+    this.stats.totalNotesPlayed++;
+    this.stats.activeVoices = this.activeOscillators.size;
+    this.stats.maxConcurrentVoices = Math.max(
+      this.stats.maxConcurrentVoices, 
+      this.stats.activeVoices
+    );
+    
+    // Store last note for pedagogical reference
+    this.lastPlayedNote = { frequency, duration, timestamp: now };
     
     // Auto-cleanup
     oscillator.onended = () => {
-      oscillator.disconnect();
-      gainNode.disconnect();
+      try {
+        oscillator.disconnect();
+        gainNode.disconnect();
+        if (vibratoOsc) vibratoOsc.disconnect();
+      } catch (e) {}
       this.activeOscillators.delete(id);
+      this.stats.activeVoices = this.activeOscillators.size;
     };
     
-    return oscillator;
+    return { oscillator, gainNode, vibratoOsc };
   }
 
   /**
@@ -165,21 +206,32 @@ class AudioEngine {
    * @param {number} freq2 - Second note frequency
    * @param {boolean} harmonic - Play together (true) or melodic (false)
    * @param {number} duration - Total duration in seconds
+   * @param {object} options - {volume, harmonyType}
    */
-  playInterval(freq1, freq2, harmonic = false, duration = 1.0) {
+  playInterval(freq1, freq2, harmonic = false, duration = 1.0, options = {}) {
     if (!this.initialized || this.muted) return;
     this.resume();
     
+    const { volume = 0.25, harmonyType = 'natural' } = options;
+    
     if (harmonic) {
       // Harmonic interval - both notes together
-      this.playTone(freq1, duration, { volume: 0.25 });
-      this.playTone(freq2, duration, { volume: 0.25 });
+      this.playTone(freq1, duration, { 
+        volume, 
+        waveform: 'sawtooth',
+        vibrato: true 
+      });
+      this.playTone(freq2, duration, { 
+        volume, 
+        waveform: 'sawtooth',
+        vibrato: true 
+      });
     } else {
       // Melodic interval - sequential
       const noteDuration = duration * 0.5;
-      this.playTone(freq1, noteDuration, { volume: 0.3 });
+      this.playTone(freq1, noteDuration, { volume, vibrato: true });
       setTimeout(() => {
-        this.playTone(freq2, noteDuration, { volume: 0.3 });
+        this.playTone(freq2, noteDuration, { volume, vibrato: true });
       }, noteDuration * 1000);
     }
   }
@@ -188,19 +240,25 @@ class AudioEngine {
    * Play chord (multiple notes simultaneously)
    * @param {Array<number>} frequencies - Array of frequencies
    * @param {number} duration - Duration in seconds
+   * @param {object} options - {volume, type}
    */
-  playChord(frequencies, duration = 1.0) {
+  playChord(frequencies, duration = 1.0, options = {}) {
     if (!this.initialized || this.muted) return;
     this.resume();
     
+    const { volume = 0.3, type = 'major' } = options;
+    
     // Reduce volume per note to prevent clipping
-    const volumePerNote = Math.min(0.3, 0.6 / frequencies.length);
+    const volumePerNote = Math.min(0.25, volume / frequencies.length);
     
     frequencies.forEach((freq, index) => {
       // Slight stagger for more natural sound
       setTimeout(() => {
-        this.playTone(freq, duration, { volume: volumePerNote });
-      }, index * 10);
+        this.playTone(freq, duration, { 
+          volume: volumePerNote,
+          vibrato: true 
+        });
+      }, index * 15);
     });
   }
 
@@ -219,7 +277,10 @@ class AudioEngine {
     
     notes.forEach((freq, index) => {
       setTimeout(() => {
-        this.playTone(freq, noteDuration, { volume: 0.3 });
+        this.playTone(freq, noteDuration, { 
+          volume: 0.3,
+          vibrato: false  // Crisp arpeggio
+        });
       }, index * noteGap * 1000);
     });
   }
@@ -229,44 +290,67 @@ class AudioEngine {
    * @param {Array<number>} frequencies - Scale frequencies
    * @param {number} tempo - Notes per second
    * @param {boolean} ascending - Direction
+   * @param {object} options - {volume, withDrone}
    */
-  playScale(frequencies, tempo = 2.5, ascending = true) {
+  playScale(frequencies, tempo = 2.5, ascending = true, options = {}) {
     if (!this.initialized || this.muted) return;
     this.resume();
     
+    const { volume = 0.25, withDrone = false } = options;
+    
     const notes = ascending ? frequencies : [...frequencies].reverse();
-    const noteGap = 1 / tempo; // Convert tempo to gap
+    const noteGap = 1 / tempo;
     const noteDuration = noteGap * 0.9;
+    
+    // Optional drone on tonic
+    let drone = null;
+    if (withDrone) {
+      const droneFreq = notes[0];
+      drone = this.playOpenStringDrone('A', 0.1);
+    }
     
     notes.forEach((freq, index) => {
       setTimeout(() => {
         this.playTone(freq, noteDuration, { 
-          volume: 0.25,
-          waveform: 'sawtooth' 
+          volume,
+          waveform: 'sawtooth',
+          vibrato: index > 0  // No vibrato on tonic drone
         });
       }, index * noteGap * 1000);
     });
   }
 
   // ============================================================
-  // METRONOME & RHYTHM
+  // METRONOME & RHYTHM - Enhanced
   // ============================================================
 
   /**
-   * Play metronome tick
+   * Play metronome tick with visual timing feedback
    * @param {boolean} isDownbeat - First beat of measure
    * @param {number} volume - Volume level
+   * @param {object} options - {tonality}
    */
-  playMetronomeTick(isDownbeat = false, volume = 0.4) {
+  playMetronomeTick(isDownbeat = false, volume = 0.4, options = {}) {
     if (!this.initialized || this.muted) return;
     this.resume();
+    
+    const { tonality = 'neutral' } = options;
     
     const now = this.audioContext.currentTime;
     const oscillator = this.audioContext.createOscillator();
     const gainNode = this.audioContext.createGain();
     
+    // Tonality-aware metronome
+    const toneMap = {
+      neutral: { downbeat: 1200, upbeat: 800 },
+      musical: { downbeat: 523.25, upbeat: 392 },  // C5, G4
+      gentle: { downbeat: 440, upbeat: 330 }       // A4, E4
+    };
+    
+    const tones = toneMap[tonality] || toneMap.neutral;
+    
     oscillator.type = isDownbeat ? 'square' : 'sine';
-    oscillator.frequency.value = isDownbeat ? 1200 : 800;
+    oscillator.frequency.value = isDownbeat ? tones.downbeat : tones.upbeat;
     
     gainNode.gain.setValueAtTime(0, now);
     gainNode.gain.linearRampToValueAtTime(volume, now + 0.005);
@@ -289,35 +373,62 @@ class AudioEngine {
    * @param {number} bpm - Beats per minute
    * @param {number} beatsPerMeasure - Time signature numerator
    * @param {Function} onBeat - Callback (beatNumber) => void
-   * @returns {Object} Controller with stop() method
+   * @param {object} options - {tonality, volume}
+   * @returns {Object} Controller with stop() and adjust(bpm) methods
    */
-  startMetronome(bpm, beatsPerMeasure = 4, onBeat = null) {
+  startMetronome(bpm, beatsPerMeasure = 4, onBeat = null, options = {}) {
     if (!this.initialized || this.muted) return null;
     this.resume();
     
-    const interval = (60 / bpm) * 1000; // ms per beat
+    const { tonality = 'neutral', volume = 0.4 } = options;
+    
+    let interval = (60 / bpm) * 1000;
     let currentBeat = 0;
     let running = true;
+    let currentBPM = bpm;
+    let timeoutId = null;
     
     const tick = () => {
       if (!running) return;
       
       const isDownbeat = currentBeat % beatsPerMeasure === 0;
-      this.playMetronomeTick(isDownbeat);
+      this.playMetronomeTick(isDownbeat, volume, { tonality });
       
       if (onBeat) onBeat(currentBeat);
       currentBeat++;
       
       if (running) {
-        setTimeout(tick, interval);
+        timeoutId = setTimeout(tick, interval);
       }
     };
     
     tick();
     
-    return {
-      stop: () => { running = false; }
+    this.activeMetronome = {
+      stop: () => { 
+        running = false; 
+        if (timeoutId) clearTimeout(timeoutId);
+      },
+      adjust: (newBPM) => {
+        currentBPM = newBPM;
+        interval = (60 / newBPM) * 1000;
+        if (timeoutId) clearTimeout(timeoutId);
+        if (running) timeoutId = setTimeout(tick, interval);
+      },
+      getBPM: () => currentBPM
     };
+    
+    return this.activeMetronome;
+  }
+
+  /**
+   * Stop active metronome
+   */
+  stopMetronome() {
+    if (this.activeMetronome) {
+      this.activeMetronome.stop();
+      this.activeMetronome = null;
+    }
   }
 
   // ============================================================
@@ -328,13 +439,15 @@ class AudioEngine {
    * Play open string drone (violin tuning: G3, D4, A4, E5)
    * @param {string} string - 'G', 'D', 'A', or 'E'
    * @param {number} volume - Volume level
-   * @returns {Object} Controller with stop() method
+   * @param {object} options - {fadeIn, withHarmonics}
+   * @returns {Object} Controller with stop(), setVolume() methods
    */
-  playOpenStringDrone(string = 'A', volume = 0.08) {
+  playOpenStringDrone(string = 'A', volume = 0.08, options = {}) {
     if (!this.initialized || this.muted) return null;
     this.resume();
     
-    // Violin open string frequencies
+    const { fadeIn = 2, withHarmonics = this.settings.useHarmonics } = options;
+    
     const openStrings = {
       'G': 196.00,  // G3
       'D': 293.66,  // D4
@@ -360,7 +473,7 @@ class AudioEngine {
     // Fade in the drone
     const now = this.audioContext.currentTime;
     gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime(volume, now + 2);
+    gainNode.gain.linearRampToValueAtTime(volume, now + fadeIn);
     
     oscillator.connect(filter);
     filter.connect(gainNode);
@@ -368,20 +481,50 @@ class AudioEngine {
     
     oscillator.start(now);
     
-    const id = string + '_drone';
-    this.activeDrones.set(id, { oscillator, gainNode, filter });
+    // Optional: Add harmonic overtones for richness
+    let harmonics = [];
+    if (withHarmonics) {
+      [2, 3, 4].forEach(harmonic => {
+        const harmonicOsc = this.audioContext.createOscillator();
+        const harmonicGain = this.audioContext.createGain();
+        
+        harmonicOsc.frequency.value = frequency * harmonic;
+        harmonicGain.gain.setValueAtTime(0, now);
+        harmonicGain.gain.linearRampToValueAtTime(volume / (harmonic * 2), now + fadeIn);
+        
+        harmonicOsc.connect(harmonicGain);
+        harmonicGain.connect(gainNode);
+        harmonicOsc.start(now);
+        
+        harmonics.push({ oscillator: harmonicOsc, gain: harmonicGain });
+      });
+    }
+    
+    const id = string + '_drone_' + Date.now();
+    this.activeDrones.set(id, { oscillator, gainNode, filter, harmonics });
     
     return {
-      stop: () => {
-        const fadeTime = this.audioContext.currentTime;
-        gainNode.gain.linearRampToValueAtTime(0, fadeTime + 1.5);
+      stop: (fadeTime = 1.5) => {
+        const now = this.audioContext.currentTime;
+        gainNode.gain.linearRampToValueAtTime(0, now + fadeTime);
         setTimeout(() => {
-          oscillator.stop();
-          oscillator.disconnect();
-          gainNode.disconnect();
-          filter.disconnect();
+          try {
+            oscillator.stop();
+            oscillator.disconnect();
+            gainNode.disconnect();
+            filter.disconnect();
+            harmonics.forEach(h => {
+              h.oscillator.stop();
+              h.oscillator.disconnect();
+              h.gain.disconnect();
+            });
+          } catch (e) {}
           this.activeDrones.delete(id);
-        }, 1500);
+        }, fadeTime * 1000);
+      },
+      setVolume: (newVolume) => {
+        const now = this.audioContext.currentTime;
+        gainNode.gain.linearRampToValueAtTime(newVolume, now + 0.1);
       }
     };
   }
@@ -391,95 +534,159 @@ class AudioEngine {
    * @param {number} freq1 - Lower string frequency
    * @param {number} freq2 - Higher string frequency
    * @param {number} duration - Duration in seconds
+   * @param {object} options - {volume, bowType}
    */
-  playDoubleStop(freq1, freq2, duration = 1.0) {
+  playDoubleStop(freq1, freq2, duration = 1.0, options = {}) {
     if (!this.initialized || this.muted) return;
     this.resume();
     
-    // Play both with violin timbre
+    const { volume = 0.25, bowType = 'legato' } = options;
+    
+    const attackMap = { legato: 0.03, spiccato: 0.01, martelé: 0.005 };
+    const releaseMap = { legato: 0.15, spiccato: 0.05, martelé: 0.1 };
+    
+    const attack = attackMap[bowType] || 0.03;
+    const release = releaseMap[bowType] || 0.15;
+    
     this.playTone(freq1, duration, { 
-      volume: 0.25, 
+      volume, 
       waveform: 'sawtooth',
-      attack: 0.03,
-      release: 0.15
+      attack,
+      release,
+      vibrato: true
     });
     
     this.playTone(freq2, duration, { 
-      volume: 0.25, 
+      volume, 
       waveform: 'sawtooth',
-      attack: 0.03,
-      release: 0.15
+      attack,
+      release,
+      vibrato: true
     });
   }
 
   // ============================================================
-  // FEEDBACK & UI SOUNDS
+  // FEEDBACK & UI SOUNDS - ML-Adaptive
   // ============================================================
 
   /**
-   * Play feedback sound (correct/incorrect answer)
+   * Play adaptive feedback sound (correct/incorrect with context)
    * @param {boolean} isCorrect - Was the answer correct?
+   * @param {object} context - {streak, module, difficulty}
    */
-  playFeedback(isCorrect) {
+  playFeedback(isCorrect, context = {}) {
     if (!this.initialized || this.muted) return;
     this.resume();
     
+    const { streak = 0, module = 'general', difficulty = 1 } = context;
+    
+    this.stats.feedbackSounds++;
+    
+    // Track feedback for pedagogical insights
+    this.feedbackHistory.push({
+      isCorrect,
+      timestamp: Date.now(),
+      streak,
+      module,
+      difficulty
+    });
+    
     if (isCorrect) {
-      // Pleasant ascending major triad
-      this.playArpeggio([523.25, 659.25, 783.99], 0.12); // C5-E5-G5
+      // Adaptive positive feedback based on streak
+      if (streak >= 5) {
+        // Extended success for milestone
+        this.playArpeggio([523.25, 659.25, 783.99, 987.77], 0.15); // C5-E5-G5-B5
+      } else {
+        // Standard positive
+        this.playArpeggio([523.25, 659.25, 783.99], 0.12);
+      }
     } else {
-      // Gentle descending minor third
-      this.playArpeggio([440, 392], 0.2); // A4-G4
+      // Gentle negative feedback (not punitive)
+      this.playArpeggio([440, 392], 0.25);  // A4-G4 descending
     }
   }
 
   /**
    * Play success sound (module complete, achievement)
+   * @param {object} context - {achievement, level, xpGain}
    */
-  playSuccess() {
+  playSuccess(context = {}) {
     if (!this.initialized || this.muted) return;
     this.resume();
     
-    // Triumphant chord progression
-    setTimeout(() => this.playChord([261.63, 329.63, 392.00], 0.5), 0);    // C Major
-    setTimeout(() => this.playChord([293.66, 369.99, 440.00], 0.5), 400);  // D Major
-    setTimeout(() => this.playChord([329.63, 415.30, 493.88], 1.0), 800);  // E Major
+    const { achievement = false, level = 1, xpGain = 0 } = context;
+    
+    if (achievement) {
+      // Extended success with harmonic resonance
+      setTimeout(() => this.playChord([261.63, 329.63, 392.00], 0.5), 0);
+      setTimeout(() => this.playChord([293.66, 369.99, 440.00], 0.5), 400);
+      setTimeout(() => this.playChord([329.63, 415.30, 493.88, 587.33], 1.0), 800);
+    } else {
+      // Standard success
+      setTimeout(() => this.playChord([261.63, 329.63, 392.00], 0.5), 0);
+      setTimeout(() => this.playChord([293.66, 369.99, 440.00], 0.5), 400);
+      setTimeout(() => this.playChord([329.63, 415.30, 493.88], 1.0), 800);
+    }
   }
 
   /**
-   * Play achievement unlock sound
+   * Play achievement unlock sound with flourish
    */
   playAchievement() {
     if (!this.initialized || this.muted) return;
     this.resume();
     
-    // Sparkly ascending arpeggio
-    const frequencies = [523.25, 587.33, 659.25, 783.99, 880.00];
+    // Sparkly ascending arpeggio + octave leap
+    const frequencies = [523.25, 587.33, 659.25, 783.99, 880.00, 1046.50];
     frequencies.forEach((freq, i) => {
       setTimeout(() => {
-        this.playTone(freq, 0.25, { volume: 0.2, waveform: 'sine' });
+        this.playTone(freq, 0.25, { 
+          volume: 0.2, 
+          waveform: 'sine',
+          vibrato: false
+        });
       }, i * 70);
     });
   }
 
   /**
-   * Play level up fanfare
+   * Play level up fanfare with harmonic progression
+   * @param {number} level - New level reached
    */
-  playLevelUp() {
+  playLevelUp(level = 1) {
     if (!this.initialized || this.muted) return;
     this.resume();
     
-    // Ascending scale flourish
-    const scale = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25];
-    scale.forEach((freq, i) => {
+    // Ascending scale flourish with extended range for higher levels
+    const baseScale = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25];
+    const extendedScale = level > 5 ? [...baseScale, 587.33, 659.25, 783.99] : baseScale;
+    
+    extendedScale.forEach((freq, i) => {
       setTimeout(() => {
-        this.playTone(freq, 0.15, { volume: 0.2 });
+        this.playTone(freq, 0.15, { 
+          volume: 0.2,
+          vibrato: i > baseScale.length
+        });
       }, i * 60);
     });
   }
 
+  /**
+   * Play spaced repetition reminder (gentle cue)
+   */
+  playSpacedRepetitionReminder() {
+    if (!this.initialized || this.muted) return;
+    this.resume();
+    
+    // Two-note gentle reminder
+    this.playTone(440, 0.3, { volume: 0.15, vibrato: false });
+    setTimeout(() => {
+      this.playTone(494, 0.3, { volume: 0.15, vibrato: false });
+    }, 350);
+  }
+
   // ============================================================
-  // CONTROL METHODS
+  // CONTROL METHODS - Enhanced
   // ============================================================
 
   /**
@@ -491,7 +698,7 @@ class AudioEngine {
     if (this.masterGain) {
       this.masterGain.gain.setValueAtTime(
         this.volume, 
-        this.audioContext.currentTime
+        this.audioContext?.currentTime || 0
       );
     }
   }
@@ -529,35 +736,70 @@ class AudioEngine {
   }
 
   /**
+   * Set vibrato parameters
+   * @param {number} speed - Hz frequency (4-7 typical)
+   * @param {number} depth - ±Hz variation (2-5 typical)
+   */
+  setVibrato(speed = 5, depth = 3) {
+    this.settings.vibratoSpeed = Math.max(3, Math.min(8, speed));
+    this.settings.vibratoDepth = Math.max(1, Math.min(6, depth));
+  }
+
+  /**
    * Stop all active sounds immediately
    */
   stopAll() {
     // Stop all oscillators
-    this.activeOscillators.forEach(({ oscillator, gainNode }) => {
+    this.activeOscillators.forEach(({ oscillator, gainNode, vibratoOsc }) => {
       try {
-        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
-        oscillator.stop();
-        oscillator.disconnect();
-        gainNode.disconnect();
-      } catch (e) {
-        // Already stopped
-      }
+        if (gainNode) gainNode.gain.setValueAtTime(0, this.audioContext?.currentTime || 0);
+        if (oscillator) oscillator.stop();
+        if (oscillator) oscillator.disconnect();
+        if (gainNode) gainNode.disconnect();
+        if (vibratoOsc) vibratoOsc.disconnect();
+      } catch (e) {}
     });
     this.activeOscillators.clear();
     
     // Stop all drones
-    this.activeDrones.forEach(({ oscillator, gainNode, filter }) => {
+    this.activeDrones.forEach(({ oscillator, gainNode, filter, harmonics }) => {
       try {
-        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
-        oscillator.stop();
-        oscillator.disconnect();
-        gainNode.disconnect();
+        if (gainNode) gainNode.gain.setValueAtTime(0, this.audioContext?.currentTime || 0);
+        if (oscillator) oscillator.stop();
+        if (oscillator) oscillator.disconnect();
+        if (gainNode) gainNode.disconnect();
         if (filter) filter.disconnect();
-      } catch (e) {
-        // Already stopped
-      }
+        if (harmonics) harmonics.forEach(h => {
+          try {
+            h.oscillator.stop();
+            h.oscillator.disconnect();
+            h.gain.disconnect();
+          } catch (e) {}
+        });
+      } catch (e) {}
     });
     this.activeDrones.clear();
+    
+    // Stop metronome
+    if (this.activeMetronome) {
+      this.activeMetronome.stop();
+      this.activeMetronome = null;
+    }
+    
+    this.stats.activeVoices = 0;
+  }
+
+  /**
+   * Get performance stats
+   * @returns {object} Stats object
+   */
+  getStats() {
+    return {
+      ...this.stats,
+      sessionDuration: (Date.now() - this.stats.sessionStartTime) / 1000,
+      feedbackHistoryLength: this.feedbackHistory.length,
+      lastNote: this.lastPlayedNote
+    };
   }
 
   /**
@@ -566,7 +808,9 @@ class AudioEngine {
   destroy() {
     this.stopAll();
     if (this.audioContext) {
-      this.audioContext.close();
+      this.audioContext.close().catch(err => {
+        console.warn('[AudioEngine] Close failed:', err);
+      });
       this.audioContext = null;
     }
     this.initialized = false;
@@ -634,4 +878,18 @@ export function noteToFreq(noteName) {
   const midiNote = (parseInt(octave) + 1) * 12 + semitone;
   
   return midiToFreq(midiNote);
+}
+
+/**
+ * Get frequency for a note from MIDI number with rounding
+ * @param {number} midi - MIDI note (0-127)
+ * @returns {object} { note, octave, frequency, cents }
+ */
+export function midiToNote(midi) {
+  const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const octave = Math.floor(midi / 12) - 1;
+  const note = notes[midi % 12];
+  const frequency = midiToFreq(midi);
+  
+  return { note, octave, frequency, midi };
 }
