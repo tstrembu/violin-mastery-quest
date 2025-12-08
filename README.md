@@ -190,75 +190,70 @@ High-level layout:
 
 ## **📚 FILE DEPENDENCY MAP**
 
-/violin-mastery-quest/
-│
-├── index.html                    ⭐ ENTRY POINT (loads everything)
-├── README.md
-│
+violin-mastery-quest/
+├── index.html
+├── manifest.json
+├── sw.js
+├── offline.html
+├── icons/
+│   ├── icon-192.png
+│   └── icon-512.png
 ├── css/
-│   ├── base.css                  (loaded by index.html)
-│   └── components.css            (loaded by index.html)
-│
+│   ├── base.css           
+│   ├── components.css
+│   ├── themes.css
+│   └── animations.css
 └── js/
+    ├── App.js
     ├── config/
-    │   ├── constants.js          (exports: INTERVALS, XP_VALUES, etc.)
-    │   └── storage.js            (exports: loadJSON, saveJSON, etc.)
-    │
-    ├── engines/
-    │   ├── audioEngine.js        (exports: playNote, playInterval)
-    │   ├── spacedRepetition.js   (exports: SM-2 functions)
-    │   ├── difficultyAdapter.js  (exports: Elo functions)
-    │   ├── gamification.js       (exports: awardXP, updateStreak)
-    │   └── analytics.js          (exports: getAccuracy, getRecommendations)
-    │
+    │   ├── constants.js
+    │   ├── storage.js
+    │   ├── repertoirePlans.js
+    │   └── version.js
+    ├── contexts/
+    │   └── AppContext.js
     ├── utils/
-    │   └── helpers.js            (exports: utility functions)
-    │
-    ├── components/
-    │   ├── Toast.js              (exports: default Toast component)
-    │   ├── MainMenu.js           (exports: default MainMenu)
-    │   ├── Dashboard.js          (exports: default Dashboard)
-    │   ├── Welcome.js            (exports: default Welcome)
-    │   ├── Analytics.js          (exports: default Analytics)
-    │   ├── PracticePlanner.js    (exports: default PracticePlanner)
-    │   ├── Intervals.js          (exports: default Intervals)
-    │   ├── KeySignatures.js      (exports: default KeySignatures)
-    │   ├── Bieler.js             (exports: default Bieler)
-    │   ├── Rhythm.js             (exports: default Rhythm)
-    │   ├── Flashcards.js         (exports: default Flashcards)
-    │   ├── Fingerboard.js        (exports: default Fingerboard)
-    │   └── Settings.js           (exports: default Settings)
-    │
-    └── App.js                    ⭐ MAIN APP (imports all components, renders UI)
+    │   ├── helpers.js
+    │   ├── keyboard.js    
+    │   ├── router.js
+    │   └── statsVisualizer.js
+    ├── engines/
+    │   ├── audioEngine.js
+    │   ├── gamification.js
+    │   ├── spacedRepetition.js
+    │   ├── sessionTracker.js
+    │   ├── difficultyAdapter.js
+    │   ├── analytics.js
+    │   ├── coachEngine.js
+    │   └── pedagogyEngine.js
+    └── components/
+        ├── MainMenu.js
+        ├── Dashboard.js
+        ├── Analytics.js
+        ├── Settings.js
+        ├── Welcome.js
+        ├── Toast.js
+        ├── Intervals.js
+        ├── IntervalEarTester.js
+        ├── Fingerboard.js
+        ├── KeySignatures.js
+        ├── Rhythm.js
+        ├── Flashcards.js
+        ├── PracticePlanner.js
+        ├── DailyGoals.js
+        ├── Achievements.js
+        ├── PracticeJournal.js
+        ├── CoachPanel.js
+        ├── Bieler.js
+        ├── BielerLab.js
+        ├── ScalesLab.js
+        ├── TempoTrainer.js
+        ├── Snapshot.js
+        ├── ReferenceLibrary.js
+        ├── CustomDrill.js
+        ├── DataManager.js
+        └── Testers.js
 
-
-
-.
-├─ index.html
-├─ css/
-│  ├─ base.css
-│  └─ components.css
-└─ js/
-   ├─ config/
-   │  ├─ constants.js        # Pedagogical content (intervals, keys, vocab, etc.)
-   │  └─ storage.js          # Storage helpers (localStorage + runtime fallback)
-   ├─ engines/
-   │  ├─ audioEngine.js      # Web Audio wrapper
-   │  ├─ spacedRepetition.js # Priority-based SR engine
-   │  └─ difficultyAdapter.js
-   ├─ utils/
-   │  └─ helpers.js
-   ├─ components/
-   │  ├─ MainMenu.js
-   │  ├─ Intervals.js
-   │  ├─ Flashcards.js
-   │  ├─ Bieler.js
-   │  ├─ Rhythm.js
-   │  ├─ KeySignatures.js
-   │  ├─ Fingerboard.js
-   │  ├─ Settings.js
-   │  └─ Toast.js
-   └─ App.js                 # Main app router
 
 Design principle: Separation of concerns. Pedagogy lives in constants.js, learning engines are pure functions, and React components are just UI.
 
