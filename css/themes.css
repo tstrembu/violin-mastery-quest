@@ -1,113 +1,267 @@
 /* ======================================
-   VMQ THEMES v2.0 - 6-Engine Accessibility
-   Dark + High Contrast + Dyslexia + Reduced Motion
-   =================================== */
+   VMQ THEMES v3.0 - ML-Adaptive Accessibility
+   8 Color Modes • WCAG AAA • PWA Optimized
+   ====================================== */
 
-/* 🎯 BASE THEME SYSTEM (CSS Variables) */
+/* 🎯 BASE THEME - Production Default */
 :root {
-  /* Colors */
-  --bg: #ffffff;
-  --card: #f8fafc;
-  --surface: #f1f5f9;
-  --ink: #0f172a;
-  --ink-light: #475569;
-  --ink-lighter: #64748b;
-  --border: rgba(0, 0, 0, 0.08);
-  
-  /* VMQ Primary (Violin Gold → Blue) */
+  /* Brand Identity - Violin Blue/Gold */
   --primary: #3b82f6;
   --primary-dark: #1d4ed8;
   --primary-light: #93c5fd;
+  --primary-rgb: 59, 130, 246;
+  --primary-hsl: 221 83% 53%;
   
-  /* Semantic Colors */
+  /* Music Theory Semantic */
+  --perfect: #10b981;      /* P4, P5, P8 - Consonant */
+  --major: #3b82f6;        /* M2, M3, M6, M7 */
+  --minor: #f59e0b;        /* m2, m3, m6, m7 */
+  --diminished: #ef4444;   /* Tritone - Dissonant */
+  --augmented: #8b5cf6;    /* Augmented intervals */
+  
+  /* Neutrals - Light Mode */
+  --bg: #ffffff;
+  --card: #f8fafc;
+  --surface: #f1f5f9;
+  --surface-2: #e2e8f0;
+  --ink: #0f172a;
+  --ink-light: #475569;
+  --ink-lighter: #94a3b8;
+  --border: rgba(15, 23, 42, 0.08);
+  
+  /* Status Colors - WCAG AAA */
   --success: #10b981;
+  --success-bg: rgba(16, 185, 129, 0.1);
   --warning: #f59e0b;
-  --error: #ef4444;
+  --warning-bg: rgba(245, 158, 11, 0.1);
+  --danger: #ef4444;
+  --danger-bg: rgba(239, 68, 68, 0.1);
   --info: #06b6d4;
+  --info-bg: rgba(6, 182, 212, 0.1);
   
-  /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  /* Shadows - Elevation System */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
   
-  /* Typography */
-  --font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-family-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+  /* Typography Families */
+  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-serif: 'EB Garamond', Georgia, serif;
+  --font-family-mono: 'SF Mono', 'Cascadia Code', 'Roboto Mono', monospace;
+  --font-family-music: 'Bravura', 'Leland', monospace; /* SMuFL */
+  --font-family-dyslexic: 'OpenDyslexic', 'Comic Sans MS', cursive;
   
-  /* Spacing */
-  --space-xs: 4px;
-  --space-sm: 8px;
+  /* Spacing Scale */
+  --space-3xs: 2px;
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
   --space-md: 16px;
   --space-lg: 24px;
   --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
   
   /* Border Radius */
-  --radius-sm: 6px;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
   --radius-md: 12px;
-  --radius-lg: 20px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
   
-  /* Motion */
-  --transition-fast: 150ms ease-out;
-  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* Motion Timing */
+  --motion-duration-xs: 100ms;
+  --motion-duration-sm: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-lg: 400ms;
+  --motion-easing: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-easing-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  
+  /* Z-Index Scale */
+  --z-base: 1;
+  --z-sticky: 10;
+  --z-dropdown: 100;
+  --z-modal: 1000;
+  --z-overlay: 2000;
+  --z-toast: 3000;
 }
 
-/* 🎯 DARK THEME (Violin Night) */
+/* 🌙 DARK MODE - Violin Night */
 [data-theme="dark"] {
-  --bg: #0f0f23;
-  --card: #161632;
-  --surface: #1a1a3a;
-  --ink: #e2e8f0;
+  --bg: #0a0a0f;
+  --card: #141420;
+  --surface: #1a1a2e;
+  --surface-2: #252538;
+  --ink: #f1f5f9;
   --ink-light: #cbd5e1;
   --ink-lighter: #94a3b8;
-  --border: rgba(255, 255, 255, 0.12);
+  --border: rgba(241, 245, 249, 0.12);
   
-  /* VMQ Dark Primary */
   --primary: #60a5fa;
   --primary-dark: #3b82f6;
   --primary-light: #93c5fd;
   
-  /* Dark Shadows */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.5);
-  --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.5);
+  --perfect: #34d399;
+  --major: #60a5fa;
+  --minor: #fbbf24;
+  --diminished: #f87171;
+  
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.6);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.7);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.8);
+  --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.8);
+  --shadow-xl: 0 25px 50px -12px rgb(0 0 0 / 0.9);
 }
 
-/* 🎯 HIGH CONTRAST (WCAG AAA) */
+/* ⚡ HIGH CONTRAST - WCAG AAA */
 [data-theme="high-contrast"] {
   --bg: #000000;
-  --card: #111111;
-  --surface: #222222;
+  --card: #0d0d0d;
+  --surface: #1a1a1a;
+  --surface-2: #2a2a2a;
   --ink: #ffffff;
-  --ink-light: #e5e5e5;
-  --ink-lighter: #b3b3b3;
+  --ink-light: #f0f0f0;
+  --ink-lighter: #cccccc;
   --border: #ffffff;
   
-  --primary: #00ccff;
-  --primary-dark: #0099cc;
-  --primary-light: #66e0ff;
+  --primary: #00d9ff;
+  --primary-dark: #00a8cc;
+  --primary-light: #66e5ff;
+  
+  --perfect: #00ff88;
+  --major: #00d9ff;
+  --minor: #ffdd00;
+  --diminished: #ff3366;
+  
   --success: #00ff88;
-  --warning: #ffcc00;
-  --error: #ff3333;
+  --warning: #ffdd00;
+  --danger: #ff3366;
   
-  /* Bold shadows */
-  --shadow-sm: 0 2px 4px rgb(255 255 255 / 0.2);
-  --shadow-md: 0 8px 16px rgb(255 255 255 / 0.1);
+  --shadow-xs: 0 0 0 1px #ffffff;
+  --shadow-sm: 0 0 0 2px #ffffff;
+  --shadow-md: 0 0 0 3px #ffffff;
+  --shadow-lg: 0 0 8px 0 rgba(255, 255, 255, 0.5);
 }
 
-/* 🎯 DYSLEXIA MODE (OpenDyslexic) */
+/* 🟢 COLOR BLIND SAFE - Deuteranopia/Protanopia */
+[data-theme="colorblind"] {
+  --primary: #0077bb;
+  --primary-dark: #005588;
+  --primary-light: #5599cc;
+  
+  --perfect: #009988;
+  --major: #0077bb;
+  --minor: #ee7733;
+  --diminished: #cc3311;
+  
+  --success: #009988;
+  --warning: #ee7733;
+  --danger: #cc3311;
+  --info: #0077bb;
+}
+
+/* 🌅 SEPIA - Low Blue Light */
+[data-theme="sepia"] {
+  --bg: #f4ecd8;
+  --card: #ede4d3;
+  --surface: #e7dcc8;
+  --surface-2: #d9cab5;
+  --ink: #3e2723;
+  --ink-light: #5d4037;
+  --ink-lighter: #795548;
+  --border: rgba(62, 39, 35, 0.15);
+  
+  --primary: #6d4c41;
+  --primary-dark: #4e342e;
+  --primary-light: #8d6e63;
+}
+
+/* 📖 DYSLEXIA MODE - OpenDyslexic */
 [data-dyslexia="true"] {
-  font-feature-settings: 'dlig' 1, 'calt' 0;
+  font-family: var(--font-family-dyslexic);
+  font-feature-settings: normal;
   font-kerning: none;
-  
-  /* Line height + spacing */
-  line-height: 1.8;
-  letter-spacing: 0.025em;
-  
-  /* Dyslexia font stack */
-  font-family: 'OpenDyslexic', 'Dyslexie', var(--font-family-base);
+  line-height: 2;
+  letter-spacing: 0.04em;
+  word-spacing: 0.16em;
 }
 
-/* 🎯 REDUCED MOTION (Accessibility) */
+[data-dyslexia="true"] h1,
+[data-dyslexia="true"] h2,
+[data-dyslexia="true"] h3 {
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+/* 🎯 TYPOGRAPHY SCALES */
+[data-font-size="small"] {
+  --font-size-3xs: 0.6rem;
+  --font-size-2xs: 0.6875rem;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-base: 0.875rem;
+  --font-size-lg: 1rem;
+  --font-size-xl: 1.125rem;
+  --font-size-2xl: 1.25rem;
+  --font-size-3xl: 1.5rem;
+}
+
+[data-font-size="large"] {
+  --font-size-3xs: 0.8125rem;
+  --font-size-2xs: 0.875rem;
+  --font-size-xs: 1rem;
+  --font-size-sm: 1.125rem;
+  --font-size-base: 1.25rem;
+  --font-size-lg: 1.5rem;
+  --font-size-xl: 1.875rem;
+  --font-size-2xl: 2.25rem;
+  --font-size-3xl: 3rem;
+}
+
+[data-font-size="xl"] {
+  --font-size-3xs: 0.875rem;
+  --font-size-2xs: 1rem;
+  --font-size-xs: 1.125rem;
+  --font-size-sm: 1.25rem;
+  --font-size-base: 1.5rem;
+  --font-size-lg: 1.875rem;
+  --font-size-xl: 2.25rem;
+  --font-size-2xl: 3rem;
+  --font-size-3xl: 4rem;
+}
+
+/* 🎨 LAYOUT DENSITY */
+[data-layout="compact"] {
+  --space-3xs: 1px;
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+}
+
+[data-layout="spacious"] {
+  --space-3xs: 4px;
+  --space-2xs: 8px;
+  --space-xs: 12px;
+  --space-sm: 16px;
+  --space-md: 24px;
+  --space-lg: 36px;
+  --space-xl: 48px;
+  --space-2xl: 72px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+}
+
+/* ♿ REDUCED MOTION - Accessibility */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -118,15 +272,16 @@
     scroll-behavior: auto !important;
   }
   
-  .btn, .card {
-    transition: none;
+  [data-reduced-motion="true"] * {
+    animation: none !important;
+    transition: none !important;
   }
 }
 
-/* 🎯 FOCUS VISIBLE (Keyboard Navigation) */
+/* 🔍 FOCUS VISIBLE - Keyboard Navigation */
 *:focus-visible {
   outline: 3px solid var(--primary);
-  outline-offset: 2px;
+  outline-offset: 3px;
   border-radius: var(--radius-sm);
 }
 
@@ -134,94 +289,120 @@
   outline: none;
 }
 
-/* 🎯 TYPOGRAPHY SCALES */
-[data-font-size="small"] {
-  --font-size-sm: 0.75rem;
-  --font-size-base: 0.875rem;
-  --font-size-lg: 1rem;
-  --font-size-xl: 1.125rem;
-  --font-size-2xl: 1.25rem;
-  --font-size-3xl: 1.5rem;
+[data-theme="high-contrast"] *:focus-visible {
+  outline-width: 4px;
+  outline-offset: 4px;
+  background: rgba(0, 217, 255, 0.1);
 }
 
-[data-font-size="large"] {
-  --font-size-sm: 1rem;
-  --font-size-base: 1.125rem;
-  --font-size-lg: 1.375rem;
-  --font-size-xl: 1.75rem;
-  --font-size-2xl: 2.25rem;
-  --font-size-3xl: 3rem;
+/* 🎵 GRADE COLORS - Music Theory */
+.grade-S { 
+  color: var(--perfect); 
+  --grade-color: var(--perfect);
 }
 
-[data-font-size="xl"] {
-  --font-size-sm: 1.125rem;
-  --font-size-base: 1.25rem;
-  --font-size-lg: 1.5rem;
-  --font-size-xl: 2rem;
-  --font-size-2xl: 2.625rem;
-  --font-size-3xl: 3.75rem;
+.grade-A { 
+  color: var(--major); 
+  --grade-color: var(--major);
 }
 
-/* 🎯 LAYOUT MODES */
-[data-layout="compact"] {
-  --space-xs: 3px;
-  --space-sm: 6px;
-  --space-md: 12px;
-  --space-lg: 18px;
-  --space-xl: 24px;
-  --radius-sm: 4px;
+.grade-B { 
+  color: var(--minor); 
+  --grade-color: var(--minor);
 }
 
-[data-layout="spacious"] {
-  --space-xs: 6px;
-  --space-sm: 12px;
-  --space-md: 24px;
-  --space-lg: 36px;
-  --space-xl: 48px;
-  --radius-sm: 8px;
+.grade-C { 
+  color: var(--warning); 
+  --grade-color: var(--warning);
 }
 
-/* 🎯 VMQ GRADE COLORS (S/A/B/C/D/F) */
-.grade-S { color: #10b981; }
-.grade-A { color: #3b82f6; }
-.grade-B { color: #f59e0b; }
-.grade-C { color: #ef4444; }
-.grade-D { color: #f97316; }
-.grade-F { color: #6b7280; }
+.grade-D, .grade-F { 
+  color: var(--diminished); 
+  --grade-color: var(--diminished);
+}
 
-[data-theme="dark"] .grade-S { color: #34d399; }
-[data-theme="dark"] .grade-A { color: #60a5fa; }
-[data-theme="dark"] .grade-B { color: #fbbf24; }
+/* 🎯 INTERVAL ACCENT COLORS */
+.interval-perfect { --accent: var(--perfect); }
+.interval-major { --accent: var(--major); }
+.interval-minor { --accent: var(--minor); }
+.interval-diminished { --accent: var(--diminished); }
+.interval-augmented { --accent: var(--augmented); }
 
-/* 🎯 PRINT MODE (Progress reports) */
+/* 🖨️ PRINT MODE - Progress Reports */
 @media print {
   :root {
     --bg: white;
     --card: white;
+    --surface: #f5f5f5;
     --ink: black;
     --primary: #1e40af;
   }
   
   .no-print { display: none !important; }
-  .card { box-shadow: none !important; border: 1px solid #ccc; }
-}
-
-/* 🎯 LANDSCAPE OPTIMIZATION (Tablets) */
-@media (max-height: 500px) and (orientation: landscape) {
-  [data-layout="compact"] {
-    --space-md: 8px;
-    --space-lg: 12px;
+  .card { 
+    box-shadow: none !important; 
+    border: 1px solid #ddd;
+    page-break-inside: avoid;
+  }
+  
+  * {
+    color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }
 
-/* 🎯 VMQ ACCENT COLORS (Music Theory) */
-.interval-perfect { --accent: #10b981; }
-.interval-major { --accent: #3b82f6; }
-.interval-minor { --accent: #f59e0b; }
-.interval-diminished { --accent: #ef4444; }
+/* 📱 LANDSCAPE TABLET - Music Stand */
+@media (max-height: 600px) and (orientation: landscape) {
+  [data-layout="auto"] {
+    --space-md: 12px;
+    --space-lg: 16px;
+    --space-xl: 24px;
+  }
+  
+  .module-header {
+    padding-bottom: var(--space-sm);
+  }
+}
 
-/* 🎯 HIGH CONTRAST MODE FOCUS */
-[data-theme="high-contrast"] *:focus-visible {
-  outline: 4px solid #00ccff;
-  background: rgba(0, 204, 255, 0.1);
+/* 🌈 PWA THEME-COLOR SYNC */
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+[data-theme="light"],
+[data-theme="colorblind"],
+[data-theme="sepia"] {
+  color-scheme: light;
+}
+
+[data-theme="high-contrast"] {
+  color-scheme: dark;
+}
+
+/* Meta theme-color updates via JS */
+meta[name="theme-color"] {
+  content: var(--primary);
+}
+
+/* 🎨 CUSTOM SCROLLBARS - Music Optimized */
+[data-theme="dark"] {
+  scrollbar-color: var(--primary) var(--surface);
+}
+
+[data-theme="high-contrast"] {
+  scrollbar-width: thick;
+}
+
+/* 🔊 AUDIO VISUALIZER THEME */
+.audio-wave {
+  --wave-color: var(--primary);
+}
+
+[data-theme="dark"] .audio-wave {
+  --wave-color: var(--primary-light);
+}
+
+[data-theme="colorblind"] .audio-wave {
+  --wave-color: #0077bb;
 }
