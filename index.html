@@ -7,6 +7,9 @@
   <meta name="theme-color" content="#3b82f6">
   <meta name="color-scheme" content="light dark">
   
+  <!-- 🎯 SECURITY (CSP) -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://unpkg.com; img-src 'self' ; font-src 'self'; media-src 'self'; object-src 'none';">
+  
   <!-- 🎯 PWA (Installable + Offline) -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -14,12 +17,12 @@
   <meta name="application-name" content="VMQ">
   
   <!-- 🎯 SEO + Social (50+ modules) -->
-  <meta name="description" content="Violin Mastery Quest v2.1.1 - 50+ modules with Ida Bieler Method: intervals, fingerboard, scales, rhythm, SM-2, coach AI">
-  <title>Violin Mastery Quest v3.0.5</title>
+  <meta name="description" content="Violin Mastery Quest v3.0 - 50+ ML-powered modules with Ida Bieler Method: intervals, fingerboard, scales, rhythm, SM-2, coach AI">
+  <title>Violin Mastery Quest v3.0</title>
   
   <!-- 🎯 Open Graph -->
-  <meta property="og:title" content="Violin Mastery Quest v2.1.1">
-  <meta property="og:description" content="Offline violin training: Bieler Method + AI Coach + 50+ modules">
+  <meta property="og:title" content="Violin Mastery Quest v3.0">
+  <meta property="og:description" content="ML-powered violin training: Bieler Method + AI Coach + 50+ adaptive modules">
   <meta property="og:image" content="./icons/icon-512.png">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://vmq.app">
@@ -52,20 +55,21 @@
 </head>
 
 <body>
-  <!-- 🎯 APP ROOT (6-Engine Context) -->
+  <!-- 🎯 APP ROOT (8-Engine Context) -->
   <div id="root">
     <!-- 🚀 Loading Screen (Progressive Enhancement) -->
     <div class="loading-screen active" id="loading-screen">
       <div class="loading-spinner"></div>
       <div class="loading-content">
         <h1 class="loading-title">Violin Mastery Quest</h1>
-        <p class="loading-subtitle">v2.1.1 - 50+ Modules + 6 Engines LIVE</p>
+        <p class="loading-subtitle">v3.0 - 50+ Modules + 8 Engines LIVE + ML</p>
         <div class="loading-progress">
           <div class="progress-bar">
             <div class="progress-fill" style="--width: 0%"></div>
           </div>
         </div>
-        <p class="loading-status">Initializing 6 engines...</p>
+        <p class="loading-status" id="loading-status">Initializing ML models...</p>
+        <div class="engine-status" id="engine-status" aria-live="polite"></div>
       </div>
     </div>
     
@@ -76,16 +80,187 @@
     <div class="app-wrapper" id="app-content" style="display: none;">
       <!-- React renders here -->
     </div>
+    
+    <!-- 🎯 Diagnostic Overlay (Hidden by default) -->
+    <div class="diagnostic-overlay" id="diagnostic-overlay" style="display: none;">
+      <div class="diagnostic-content">
+        <h2>🔧 VMQ Diagnostic Mode</h2>
+        <pre id="diagnostic-log"></pre>
+        <button id="diagnostic-reload" class="btn btn-primary">Reload App</button>
+      </div>
+    </div>
   </div>
 
-  <!-- 🎯 REACT 18 PRODUCTION (Tree-shaken UMD) - FIXED ✅ -->
+  <!-- 🎯 REACT 18 PRODUCTION (Tree-shaken UMD) -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
-  <!-- 🎯 VMQ BOOTSTRAP (Performance Optimized + v2.1.1) -->
+  <!-- 🎯 VMQ BOOTSTRAP (Performance Optimized + v3.0) -->
   <script type="module">
     // 🎯 PERFORMANCE MONITORING
     const startTime = performance.now();
+    window.vmqMetrics = {
+      fcp: 0,
+      fid: 0,
+      cls: 0,
+      loadTime: 0,
+      engineInitTime: 0,
+      mlWarmupTime: 0
+    };
+    
+    // 🎯 DIAGNOSTIC MODE
+    const isDiagnosticMode = window.location.search.includes('vmq-diagnostics') || window.location.search.includes('debug=true');
+    const diagnosticLog = [];
+    
+    function logDiagnostic(category, message, data = null) {
+      const timestamp = (performance.now() - startTime).toFixed(2);
+      const logEntry = `[${timestamp}ms] [${category}] ${message}${data ? ' ' + JSON.stringify(data) : ''}`;
+      diagnosticLog.push(logEntry);
+      
+      if (isDiagnosticMode) {
+        console.log(`%cVMQ Diagnostics: ${logEntry}`, 'color: #3b82f6; font-weight: bold;');
+        const logEl = document.getElementById('diagnostic-log');
+        if (logEl) logEl.textContent = diagnosticLog.join('\n');
+      }
+    }
+    
+    // 🎯 SHELL-LEVEL ERROR BOUNDARY
+    window.addEventListener('error', (event) => {
+      logDiagnostic('ERROR', event.message, { filename: event.filename, lineno: event.lineno });
+      
+      // Show diagnostic overlay for critical errors
+      if (event.message.includes('ENGINE') || event.message.includes('MODULE')) {
+        const overlay = document.getElementById('diagnostic-overlay');
+        const appContent = document.getElementById('app-content');
+        if (overlay && appContent) {
+          appContent.style.display = 'none';
+          overlay.style.display = 'flex';
+        }
+      }
+    });
+    
+    window.addEventListener('unhandledrejection', (event) => {
+      logDiagnostic('PROMISE', event.reason?.message || 'Unhandled rejection', event.reason);
+    });
+    
+    // 🎯 FEATURE FLAG CHECKER
+    function checkFeature(featureName) {
+      try {
+        // Check if feature is enabled in version config
+        const features = window.VMQ?.FEATURES || {};
+        const isEnabled = features[featureName]?.enabled !== false;
+        logDiagnostic('FEATURE', `${featureName}: ${isEnabled ? '✅' : '❌'}`);
+        return isEnabled;
+      } catch (e) {
+        logDiagnostic('FEATURE', `${featureName}: ⚠️ check failed`, e);
+        return true; // Fail open for core features
+      }
+    }
+    
+    // 🎯 ENGINE HEALTH MONITOR
+    const requiredEngines = [
+      'audioEngine',
+      'spacedRepetition',
+      'gamification',
+      'analytics',
+      'coachEngine',
+      'pedagogyEngine',
+      'sessionTracker',
+      'difficultyAdapter'
+    ];
+    
+    async function checkEngineHealth() {
+      const statusEl = document.getElementById('engine-status');
+      const status = {};
+      
+      for (const engine of requiredEngines) {
+        try {
+          const module = await import(`./js/engines/${engine}.js`);
+          const isHealthy = module && (module.default || module[engine]);
+          status[engine] = isHealthy ? '✅' : '❌';
+          logDiagnostic('ENGINE', `${engine}: ${isHealthy ? 'healthy' : 'failed'}`);
+        } catch (e) {
+          status[engine] = '❌';
+          logDiagnostic('ENGINE', `${engine}: failed to load`, e);
+        }
+      }
+      
+      if (statusEl) {
+        statusEl.innerHTML = Object.entries(status)
+          .map(([name, icon]) => `<span class="engine-indicator">${icon} ${name}</span>`)
+          .join('');
+      }
+      
+      const allHealthy = Object.values(status).every(s => s === '✅');
+      return allHealthy;
+    }
+    
+    // 🎯 ML MODEL WARMUP
+    async function warmupMLModels() {
+      if (!checkFeature('analytics') && !checkFeature('difficultyAdapter')) {
+        logDiagnostic('ML', 'ML features disabled, skipping warmup');
+        return;
+      }
+      
+      const mlStart = performance.now();
+      logDiagnostic('ML', 'Warming up models...');
+      
+      try {
+        // Load lightweight analytics and difficulty models
+        const [analyticsMod, difficultyMod] = await Promise.all([
+          import('./js/engines/analytics.js'),
+          import('./js/engines/difficultyAdapter.js')
+        ]);
+        
+        // Initialize analytics with early data
+        if (analyticsMod.analyzePerformance) {
+          await analyticsMod.analyzePerformance('week', { 
+            includePredictions: false, 
+            includePatterns: true 
+          });
+          logDiagnostic('ML', 'Analytics model ready');
+        }
+        
+        // Initialize difficulty adapter
+        if (difficultyMod.getUserLevel) {
+          await difficultyMod.getUserLevel();
+          logDiagnostic('ML', 'Difficulty model ready');
+        }
+      } catch (e) {
+        logDiagnostic('ML', 'Warmup failed', e);
+      }
+      
+      window.vmqMetrics.mlWarmupTime = Math.round(performance.now() - mlStart);
+      logDiagnostic('ML', `Warmup complete: ${window.vmqMetrics.mlWarmupTime}ms`);
+    }
+    
+    // 🎯 SMART PREFETCHING
+    async function prefetchUserModules() {
+      try {
+        const storage = await import('./js/engines/storage.js');
+        const profile = await storage.loadJSON('vmq-profile', { level: 'beginner' });
+        
+        // Prefetch modules based on user level
+        const modulesToPrefetch = {
+          beginner: ['intervals', 'keys', 'rhythm'],
+          intermediate: ['bieler', 'scales', 'fingerboard'],
+          advanced: ['bieler', 'scales', 'speed-drill']
+        };
+        
+        const modules = modulesToPrefetch[profile.level] || modulesToPrefetch.beginner;
+        
+        modules.forEach(module => {
+          const link = document.createElement('link');
+          link.rel = 'prefetch';
+          link.href = `./js/components/${module}.js`;
+          document.head.appendChild(link);
+        });
+        
+        logDiagnostic('PREFETCH', `Prefetched modules for ${profile.level}`, modules);
+      } catch (e) {
+        logDiagnostic('PREFETCH', 'Failed', e);
+      }
+    }
     
     // 🎯 PWA INSTALL PROMPT
     let deferredPrompt;
@@ -93,92 +268,290 @@
       e.preventDefault();
       deferredPrompt = e;
       document.documentElement.style.setProperty('--pwa-available', 'true');
+      logDiagnostic('PWA', 'Install prompt available');
     });
     
-    // 🎯 SERVICE WORKER (Production caching v2.1.1)
-    if ('serviceWorker' in navigator) {
-      const swUrl = './sw.js';
+    // 🎯 SERVICE WORKER (Production caching v3.0)
+    async function registerServiceWorker() {
+      if (!checkFeature('pwaOffline') || !('serviceWorker' in navigator)) {
+        logDiagnostic('SW', 'Service Worker disabled or not supported');
+        return;
+      }
       
-      navigator.serviceWorker.register(swUrl, { scope: './' })
-        .then(registration => {
-          console.log('✅ VMQ SW v2.1.1 active:', registration.scope);
+      try {
+        const swUrl = './sw.js';
+        const registration = await navigator.serviceWorker.register(swUrl, { 
+          scope: './',
+          updateViaCache: 'none'
+        });
+        
+        logDiagnostic('SW', `Registered: ${registration.scope}`);
+        
+        // Enhanced update detection
+        registration.addEventListener('updatefound', () => {
+          const newWorker = registration.installing;
+          newWorker?.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              logDiagnostic('SW', 'Update available');
+              document.documentElement.style.setProperty('--sw-update', 'true');
+              
+              // Trigger enhanced toast notification
+              window.dispatchEvent(new CustomEvent('vmq-update-available', {
+                detail: { version: '3.0', cacheBust: Date.now() }
+              }));
+            }
+          });
+        });
+        
+        // 🎯 PERIODIC SYNC for analytics
+        if ('sync' in registration) {
+          registration.sync.register('analytics-sync').then(() => {
+            logDiagnostic('SYNC', 'Periodic sync registered');
+          });
+        }
+        
+        // 🎯 BACKGROUND SYNC for offline data
+        if ('sync' in registration) {
+          registration.sync.register('offline-data-sync').then(() => {
+            logDiagnostic('SYNC', 'Background sync registered');
+          });
+        }
+        
+      } catch (err) {
+        logDiagnostic('SW', 'Registration failed', err);
+      }
+    }
+    
+    // 🎯 STORAGE QUOTA MONITORING
+    async function checkStorageQuota() {
+      try {
+        if ('storage' in navigator && navigator.storage.estimate) {
+          const estimate = await navigator.storage.estimate();
+          const usedPercent = Math.round((estimate.usage / estimate.quota) * 100);
           
-          // 🎯 Update available (ToastSystem integration)
-          registration.addEventListener('updatefound', () => {
-            const newWorker = registration.installing;
-            newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'installed') {
-                if (navigator.serviceWorker.controller) {
-                  document.documentElement.style.setProperty('--sw-update', 'true');
-                  // Trigger VMQToast update notification
-                  window.dispatchEvent(new CustomEvent('vmq-update-available'));
+          logDiagnostic('STORAGE', `Quota: ${usedPercent}% used`);
+          
+          if (usedPercent > 80) {
+            // Trigger cleanup
+            const storage = await import('./js/engines/storage.js');
+            if (storage.autoPrune) {
+              await storage.autoPrune();
+              logDiagnostic('STORAGE', 'Auto-prune triggered');
+            }
+          }
+        }
+      } catch (e) {
+        logDiagnostic('STORAGE', 'Quota check failed', e);
+      }
+    }
+    
+    // 🎯 CONNECTION-AWARE LOADING
+    function getConnectionStatus() {
+      const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (!connection) return 'unknown';
+      
+      return {
+        type: connection.effectiveType || 'unknown',
+        downlink: connection.downlink || 0,
+        saveData: connection.saveData || false
+      };
+    }
+    
+    function adaptLoadingToConnection() {
+      const conn = getConnectionStatus();
+      const statusEl = document.getElementById('loading-status');
+      
+      if (conn.saveData) {
+        // Reduce ML model size, skip non-essential prefetching
+        logDiagnostic('CONNECTION', 'Data saver enabled, reducing features');
+        if (statusEl) statusEl.textContent = 'Optimizing for data saver...';
+      } else if (conn.type === '2g' || conn.downlink < 1) {
+        logDiagnostic('CONNECTION', 'Slow connection detected');
+        if (statusEl) statusEl.textContent = 'Slow connection, loading essentials...';
+      }
+    }
+    
+    // 🎯 BATTERY STATUS ADAPTATION
+    async function adaptToBattery() {
+      try {
+        if (!navigator.getBattery) return;
+        
+        const battery = await navigator.getBattery();
+        if (battery.level < 0.2 && !battery.charging) {
+          logDiagnostic('BATTERY', 'Low battery, reducing animations');
+          document.documentElement.style.setProperty('--reduced-motion', 'true');
+        }
+      } catch (e) {
+        logDiagnostic('BATTERY', 'API not available', e);
+      }
+    }
+    
+    // 🎯 CROSS-TAB SYNC
+    function setupCrossTabSync() {
+      if (!('BroadcastChannel' in window)) return;
+      
+      const channel = new BroadcastChannel('vmq-sync');
+      
+      channel.addEventListener('message', (event) => {
+        if (event.data?.type === 'settings-changed') {
+          logDiagnostic('SYNC', 'Settings changed in another tab');
+          // Reload settings from storage
+          window.location.reload();
+        }
+      });
+      
+      window.addEventListener('beforeunload', () => {
+        channel.postMessage({ type: 'tab-closing', timestamp: Date.now() });
+      });
+      
+      logDiagnostic('SYNC', 'Cross-tab sync enabled');
+    }
+    
+    // 🎯 ENGAGEMENT & NOTIFICATIONS
+    async function setupEngagement() {
+      // Request notification permission after 3 sessions
+      try {
+        const storage = await import('./js/engines/storage.js');
+        const sessions = await storage.loadJSON('vmq-practice-sessions', []);
+        
+        if (sessions.length === 3 && 'Notification' in window && Notification.permission === 'default') {
+          setTimeout(() => {
+            Notification.requestPermission().then(permission => {
+              logDiagnostic('ENGAGEMENT', `Notification permission: ${permission}`);
+              if (permission === 'granted') {
+                // Schedule first practice reminder
+                if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                  navigator.serviceWorker.controller.postMessage({
+                    type: 'SCHEDULE_REMINDER',
+                    delay: 24 * 60 * 60 * 1000 // 24 hours
+                  });
                 }
               }
             });
-          });
-        })
-        .catch(err => console.warn('⚠️ SW failed:', err));
+          }, 5000); // Wait 5 seconds after load
+        }
+      } catch (e) {
+        logDiagnostic('ENGAGEMENT', 'Setup failed', e);
+      }
+    }
+    
+    // 🎯 MAIN BOOTSTRAP SEQUENCE
+    async function bootstrap() {
+      logDiagnostic('BOOTSTRAP', 'Starting VMQ v3.0 bootstrap');
       
-      // 🎯 Controller change (reload)
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        window.location.reload();
+      // Connection-aware adaptations
+      adaptLoadingToConnection();
+      
+      // Battery status check
+      await adaptToBattery();
+      
+      // Check storage quota
+      await checkStorageQuota();
+      
+      // Warm up ML models
+      await warmupMLModels();
+      
+      // Check engine health
+      const enginesHealthy = await checkEngineHealth();
+      
+      if (!enginesHealthy) {
+        logDiagnostic('BOOTSTRAP', '⚠️ Some engines failed health check');
+        document.getElementById('loading-status').textContent = 'Some features unavailable, continuing...';
+      }
+      
+      // Smart prefetching
+      await prefetchUserModules();
+      
+      // Register service worker
+      await registerServiceWorker();
+      
+      // Cross-tab sync
+      setupCrossTabSync();
+      
+      // Setup engagement
+      await setupEngagement();
+      
+      // Performance measurement
+      window.vmqMetrics.engineInitTime = Math.round(performance.now() - startTime);
+      
+      logDiagnostic('BOOTSTRAP', `Complete: ${window.vmqMetrics.engineInitTime}ms`);
+    }
+    
+    // 🎯 ACCESSIBILITY ANNOUNCEMENTS
+    function announceToScreenReader(message) {
+      const announcer = document.createElement('div');
+      announcer.setAttribute('role', 'status');
+      announcer.setAttribute('aria-live', 'polite');
+      announcer.style.position = 'absolute';
+      announcer.style.left = '-10000px';
+      announcer.textContent = message;
+      document.body.appendChild(announcer);
+      setTimeout(() => announcer.remove(), 1000);
+    }
+    
+    // 🎯 PERFORMANCE BUDGET ENFORCEMENT
+    const PERFORMANCE_BUDGETS = {
+      loadTime: 3000, // 3 seconds
+      engineInit: 2000, // 2 seconds
+      mlWarmup: 1000 // 1 second
+    };
+    
+    function checkPerformanceBudgets() {
+      Object.entries(PERFORMANCE_BUDGETS).forEach(([metric, budget]) => {
+        const actual = window.vmqMetrics[`${metric}Time`] || window.vmqMetrics[metric];
+        if (actual > budget) {
+          logDiagnostic('PERF', `⚠️ Budget exceeded: ${metric} (${actual}ms > ${budget}ms)`);
+        }
       });
     }
     
-    // 🎯 MOBILE OPTIMIZATIONS
-    if ('ontouchstart' in window) {
-      document.documentElement.classList.add('touch-device');
-      // Prevent double-tap zoom
-      let lastTouchEnd = 0;
-      document.addEventListener('touchend', (e) => {
-        const now = Date.now();
-        if (now - lastTouchEnd <= 300) {
-          e.preventDefault();
-        }
-        lastTouchEnd = now;
-      }, false);
-    }
-    
-    // 🎯 THEME SYSTEM (Persisted + System)
-    const savedTheme = localStorage.getItem('vmq-theme') || 
-                       (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    
-    document.documentElement.setAttribute('data-theme', savedTheme);
-    document.documentElement.setAttribute('data-font-size', localStorage.getItem('vmq-font-size') || 'base');
-    
-    // 🎯 ACCESSIBILITY (Auto-detect)
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      document.documentElement.style.setProperty('--reduced-motion', 'true');
-    }
-    
-    // 🎯 COREWEB VITALS (Performance budget)
-    window.vmqMetrics = {
-      fcp: 0,
-      fid: 0,
-      cls: 0,
-      loadTime: 0
-    };
-    
-    // 🎯 BOOTSTRAP COMPLETE
-    new PerformanceObserver((list) => {
-      const entries = list.getEntries();
-      const lastEntry = entries[entries.length - 1];
-      window.vmqMetrics.loadTime = Math.round(lastEntry.startTime);
-      
-      // 🎯 Hide loading + show app
+    // 🎯 START BOOTSTRAP
+    bootstrap().then(() => {
+      // All engines ready, hide loading screen
       const loadingScreen = document.getElementById('loading-screen');
       const appContent = document.getElementById('app-content');
-      
-      // 🎯 Progressive loading animation
       const progressFill = loadingScreen.querySelector('.progress-fill');
+      
+      // Show 100% progress
       progressFill.style.setProperty('--width', '100%');
+      announceToScreenReader('Violin Mastery Quest is ready');
+      
+      // Check performance budgets
+      checkPerformanceBudgets();
       
       setTimeout(() => {
         loadingScreen.classList.remove('active');
         appContent.style.display = 'flex';
-        console.log(`🚀 VMQ v2.1.1 loaded: ${Math.round(performance.now() - startTime)}ms`);
-      }, 800);
-    }).observe({ entryTypes: ['paint'] });
+        
+        console.log(`🚀 VMQ v3.0 loaded: ${Math.round(performance.now() - startTime)}ms`);
+        console.log('📊 Metrics:', window.vmqMetrics);
+        
+        // Dispatch ready event for other components
+        window.dispatchEvent(new CustomEvent('vmq-ready', {
+          detail: { metrics: window.vmqMetrics, diagnosticLog }
+        }));
+      }, 500);
+    }).catch(err => {
+      logDiagnostic('BOOTSTRAP', 'Fatal error during bootstrap', err);
+      
+      // Show diagnostic overlay
+      const overlay = document.getElementById('diagnostic-overlay');
+      const appContent = document.getElementById('app-content');
+      if (overlay && appContent) {
+        appContent.style.display = 'none';
+        overlay.style.display = 'flex';
+        
+        const logEl = document.getElementById('diagnostic-log');
+        if (logEl) {
+          logEl.textContent = diagnosticLog.join('\n') + '\n\n' + err.stack;
+        }
+      }
+    });
+    
+    // 🎯 RELOAD BUTTON
+    document.getElementById('diagnostic-reload')?.addEventListener('click', () => {
+      window.location.reload();
+    });
   </script>
 
   <!-- 🎯 VMQ APP ENTRY (ES Modules + Tree-shaking) -->
