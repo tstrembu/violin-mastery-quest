@@ -1,3 +1,10 @@
+PROMPT: Please review and analyze the module (part of the Violin Mastery Quest app hosted on GitHub) below. When making improvements, optimizations, please consider the entire app, preserve/build upon original functionality, add/improve sophisticated learning analytics/machine learning where applicable, as well as any other improvements, enhancements, optimizations, deeper integrations, etc. that significantly boost user enjoyment/engagement and their ability to learn/retain/apply. Please provide fully developed and complete code that is fully functional with the app as drop-in code.
+
+Original file:
+
+### ** `js/components/ Settings.js`** 
+
+
 // ========================================================
 // VMQ SETTINGS - Complete with Theme & Accessibility Toggles
 // ========================================================
@@ -414,3 +421,4 @@ export function Settings({ navigate, audioEngine, showToast }) {
 }
 
 export default Settings;
+}
