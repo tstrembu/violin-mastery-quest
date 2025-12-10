@@ -1,5 +1,5 @@
 // ======================================
-// VMQ AUDIO ENGINE v3.0.5 - Web Audio API for Violin Training
+// VMQ AUDIO ENGINE 3.0.0 - Web Audio API for Violin Training
 // ML-Adaptive • Performance-Optimized • Pedagogically-Designed
 // ======================================
 
@@ -87,6 +87,63 @@ class AudioEngine {
       console.error('[AudioEngine] Initialization failed:', error);
       return Promise.reject(error);
     }
+  }
+  
+  // Add to AudioEngine class:
+
+  /**
+   * Start recording practice session
+   * @returns {Promise<void>}
+   */
+  async startRecording() {
+    if (!this.micInitialized) {
+      await this.initMicrophone();
+    }
+    
+    this.mediaRecorder = new MediaRecorder(this.micStream, {
+      mimeType: 'audio/webm;codecs=opus'
+    });
+    
+    this.recordedChunks = [];
+    
+    this.mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        this.recordedChunks.push(event.data);
+      }
+    };
+    
+    this.mediaRecorder.start();
+    this.recordingStartTime = Date.now();
+    
+    console.log('[AudioEngine] Recording started');
+  }
+  
+  /**
+   * Stop recording and return audio blob
+   * @returns {Promise<Blob>}
+   */
+  stopRecording() {
+    return new Promise((resolve, reject) => {
+      if (!this.mediaRecorder || this.mediaRecorder.state === 'inactive') {
+        reject(new Error('No active recording'));
+        return;
+      }
+      
+      this.mediaRecorder.onstop = () => {
+        const blob = new Blob(this.recordedChunks, { type: 'audio/webm' });
+        const duration = Date.now() - this.recordingStartTime;
+        
+        console.log(`[AudioEngine] Recording stopped (${duration}ms, ${blob.size} bytes)`);
+        
+        resolve({
+          blob,
+          duration,
+          url: URL.createObjectURL(blob)
+        });
+      };
+      
+      this.mediaRecorder.stop();
+    });
   }
 
   /**
