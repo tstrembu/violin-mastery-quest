@@ -953,6 +953,68 @@ if (document.readyState === 'loading') {
   bootstrap();
 }
 
+// In js/bootstrap.js or main App.js
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js')
+    .then(async registration => {
+      console.log('✓ VMQ SW registered');
+      
+      // Enable periodic background sync (check for due items)
+      if ('periodicSync' in registration) {
+        try {
+          await registration.periodicSync.register('check-due-items', {
+            minInterval: 30 * 60 * 1000 // 30 minutes
+          });
+          console.log('✓ Periodic sync registered');
+        } catch (e) {
+          console.warn('Periodic sync failed:', e);
+        }
+      }
+      
+      // Request notification permission
+      if ('Notification' in window && Notification.permission === 'default') {
+        // Ask user after they've practiced for a while
+        setTimeout(async () => {
+          const permission = await Notification.requestPermission();
+          if (permission === 'granted') {
+            console.log('✓ Notifications enabled');
+          }
+        }, 60000); // After 1 minute
+      }
+      
+      // Listen for SW messages
+      navigator.serviceWorker.addEventListener('message', event => {
+        const { type, data } = event.data;
+        
+        if (type === 'SYNC_ANALYTICS') {
+          // Process synced analytics events
+          console.log('Syncing analytics:', data.events?.length);
+        }
+        
+        if (type === 'CHECK_DUE_ITEMS') {
+          // Check for due flashcards and show notification
+          const dueCount = getDueItems('all', 100).length;
+          if (dueCount > 0) {
+            showToast(`${dueCount} flashcards are due for review!`, 'info');
+          }
+        }
+      });
+    })
+    .catch(err => {
+      console.error('SW registration failed:', err);
+    });
+  
+  // Send navigation events to SW for ML prefetching
+  window.addEventListener('hashchange', () => {
+    const route = window.location.hash.slice(1) || 'menu';
+    navigator.serviceWorker.controller?.postMessage({
+      type: 'NAVIGATION',
+      route
+    });
+  });
+}
+
 // ======================================
 // UTILITY EXPORTS
 // ======================================
