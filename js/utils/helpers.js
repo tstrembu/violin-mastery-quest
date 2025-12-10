@@ -56,6 +56,44 @@ export const MUSIC = {
     const fingerOffset = (finger - 1); // Fingers 1-4 within position
     return positionOffset + fingerOffset;
   },
+  
+  // js/utils/audioHelpers.js - Missing utility functions
+  /**
+   * Calculate interval distance between two frequencies
+   * @param {number} freq1 - First frequency
+   * @param {number} freq2 - Second frequency
+   * @returns {number} Interval in semitones
+   */
+  export function calculateInterval(freq1, freq2) {
+    return Math.round(12 * Math.log2(freq2 / freq1));
+  }
+  
+  /**
+   * Get interval name from semitone distance
+   * @param {number} semitones - Distance in semitones
+   * @returns {string} Interval name
+   */
+  export function getIntervalName(semitones) {
+    const intervals = {
+      0: 'Unison', 1: 'Minor 2nd', 2: 'Major 2nd', 3: 'Minor 3rd',
+      4: 'Major 3rd', 5: 'Perfect 4th', 6: 'Tritone', 7: 'Perfect 5th',
+      8: 'Minor 6th', 9: 'Major 6th', 10: 'Minor 7th', 11: 'Major 7th',
+      12: 'Octave'
+    };
+    return intervals[Math.abs(semitones) % 12] || 'Unknown';
+  }
+  
+  /**
+   * Check if pitch is within acceptable range of target
+   * @param {number} actual - Actual frequency
+   * @param {number} target - Target frequency
+   * @param {number} tolerance - Tolerance in cents (default 50)
+   * @returns {boolean}
+   */
+  export function isPitchAccurate(actual, target, tolerance = 50) {
+    const cents = 1200 * Math.log2(actual / target);
+    return Math.abs(cents) <= tolerance;
+  }
 
   // Semitones → Position + Finger
   semitonesToPosition(semitones) {
