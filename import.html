@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Import Practice Data – Violin Mastery Quest</title>
+  <link rel="stylesheet" href="./css/base.css" />
+</head>
+<body>
+  <main class="module-container">
+    <h1>Import Practice Data</h1>
+    <p>Select a VMQ practice JSON file to import.  This will merge with any
+      existing practice data stored on this device.</p>
+    <input type="file" id="importFile" accept=".vmq,.practice,application/json" />
+    <button id="importButton" class="btn btn-primary" style="margin-top: var(--space-md)">
+      Import
+    </button>
+    <p id="status" class="text-muted" style="margin-top: var(--space-md)"></p>
+  </main>
+  <script type="module">
+    import { loadJSON, saveJSON } from './js/config/storage.js';
+    const fileInput = document.getElementById('importFile');
+    const importButton = document.getElementById('importButton');
+    const statusEl = document.getElementById('status');
+
+    importButton.addEventListener('click', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) {
+        statusEl.textContent = 'Please choose a file.';
+        return;
+      }
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const existing = loadJSON('PRACTICE_DATA') || {};
+        const merged = { ...existing, ...data };
+        saveJSON('PRACTICE_DATA', merged);
+        statusEl.textContent = 'Import successful!';
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = 'Import failed: ' + err.message;
+      }
+    });
+  </script>
+</body>
+</html>
