@@ -20,6 +20,8 @@ import { getDueItems } from './engines/spacedRepetition.js';
 
 // Global Toast System
 import ToastSystem from './components/Toast.js';
+import ErrorBoundary from './components/ErrorBoundary.js';
+import Loading from './components/Loading.js';
 
 // Core Components
 import MainMenu from './components/MainMenu.js';
