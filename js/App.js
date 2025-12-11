@@ -546,94 +546,107 @@ export default function App() {
   // INITIALIZATION v3.0 - ML-Enhanced Resilience
   // ====================================
   useEffect(() => {
-    async function initialize() {
-      console.log(`[VMQ v${VMQ_VERSION}] Initializing with ML enhancements...`);
+    let cancelled = false;
+  
+    async function initVMQ() {
+      console.log(`[VMQ v${VMQ_VERSION}] initVMQ start`);
       initAttempts.current += 1;
-      
       const initStart = performance.now();
-
+  
       try {
-        // Health check first
+        // 1) Health check first
         const isHealthy = await checkHealth();
         if (!isHealthy) {
           console.warn('[VMQ] Some non-critical engines failed health check');
         }
-
-        // Load settings with ML defaults
+        if (cancelled) return;
+  
+        // 2) Load settings with ML defaults
         const savedSettings = loadJSON(STORAGE_KEYS.SETTINGS, settings);
         setSettings(savedSettings);
         applyTheme(savedSettings);
-
-        // Initialize critical engines in parallel
+        if (cancelled) return;
+  
+        // 3) Initialize critical engines in parallel
         await Promise.all([
           audioEngine.init(),
           keyboard.init(),
           a11y.init(),
           sessionTracker.init()
         ]);
-
-        // Audio config
+        if (cancelled) return;
+  
+        // 4) Audio config
         audioEngine.setMuted(savedSettings.muted);
         audioEngine.setVolume(savedSettings.volume);
-
-        // Stats with ML insights
+  
+        // 5) Stats with ML insights
         await refreshStats();
-
-        // Emit init event
+        if (cancelled) return;
+  
+        // 6) Emit init event
         emitAnalyticsEvent('app', 'initialized', {
           attempt: initAttempts.current,
           health: health.status,
           mlWarmup: mlContext.isWarmingUp ? 'pending' : 'complete'
         });
-
-        // Determine initial route with ML
+  
+        // 7) Determine initial route with ML
         const profile = loadJSON(STORAGE_KEYS.PROFILE, {});
         const isFirstTime = !profile.onboardingComplete;
-        
+  
         let initialRoute = isFirstTime ? VMQ_ROUTES.WELCOME : VMQ_ROUTES.MENU;
-        
+  
         // ML: If due items exist, prioritize flashcards
         if (!isFirstTime && mlContext.dueItems > 5) {
           initialRoute = VMQ_ROUTES.FLASHCARDS;
           emitAnalyticsEvent('ml', 'prioritized-due-items', { count: mlContext.dueItems });
         }
-
-        // Set route and mark initialized
+  
+        // 8) Set route and mark initialized
         router.navigate(initialRoute, {}, { track: false });
+        if (cancelled) return;
+  
         setInitialized(true);
-
-        // Check performance budget
+  
+        // 9) Check performance budget
         const initTime = performance.now() - initStart;
-        checkBudget({ engineInitTime: initTime, mlWarmupTime: mlContext.isWarmingUp ? 0 : 500 });
-
-        console.log(`[VMQ v${VMQ_VERSION}] ✓ Ready • ML-Enhanced`);
-        
-      } catch (error) {
-        console.error('[VMQ] Init failed:', error);
-        emitAnalyticsEvent('error', 'init-failed', { 
-          error: error.message, 
-          attempt: initAttempts.current 
+        checkBudget({
+          engineInitTime: initTime,
+          mlWarmupTime: mlContext.isWarmingUp ? 0 : 500
         });
-        
+  
+        console.log(`[VMQ v${VMQ_VERSION}] ✓ Ready • ML-Enhanced`);
+      } catch (error) {
+        if (cancelled) return;
+  
+        console.error('[VMQ] initVMQ failed:', error);
+        emitAnalyticsEvent('error', 'init-failed', {
+          error: error.message,
+          attempt: initAttempts.current
+        });
+  
+        // Retry a couple of times, then give up and show error UI
         if (initAttempts.current < 3) {
-          console.log(`[VMQ] Retrying... (${initAttempts.current}/3)`);
-          setTimeout(initialize, 1000);
+          console.log(`[VMQ] Retrying init... (${initAttempts.current}/3)`);
+          setTimeout(initVMQ, 1000);
         } else {
           setError(error);
           setInitialized(true);
         }
       }
     }
-
-    initialize();
-    
-    // Subscribe to router changes
+  
+    initVMQ();
+  
+    // Keep your router subscription logic if you had it before
     const unsubscribe = router.routeInfo.subscribe?.(() => {}) || (() => {});
-    
+  
     return () => {
+      cancelled = true;
       unsubscribe();
     };
-  }, [checkHealth, emitAnalyticsEvent, refreshStats, router, mlContext, checkBudget]);
+  }, [checkHealth, emitAnalyticsEvent, refreshStats, router, mlContext, checkBudget, settings]);
 
   // ====================================
   // ENGAGEMENT MONITORING
