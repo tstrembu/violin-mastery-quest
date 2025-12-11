@@ -3,7 +3,6 @@
  * Detailed progress tracking and insights
  */
 
-import { useState, useEffect } from 'react';
 import { 
   getAllModuleStats, 
   getProgressSummary,
@@ -17,6 +16,9 @@ import {
   loadAchievements 
 } from '../config/storage.js';
 import { ACHIEVEMENTS } from '../config/constants.js';
+
+// Use React from the global UMD bundle
+const { useState, useEffect } = React;
 
 export default function Analytics({ navigate }) {
   const [summary, setSummary] = useState(null);
