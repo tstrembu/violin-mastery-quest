@@ -33,12 +33,15 @@ import CoachPanel from './components/CoachPanel.js';
 import PracticeJournal from './components/PracticeJournal.js';
 
 // Learning Modules (lazy-loaded)
-import Intervals from './components/Intervals.js';
-import KeySignatures from './components/KeySignatures.js';
-import Rhythm from './components/Rhythm.js';
-import Bieler from './components/Bieler.js';
-import Fingerboard from './components/Fingerboard.js';
-import ScalesLab from './components/ScalesLab.js';
+// Use dynamic imports with React.lazy for large training modules to
+// reduce initial bundle size.  Each lazy import returns a component
+// whose default export matches the original component.
+const Intervals     = React.lazy(() => import('./components/Intervals.js'));
+const KeySignatures = React.lazy(() => import('./components/KeySignatures.js'));
+const Rhythm        = React.lazy(() => import('./components/Rhythm.js'));
+const Bieler        = React.lazy(() => import('./components/Bieler.js'));
+const Fingerboard   = React.lazy(() => import('./components/Fingerboard.js'));
+const ScalesLab     = React.lazy(() => import('./components/ScalesLab.js'));
 
 // Additional module imports would follow the same pattern
 
