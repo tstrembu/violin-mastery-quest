@@ -321,6 +321,30 @@ export default function App() {
     autoPlayAudio: true
   });
   
+  // ====================================
+  // FAIL-SAFE INIT TIMEOUT
+  // If initialization never finishes (e.g., an engine hangs),
+  // start VMQ in "degraded" mode so the user can still practice.
+  // ====================================
+  useEffect(() => {
+    if (initialized) return;
+  
+    const timeoutId = setTimeout(() => {
+      console.warn('[VMQ] Initialization timed out, starting in degraded mode.');
+  
+      setInitialized(true); // let the main UI render
+  
+      setHealth(prev => {
+        if (!prev) return prev;
+        // If health wasn't already "healthy", mark it as degraded
+        const status = prev.status === 'healthy' ? prev.status : 'degraded';
+        return { ...prev, status };
+      });
+    }, 8000); // 8s; adjust if you like
+  
+    return () => clearTimeout(timeoutId);
+  }, [initialized, setInitialized, setHealth]);
+  
   // Enhanced state
   const [gamificationState, setGamificationState] = useState({
     activeBoosts: [],
