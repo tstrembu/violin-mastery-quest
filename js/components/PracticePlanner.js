@@ -3,7 +3,6 @@
  * Comprehensive practice session planning with Bieler technique tasks
  */
 
-import { useState, useEffect } from 'react';
 import { 
   loadPracticePlan, 
   savePracticePlan 
@@ -13,6 +12,9 @@ import {
   incrementDailyItems 
 } from '../engines/gamification.js';
 import { TECHNIQUE_TASKS } from '../config/constants.js';
+
+// Use React from the global UMD bundle
+const { useState, useEffect } = React;
 
 export default function PracticePlanner({ navigate, showToast }) {
   const [items, setItems] = useState([]);
