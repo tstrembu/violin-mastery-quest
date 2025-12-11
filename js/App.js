@@ -1,5 +1,5 @@
 // ======================================
-// VMQ ROOT v3.0 - ML-Adaptive PWA
+// VMQ ROOT APP v3.0 - ML-Adaptive PWA
 // Error Boundaries • Theme Sync • 50+ Modules • Predictive Loading
 // ======================================
 
@@ -324,26 +324,22 @@ export default function App() {
   // ====================================
   // FAIL-SAFE INIT TIMEOUT
   // If initialization never finishes (e.g., an engine hangs),
-  // start VMQ in "degraded" mode so the user can still practice.
+  // start VMQ anyway so the user can still practice.
   // ====================================
   useEffect(() => {
     if (initialized) return;
   
     const timeoutId = setTimeout(() => {
-      console.warn('[VMQ] Initialization timed out, starting in degraded mode.');
-  
-      setInitialized(true); // let the main UI render
-  
-      setHealth(prev => {
-        if (!prev) return prev;
-        // If health wasn't already "healthy", mark it as degraded
-        const status = prev.status === 'healthy' ? prev.status : 'degraded';
-        return { ...prev, status };
+      console.warn('[VMQ] Initialization timed out, starting in degraded mode.', {
+        healthStatus: health.status
       });
-    }, 8000); // 8s; adjust if you like
+  
+      setInitialized(true);
+      // We don't modify health directly here; we just log what it was.
+    }, 8000); // adjust if you like
   
     return () => clearTimeout(timeoutId);
-  }, [initialized, setInitialized, setHealth]);
+  }, [initialized, health.status]);
   
   // Enhanced state
   const [gamificationState, setGamificationState] = useState({
