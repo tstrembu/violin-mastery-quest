@@ -1031,3 +1031,17 @@ export { emitAnalyticsEvent as trackEvent };
 export function checkFeature(featureName) {
   return FEATURES[featureName]?.enabled !== false;
 }
+
+// Wrap App with ML provider, error boundary and suspense.
+// ErrorBoundary prevents unhandled exceptions from crashing the app,
+// while Suspense displays a loading indicator when lazily loaded
+// modules are being fetched.
+const AppWithProviders = h(MLProvider, null,
+  h(ErrorBoundary, null,
+    h(React.Suspense, { fallback: h(Loading, { message: 'Loading modules…' }) },
+      h(App)
+    )
+  )
+);
+const container = ReactDOM.createRoot(root);
+container.render(AppWithProviders);
