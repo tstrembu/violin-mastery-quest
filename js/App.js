@@ -301,6 +301,11 @@ export default function App() {
   const [error, setError] = useState(null);
   const [xp, setXp] = useState(0);
   const [streak, setStreak] = useState(0);
+  // Hooks that provide health, metrics, etc.
+  const { health, checkHealth } = useEngineHealth();
+  const { metrics, checkBudget } = usePerformanceBudget();
+  const engagement = useEngagementOptimizer();
+  const initAttempts = useRef(0);
   const [level, setLevel] = useState({ level: 1, title: 'Beginner', badge: '🎵' });
   const [settings, setSettings] = useState({
     muted: false,
@@ -333,10 +338,8 @@ export default function App() {
       console.warn('[VMQ] Initialization timed out, starting in degraded mode.', {
         healthStatus: health.status
       });
-  
       setInitialized(true);
-      // We don't modify health directly here; we just log what it was.
-    }, 8000); // adjust if you like
+    }, 8000);
   
     return () => clearTimeout(timeoutId);
   }, [initialized, health.status]);
@@ -361,7 +364,7 @@ export default function App() {
     const event = {
       category,
       action,
-       {
+      data: {
         ...data,
         timestamp: Date.now(),
         route: router.routeInfo.current,
