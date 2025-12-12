@@ -1059,25 +1059,16 @@ if ('serviceWorker' in navigator) {
 // ======================================
 // UTILITY EXPORTS
 // ======================================
-export { router };
-export { MLContext };
-export { emitAnalyticsEvent as trackEvent };
 
-// Feature flag checker
+// Re-export MLContext if you ever want to consume it from
+// other modules (optional but safe).
+export { MLContext };
+
+/**
+ * Feature-flag checker.
+ * Returns true if the feature is enabled (or not explicitly disabled),
+ * and false only when FEATURES[featureName].enabled === false.
+ */
 export function checkFeature(featureName) {
   return FEATURES[featureName]?.enabled !== false;
 }
-
-// Wrap App with ML provider, error boundary and suspense.
-// ErrorBoundary prevents unhandled exceptions from crashing the app,
-// while Suspense displays a loading indicator when lazily loaded
-// modules are being fetched.
-const AppWithProviders = h(MLProvider, null,
-  h(ErrorBoundary, null,
-    h(React.Suspense, { fallback: h(Loading, { message: 'Loading modules…' }) },
-      h(App)
-    )
-  )
-);
-const container = ReactDOM.createRoot(root);
-container.render(AppWithProviders);
