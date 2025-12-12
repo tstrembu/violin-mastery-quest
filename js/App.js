@@ -1034,10 +1034,14 @@ if ('serviceWorker' in navigator) {
         }
         
         if (type === 'CHECK_DUE_ITEMS') {
-          // Check for due flashcards and show notification
           const dueCount = getDueItems('all', 100).length;
           if (dueCount > 0) {
-            showToast(`${dueCount} flashcards are due for review!`, 'info');
+            window.dispatchEvent(new CustomEvent('vmq-show-toast', {
+              detail: {
+                message: `${dueCount} flashcards are due for review!`,
+                type: 'info'
+              }
+            }));
           }
         }
       });
