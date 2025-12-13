@@ -42,9 +42,6 @@ const Rhythm        = React.lazy(() => import('./components/Rhythm.js'));
 const Bieler        = React.lazy(() => import('./components/Bieler.js'));
 const Fingerboard   = React.lazy(() => import('./components/Fingerboard.js'));
 const ScalesLab     = React.lazy(() => import('./components/ScalesLab.js'));
-
-// Additional module imports would follow the same pattern
-const Component = ROUTES[router.route] || NotFound;
     
 // ======================================
 // ML CONTEXT PROVIDER
@@ -722,7 +719,14 @@ export default function App() {
   // ====================================
   // ROUTE RENDERER WITH PREDICTIVE LOADING
   // ====================================
-    
+  
+  // ====================================
+  // ROUTE RENDERER WITH PREDICTIVE LOADING
+  // ====================================
+  const renderCurrentRoute = () => { // <--- ADDED FUNCTION NAME
+    // Get the component dynamically inside the function scope
+    const Component = ROUTES[router.route] || NotFound; // <--- MOVED COMPONENT DEFINITION HERE
+
     const commonProps = {
       onBack: () => router.navigate(VMQ_ROUTES.MENU),
       onNavigate: router.navigate,
@@ -734,8 +738,10 @@ export default function App() {
       updateSettings,
       mlContext,
       emitAnalyticsEvent
-    };
-    
+  };
+
+  // Ensure lazy components are wrapped in React.Suspense in the parent
+  // Note: We don't see the Suspense boundary here, but we'll assume the caller (App) or a parent component handles it.
     return h(Component, commonProps);
   };
 
