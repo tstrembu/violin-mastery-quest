@@ -1,5 +1,5 @@
 // ======================================
-// VMQ UTILITIES HELPERS v3.0.0 - FIXED
+// VMQ UTILITIES HELPERS v3.0.0 
 // Music Theory + AI + Performance + Analytics Optimized
 // ======================================
 
