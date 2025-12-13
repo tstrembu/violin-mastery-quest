@@ -16,7 +16,7 @@ const CONFIG = {
   TICK_INTERVAL: 1000,        // 1s updates
   MIN_SESSION_MINUTES: 1,     // Minimum trackable session
   AUTO_SAVE_INTERVAL: 30000,  // 30s autosave
-  MAX_SESSION_HOURS: 4,       // 4hr max (prevent runaway)
+  MAX_SESSION_HOURS: 5,       // 5hr max (prevent runaway)
   FOCUS_THRESHOLD: 0.8,       // 80% focus = high quality
   INTERACTION_WINDOW: 5000,   // 5s interaction grouping
   MAX_JOURNAL_ENTRIES: 1000   // Keep last 1000 sessions
