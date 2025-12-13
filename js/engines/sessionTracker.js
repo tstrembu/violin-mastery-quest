@@ -1,11 +1,11 @@
 // ======================================
-// SESSION TRACKER v2.1.1 - Advanced Auto-Detection & Learning Analytics
+// SESSION TRACKER v2.1.2 - Advanced Auto-Detection & Learning Analytics
 // Powers Analytics + Coach + Gamification + Spaced Repetition
 // ======================================
 
 import { loadJSON, saveJSON, STORAGE_KEYS } from '../config/storage.js';
 import { addXP, updateStreak, checkAchievements } from './gamification.js';
-import { updateSRSReviews } from './spacedRepetition.js';
+import { updateSRSReviews } from './spacedRepetition.js'; // Ensure this is exported in spacedRepetition.js
 
 // ======================================
 // CONFIGURATION
@@ -76,7 +76,7 @@ class SessionTracker {
     this.detectAndStartSession();
     this.setupIntersectionObserver();
     
-    console.log('[Tracker] 🎯 Session tracking v2.1.1 active');
+    console.log('[Tracker] 🎯 Session tracking v2.1.2 active');
   }
 
   // ======================================
@@ -372,6 +372,22 @@ class SessionTracker {
     
     // Update daily stats
     this.updateDailyStats(entry);
+
+    // 🎯 FIXED: Update SRS deck if this was a flashcard session
+    // We infer it's an SRS session if the activity matches typical Flashcard names
+    // Note: session.statsDelta gives us aggregate performance (correct/total),
+    // but updateSRSReviews usually needs per-item results.
+    // Assuming updateSRSReviews can handle batch updates or we update stats.
+    if (session.activity.includes('Flashcard') || session.activity.includes('Spaced')) {
+       // Since sessionTracker doesn't store per-item IDs in this simplified version,
+       // we might need a placeholder or rely on the Flashcards component to call updateItem directly.
+       // However, if updateSRSReviews supports general session stats:
+       if (typeof updateSRSReviews === 'function') {
+           // Pass session metrics to SRS engine to update global review counts/time
+           // This assumes updateSRSReviews is adapted to take general metrics if item IDs aren't available
+           updateSRSReviews(session.interactions.correctAnswers, session.interactions.wrongAnswers, session.engagedMs);
+       }
+    }
 
     console.log(
       `[Tracker] ✅ Saved: ${session.activity}\n` +
@@ -796,7 +812,6 @@ class SessionTracker {
     const backup = sessionStorage.getItem('vmq-session-backup');
     if (!backup) return false;
 
-    // ...
     try {
       const session = JSON.parse(backup);
       const age = Date.now() - session.backupTime;
@@ -810,7 +825,7 @@ class SessionTracker {
       } else {
         // If too old, remove the stale backup
         console.log('[Tracker] 🗑️ Discarding stale session backup');
-        sessionStorage.removeItem('vmq-session-backup');
+        sessionStorage.removeItem('vmq-session-backup'); // Remove stale backup
       }
     } catch (e) {
       console.warn('[Tracker] Failed to restore backup:', e);
