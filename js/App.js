@@ -44,7 +44,8 @@ const Fingerboard   = React.lazy(() => import('./components/Fingerboard.js'));
 const ScalesLab     = React.lazy(() => import('./components/ScalesLab.js'));
 
 // Additional module imports would follow the same pattern
-
+const Component = ROUTES[router.route] || NotFound;
+    
 // ======================================
 // ML CONTEXT PROVIDER
 // ======================================
@@ -721,8 +722,6 @@ export default function App() {
   // ====================================
   // ROUTE RENDERER WITH PREDICTIVE LOADING
   // ====================================
-  const renderCurrentRoute = () => {
-    const Component = ROUTES[router.route] || NotFound;
     
     const commonProps = {
       onBack: () => router.navigate(VMQ_ROUTES.MENU),
