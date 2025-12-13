@@ -796,6 +796,7 @@ class SessionTracker {
     const backup = sessionStorage.getItem('vmq-session-backup');
     if (!backup) return false;
 
+    // ...
     try {
       const session = JSON.parse(backup);
       const age = Date.now() - session.backupTime;
@@ -804,11 +805,16 @@ class SessionTracker {
       if (age < 600000) {
         console.log('[Tracker] 🔄 Restoring session backup');
         this.currentSession = session;
-        sessionStorage.removeItem('vmq-session-backup');
+        sessionStorage.removeItem('vmq-session-backup'); // Remove successful backup
         return true;
+      } else {
+        // If too old, remove the stale backup
+        console.log('[Tracker] 🗑️ Discarding stale session backup');
+        sessionStorage.removeItem('vmq-session-backup');
       }
     } catch (e) {
       console.warn('[Tracker] Failed to restore backup:', e);
+      sessionStorage.removeItem('vmq-session-backup'); // Remove failed backup
     }
     
     return false;
