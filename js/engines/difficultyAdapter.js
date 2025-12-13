@@ -259,6 +259,22 @@ class DifficultyAdapter {
   }
 }
 
+// 🎯 ML: New function to satisfy the router's dependency
+export async function getAdaptiveConfig() {
+    const weakAreas = await difficultyAdapter.getRecommendations();
+    
+    // Router expects 'weakAreas' to match the recommendation structure
+    return {
+        weakAreas: weakAreas.map(rec => ({
+            module: rec.module,
+            reason: rec.reason,
+            priority: rec.priority,
+            // Add a level for consistency with weakAreas structure
+            level: (difficultyAdapter.performance.get(rec.module)?.level || 1)
+        }))
+    };
+}
+
 // ======================================
 // GLOBAL INSTANCE
 // ======================================
