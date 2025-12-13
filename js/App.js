@@ -348,7 +348,26 @@ export default function App() {
     achievementQueue: [],
     socialLeaderboard: null
   });
-  
+
+  // ====================================
+  // 404 NOT FOUND
+  // ====================================
+  function NotFound({ onBack }) {
+    return h('div', { className: 'module-container' },
+      h('div', { className: 'card card-error', style: { textAlign: 'center', padding: 'var(--space-2xl)' } },
+        h('div', { className: 'error-icon', style: { fontSize: 'clamp(3rem, 10vw, 5rem)' } }, '🚫'),
+        h('h2', { style: { marginBottom: 'var(--space-md)' } }, 'Route Not Found'),
+        h('p', { className: 'text-muted', style: { marginBottom: 'var(--space-xl)' } }, 
+          `"${router.route}" doesn't exist in VMQ`
+        ),
+        h('button', {
+          className: 'btn btn-primary btn-lg',
+          onClick: () => onBack()
+        }, '🏠 Back to Menu')
+      )
+    );
+  }
+
   // ====================================
   // ANALYTICS EVENT BUS
   // ====================================
@@ -744,25 +763,6 @@ export default function App() {
   // Note: We don't see the Suspense boundary here, but we'll assume the caller (App) or a parent component handles it.
     return h(Component, commonProps);
   };
-
-  // ====================================
-  // 404 NOT FOUND
-  // ====================================
-  function NotFound({ onBack }) {
-    return h('div', { className: 'module-container' },
-      h('div', { className: 'card card-error', style: { textAlign: 'center', padding: 'var(--space-2xl)' } },
-        h('div', { className: 'error-icon', style: { fontSize: 'clamp(3rem, 10vw, 5rem)' } }, '🚫'),
-        h('h2', { style: { marginBottom: 'var(--space-md)' } }, 'Route Not Found'),
-        h('p', { className: 'text-muted', style: { marginBottom: 'var(--space-xl)' } }, 
-          `"${router.route}" doesn't exist in VMQ`
-        ),
-        h('button', {
-          className: 'btn btn-primary btn-lg',
-          onClick: () => onBack()
-        }, '🏠 Back to Menu')
-      )
-    );
-  }
 
   // ====================================
   // ERROR BOUNDARY UI with Diagnostics
