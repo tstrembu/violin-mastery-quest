@@ -12,6 +12,7 @@ import { loadXP, getLevel } from './gamification.js';
  * Difficulty Levels (Violin-optimized)
  */
 const DIFFICULTY_LEVELS = {
+  // ... (Difficulty Levels remain unchanged)
   BEGINNER: { id: 1, speed: 0.5, accuracyTarget: 70, notes: 4, tempo: 60 },
   INTERMEDIATE: { id: 2, speed: 0.75, accuracyTarget: 80, notes: 8, tempo: 90 },
   ADVANCED: { id: 3, speed: 1.0, accuracyTarget: 85, notes: 12, tempo: 120 },
@@ -23,6 +24,7 @@ const DIFFICULTY_LEVELS = {
  * Module Categories (VMQ 50+ modules)
  */
 const MODULE_CATEGORIES = {
+  // ... (Module Categories remain unchanged)
   EAR_TRAINING: ['intervalear', 'keytester', 'tempotester', 'arpeggiotester'],
   NOTE_READING: ['flashcards', 'snapshot', 'notelocator'],
   THEORY: ['intervals', 'keys', 'rhythm', 'scaleslab'],
@@ -34,6 +36,7 @@ const MODULE_CATEGORIES = {
  * Adaptation Triggers
  */
 const ADAPTATION_RULES = {
+  // ... (Adaptation Rules remain unchanged)
   SPEED_UP: { accuracy: 90, streak: 5, sessions: 3 },    // Promote
   SLOW_DOWN: { accuracy: 65, streak: 0, lapses: 2 },     // Demote
   STABILITY_WINDOW: 5,                                   // Reviews needed
@@ -74,10 +77,13 @@ class DifficultyAdapter {
       (baseLevel * 0.4 + moduleLevel * 0.4 + sm2Level * 0.2)
     ));
     
+    // Find the closest valid level ID (1-5)
+    const levelId = Math.round(finalLevel);
+    
     return {
-      level: Math.round(finalLevel),
-      config: DIFFICULTY_LEVELS[Math.round(finalLevel)],
-      recommendation: this.getRecommendation(moduleId, finalLevel),
+      level: levelId,
+      config: DIFFICULTY_LEVELS[Object.keys(DIFFICULTY_LEVELS)[levelId - 1]],
+      recommendation: this.getRecommendation(moduleId, levelId),
       performance: perf
     };
   }
@@ -177,7 +183,7 @@ class DifficultyAdapter {
   }
 
   /**
-   * Global recommendations
+   * Global recommendations (used for weakAreas)
    */
   async getRecommendations() {
     const recs = [];
@@ -193,16 +199,18 @@ class DifficultyAdapter {
           priority: 'high'
         });
       } else if (perf.recentAccuracy > 90 && perf.level < 5) {
+        // Find the next level's ID string ('INTERMEDIATE', etc.)
+        const nextLevelId = Object.keys(DIFFICULTY_LEVELS)[Math.min(4, perf.level)]; 
         recs.push({
           module: moduleId,
           action: 'advance', 
-          reason: `Ready for ${DIFFICULTY_LEVELS[perf.level + 1].id}`,
+          reason: `Ready for ${nextLevelId} (${DIFFICULTY_LEVELS[nextLevelId].tempo}BPM)`,
           priority: 'medium'
         });
       }
     }
     
-    return recs.sort((a, b) => b.priority === 'high' ? 1 : -1);
+    return recs.sort((a, b) => b.priority === 'high' ? -1 : 1); // high priority first
   }
 
   /**
@@ -219,12 +227,14 @@ class DifficultyAdapter {
    * Generate coaching recommendation
    */
   getRecommendation(moduleId, level) {
+    const levelName = Object.keys(DIFFICULTY_LEVELS)[level - 1];
     const nextLevel = Math.min(5, level + 1);
     
     if (level < 3) {
-      return `Master ${DIFFICULTY_LEVELS[level].id} before advancing`;
+      return `Master ${levelName} before advancing`;
     } else if (level < 5) {
-      return `Ready for ${DIFFICULTY_LEVELS[nextLevel].id} (${DIFFICULTY_LEVELS[nextLevel].tempo}BPM)`;
+      const nextLevelName = Object.keys(DIFFICULTY_LEVELS)[nextLevel - 1];
+      return `Ready for ${nextLevelName} (${DIFFICULTY_LEVELS[nextLevelName].tempo}BPM)`;
     }
     return 'Mastery achieved!';
   }
@@ -259,36 +269,41 @@ class DifficultyAdapter {
   }
 }
 
-// 🎯 ML: New function to satisfy the router's dependency
-export async function getAdaptiveConfig() {
-    const weakAreas = await difficultyAdapter.getRecommendations();
-    
-    // Router expects 'weakAreas' to match the recommendation structure
-    return {
-        weakAreas: weakAreas.map(rec => ({
-            module: rec.module,
-            reason: rec.reason,
-            priority: rec.priority,
-            // Add a level for consistency with weakAreas structure
-            level: (difficultyAdapter.performance.get(rec.module)?.level || 1)
-        }))
-    };
-}
-
 // ======================================
 // GLOBAL INSTANCE
 // ======================================
 
 const difficultyAdapter = new DifficultyAdapter();
 
+/**
+ * 🎯 FIXED: Adapter for router.js dependency: getAdaptiveConfig()
+ * Maps the internal recommendations to the router's expected format (weakAreas).
+ */
+export async function getAdaptiveConfig() {
+    const weakAreas = await difficultyAdapter.getRecommendations();
+    
+    return {
+        weakAreas: weakAreas.map(rec => {
+            const perf = difficultyAdapter.performance.get(rec.module) || {};
+            return {
+                module: rec.module,
+                reason: rec.reason,
+                priority: rec.priority,
+                level: perf.level || 1
+            }
+        })
+    };
+}
+
+
 export const getDifficulty = difficultyAdapter.getDifficulty.bind(difficultyAdapter);
 export const recordPerformance = difficultyAdapter.recordPerformance.bind(difficultyAdapter);
 export const getRecommendations = difficultyAdapter.getRecommendations.bind(difficultyAdapter);
-export const getAdaptiveConfig = getAdaptiveConfig;
 export const getGlobalStats = difficultyAdapter.getGlobalStats.bind(difficultyAdapter);
 export const resetModule = difficultyAdapter.resetModule.bind(difficultyAdapter);
+// Export the new function
+export { getAdaptiveConfig }; 
 
 export { DIFFICULTY_LEVELS, MODULE_CATEGORIES, ADAPTATION_RULES };
 
 export default difficultyAdapter;
-
