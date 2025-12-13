@@ -22,24 +22,37 @@ const CORE_FILES = [
   './',
   './index.html',
   './manifest.json',
+  './js/App.js',
+  './js/bootstrap.js',
+  
+  // CSS
   './css/base.css',
   './css/components.css',
   './css/themes.css',
   './css/animations.css',
-  './js/App.js',
-  './js/bootstrap.js',
+  
+  // Config
   './js/config/constants.js',
   './js/config/storage.js',
   './js/config/repertoirePlans.js',
-  './js/utils/helpers.js',
-  './js/utils/keyboard.js',
-  './js/utils/router.js',
+  './js/config/version.js',
+  
+  // Contexts
   './js/contexts/AppContext.js',
+  
+  // Icons
   './icons/icon-16.png',
   './icons/icon-32.png',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  
+  // Utils
+  './js/utils/helpers.js',
+  './js/utils/keyboard.js',
+  './js/utils/router.js',
+  
+  // React
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js'
 ];
@@ -56,15 +69,13 @@ const MODULE_FILES = [
   './js/engines/sessionTracker.js',
   './js/engines/difficultyAdapter.js',
 
-  // Components - Core
+  // Components
   './js/components/Toast.js',
   './js/components/MainMenu.js',
   './js/components/Dashboard.js',
   './js/components/Analytics.js',
   './js/components/Settings.js',
   './js/components/Welcome.js',
-
-  // Components - Learning
   './js/components/Intervals.js',
   './js/components/KeySignatures.js',
   './js/components/Rhythm.js',
@@ -72,16 +83,12 @@ const MODULE_FILES = [
   './js/components/Fingerboard.js',
   './js/components/ScalesLab.js',
   './js/components/PositionCharts.js',
-
-  // Components - Ear Training & Drills
   './js/components/IntervalEarTester.js',
   './js/components/IntervalSprint.js',
   './js/components/KeyTester.js',
   './js/components/RhythmDrills.js',
   './js/components/BielerLab.js',
   './js/components/TempoTrainer.js',
-
-  // Components - Advanced
   './js/components/CoachPanel.js',
   './js/components/DailyGoals.js',
   './js/components/Achievements.js',
