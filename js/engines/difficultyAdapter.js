@@ -284,6 +284,7 @@ const difficultyAdapter = new DifficultyAdapter();
 export const getDifficulty = difficultyAdapter.getDifficulty.bind(difficultyAdapter);
 export const recordPerformance = difficultyAdapter.recordPerformance.bind(difficultyAdapter);
 export const getRecommendations = difficultyAdapter.getRecommendations.bind(difficultyAdapter);
+export const getAdaptiveConfig = getAdaptiveConfig;
 export const getGlobalStats = difficultyAdapter.getGlobalStats.bind(difficultyAdapter);
 export const resetModule = difficultyAdapter.resetModule.bind(difficultyAdapter);
 
