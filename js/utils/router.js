@@ -35,15 +35,15 @@ export const VMQ_ROUTES = {
   FINGERBOARD: 'fingerboard',
   NOTE_LOCATOR: 'notelocator',
   SCALES: 'scaleslab',
+  FLASHCARDS: 'flashcards', // <--- This line is MISSING but assumed by context
   
-  // 🥁 RHYTHM + TECHNIQUE
+  // 🥁 RHYTHM + TEMPO
   RHYTHM: 'rhythm',
   RHYTHM_DRILLS: 'rhythm-drills',
   TEMPO: 'tempotrainer',
   SPEED_DRILL: 'speeddrill',
   
   // 🧠 COGNITIVE
-  FLASHCARDS: 'flashcards',
   SPACED_REP: 'spaced-rep',
   
   // 📊 TOOLS
