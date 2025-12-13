@@ -76,7 +76,8 @@ class SpacedRepEngine {
       item.reps = 0;
       item.lapses++;
       item.interval = 1;
-      item.efactor = Math.max(SM2_PARAMS.MIN_EF, item.efactor + 0.2);
+      // FIX: Decrease EF when quality < 3 (failure) as the item is harder.
+      item.efactor = Math.max(SM2_PARAMS.MIN_EF, item.efactor - 0.2); 
     } else {
       // Passed (grade 3-5)
       item.reps++;
@@ -178,7 +179,8 @@ class SpacedRepEngine {
   async addBulkItems(items) {
     const results = [];
     for (const itemData of items) {
-      const result = await this.updateItem(itemData.id, 0, 0, itemData);
+      // Passing quality=0 (forgot) to initialize item with due date
+      const result = await this.updateItem(itemData.id, 0, 0, itemData); 
       results.push(result);
     }
     await this.persist();
@@ -259,3 +261,4 @@ if (typeof window !== 'undefined') {
     console.log('[SM-2] Violin-optimized spaced repetition ready');
   });
 }
+
