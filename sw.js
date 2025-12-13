@@ -143,6 +143,14 @@ function openIDB() {
   });
 }
 
+// Promisify IDBRequest results (native IndexedDB API is callback-based)
+function idbReq(req) {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 // ===================================
 // ML PREDICTIVE PREFETCHING
 // ===================================
@@ -163,10 +171,10 @@ async function updateNavigationHistory(route) {
     const db = await openIDB();
     const tx = db.transaction(STORE_ML_PREDICTIONS, 'readwrite');
     const store = tx.objectStore(STORE_ML_PREDICTIONS);
-    await store.put({
+    await idbReq(store.put({
       key: 'navigationHistory',
-       mlState.navigationHistory
-    });
+       data: mlState.navigationHistory
+    }));
   } catch (e) {
     console.warn('[SW ML] Failed to save nav history:', e);
   }
@@ -179,7 +187,7 @@ async function predictNextRoutes(currentRoute) {
       const db = await openIDB();
       const tx = db.transaction(STORE_ML_PREDICTIONS, 'readonly');
       const store = tx.objectStore(STORE_ML_PREDICTIONS);
-      const result = await store.get('navigationHistory');
+      const result = await idbReq(store.get('navigationHistory'));
       if (result && result.data) {
         mlState.navigationHistory = result.data;
       }
@@ -247,11 +255,11 @@ async function queueAnalyticsEvent(event) {
     const tx = db.transaction(STORE_ANALYTICS, 'readwrite');
     const store = tx.objectStore(STORE_ANALYTICS);
     
-    await store.add({
+    await idbReq(store.add({
       ...event,
       timestamp: Date.now(),
       synced: false
-    });
+    }));
     
     console.log('[SW Analytics] Event queued for offline sync');
   } catch (e) {
@@ -267,7 +275,7 @@ async function syncAnalyticsQueue() {
     const tx = db.transaction(STORE_ANALYTICS, 'readwrite');
     const store = tx.objectStore(STORE_ANALYTICS);
     const index = store.index('synced');
-    const unsyncedEvents = await index.getAll(false);
+    const unsyncedEvents = await idbReq(index.getAll(false));
     
     if (unsyncedEvents.length === 0) {
       console.log('[SW Analytics] No events to sync');
@@ -291,7 +299,7 @@ async function syncAnalyticsQueue() {
     
     for (const event of unsyncedEvents) {
       event.synced = true;
-      await updateStore.put(event);
+      await idbReq(updateStore.put(event));
     }
     
     console.log('[SW Analytics] Queue synced successfully');
@@ -674,7 +682,7 @@ self.addEventListener('push', event => {
     body: data.body || 'Time to practice!',
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
-     data.data || {},
+     data: data.data || {},
     tag: data.tag || 'vmq-notification',
     requireInteraction: data.requireInteraction || false
   };
@@ -708,17 +716,5 @@ self.addEventListener('notificationclick', event => {
 // ===================================
 // PERIODIC TASKS
 // ===================================
-setInterval(() => {
-  // Report performance metrics every 5 minutes
-  reportPerformanceMetrics();
-  
-  // Manage cache quota
-  manageCacheQuota();
-  
-  // Sync analytics if online
-  if (mlState.isOnline) {
-    syncAnalyticsQueue();
-  }
-}, 300000); // 5 minutes
 
 console.log(`[SW v${VMQ_VERSION}] 🎻 VMQ Service Worker loaded with ML enhancements`);
