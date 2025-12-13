@@ -351,12 +351,6 @@ export default function App() {
     socialLeaderboard: null
   });
   
-  // Hooks
-  const { health, checkHealth } = useEngineHealth();
-  const { metrics, checkBudget } = usePerformanceBudget();
-  const engagement = useEngagementOptimizer();
-  const initAttempts = useRef(0);
-
   // ====================================
   // ANALYTICS EVENT BUS
   // ====================================
