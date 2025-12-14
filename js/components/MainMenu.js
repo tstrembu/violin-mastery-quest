@@ -9,7 +9,7 @@ import { loadXP, loadStreak, getLevel, getStatsSummary } from '../engines/gamifi
 import { analyzePerformance } from '../engines/analytics.js';
 import { getReviewStats } from '../engines/spacedRepetition.js';
 import { getCoachInsights } from '../engines/coachEngine.js';
-import { STORAGE_KEYS } from '../config/constants.js';
+import { STORAGE_KEYS } from './config/storage.js';
 import { loadJSON } from '../config/storage.js';
 
 export default function MainMenu({ onNavigate }) {
