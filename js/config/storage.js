@@ -164,9 +164,15 @@ const STORAGE = {
 
   clearAll() {
     try {
+      const primaryPrefix = NAMESPACE;   // "vmq-"
+      const rawPrefix = 'vmq.';          // your logical key prefix inside STORAGE_KEYS
+  
       Object.keys(localStorage).forEach(k => {
-        if (k.startsWith(NAMESPACE)) localStorage.removeItem(k);
+        const isPrimary = primaryPrefix && k.startsWith(primaryPrefix);
+        const isRawLegacy = k.startsWith(rawPrefix);
+        if (isPrimary || isRawLegacy) localStorage.removeItem(k);
       });
+  
       return true;
     } catch (error) {
       console.error('[Storage] Failed to clear:', error);
