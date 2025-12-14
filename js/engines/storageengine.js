@@ -1,4 +1,5 @@
 // ======================================
+// FOR REFERENCE ONLY - Decommissioned 
 // VMQ STORAGE ENGINE v2.0 - Production Ready
 // localStorage + IndexedDB fallback + Auto-backup
 // ======================================
