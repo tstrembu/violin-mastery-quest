@@ -7,6 +7,7 @@ import { VMQ_VERSION } from './constants.js';
 
 // ======================================
 // STORAGE KEYS - Unified namespace
+// NOTE: keys already include "vmq." so we do NOT add another prefix.
 // ======================================
 
 export const STORAGE_KEYS = {
@@ -14,32 +15,57 @@ export const STORAGE_KEYS = {
   VERSION: 'vmq.version',
   PROFILE: 'vmq.profile',
   SETTINGS: 'vmq.settings',
-  
+
   // Gamification
   XP: 'vmq.xp',
   STREAK: 'vmq.streak',
   ACHIEVEMENTS: 'vmq.achievements',
   DAILY_GOALS: 'vmq.dailyGoals',
-  
+
   // Analytics & Stats
   STATS: 'vmq.stats',
   ANALYTICS: 'vmq.analytics',
   PRACTICE_LOG: 'vmq.practiceLog',
-  
+
   // Training Data (ML)
   REPERTOIRE: 'vmq.repertoire',
   SPACED_REPETITION: 'vmq.spacedRepetition',
   DIFFICULTY: 'vmq.difficulty',
-  CONFUSION_MATRIX: 'vmq.confusionMatrix', // NEW: for ML error tracking
-  LEARNING_VELOCITY: 'vmq.learningVelocity', // NEW: for adaptive pacing
-  
+  CONFUSION_MATRIX: 'vmq.confusionMatrix',
+  LEARNING_VELOCITY: 'vmq.learningVelocity',
+
   // Journal & Coach
   JOURNAL: 'vmq.journal',
   COACH_DATA: 'vmq.coachData'
 };
 
-// VMQ Storage Namespace Prefix
-const NAMESPACE = 'vmq-';
+// Going forward: no extra namespace (keys already have "vmq.")
+const NAMESPACE = '';
+// Backward-compat: your old code used "vmq-" and produced keys like "vmq-vmq.profile"
+const LEGACY_NAMESPACE = 'vmq-';
+
+// --------------------------------------
+// Environment guards
+// --------------------------------------
+function hasLocalStorage() {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    const k = `__vmq_test_${Date.now()}`;
+    localStorage.setItem(k, '1');
+    localStorage.removeItem(k);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function nsKey(key) {
+  return `${NAMESPACE}${key}`;
+}
+
+function legacyKey(key) {
+  return `${LEGACY_NAMESPACE}${key}`;
+}
 
 // ======================================
 // STORAGE ENGINE - Core API with Validation
@@ -48,120 +74,129 @@ const NAMESPACE = 'vmq-';
 const STORAGE = {
   /**
    * Set data with JSON serialization & auto-versioning
-   * @param {string} key - Storage key from STORAGE_KEYS
+   * @param {string} key - Storage key from STORAGE_KEYS or raw string
    * @param {*} data - Data to store
    * @returns {boolean} Success status
    */
   set(key, data) {
+    if (!hasLocalStorage()) return false;
+
     try {
       if (data === undefined || data === null) {
-        this.remove(key);
-        return;
+        return this.remove(key);
       }
-      
+
       const json = JSON.stringify(data);
-      const namespacedKey = `${NAMESPACE}${key}`;
-      
-      localStorage.setItem(namespacedKey, json);
-      
-      // Auto-migrate version if this is profile/settings
+      localStorage.setItem(nsKey(key), json);
+
+      // Auto-write version when saving profile/settings
       if (key === STORAGE_KEYS.PROFILE || key === STORAGE_KEYS.SETTINGS) {
-        STORAGE.set(STORAGE_KEYS.VERSION, VMQ_VERSION);
+        localStorage.setItem(nsKey(STORAGE_KEYS.VERSION), JSON.stringify(VMQ_VERSION));
       }
-      
-      console.log(`[Storage] Saved ${key}:`, data);
+
       return true;
-      
     } catch (error) {
-      if (error.name === 'QuotaExceededError') {
-        console.error(`[Storage] Quota exceeded for ${key}. Triggering auto-prune.`);
-        pruneOldData(30); // Auto-cleanup old practice logs
-        // Retry once after cleanup
+      if (error && error.name === 'QuotaExceededError') {
+        // Best-effort prune then retry once
+        pruneOldData(30);
         try {
-          localStorage.setItem(`${NAMESPACE}${key}`, JSON.stringify(data));
+          localStorage.setItem(nsKey(key), JSON.stringify(data));
           return true;
-        } catch (retryError) {
-          console.error(`[Storage] Retry failed after prune:`, retryError);
+        } catch {
           return false;
         }
       }
-      console.error(`[Storage] Failed to save ${key}:`, error);
       return false;
     }
   },
 
   /**
-   * Get data with safe JSON parsing
-   * @param {string} key - Storage key
-   * @param {*} defaultValue - Return if not found
-   * @returns {*} Parsed data or default
+   * Get data with safe JSON parsing + legacy fallback
+   * @param {string} key
+   * @param {*} defaultValue
+   * @returns {*}
    */
   get(key, defaultValue = null) {
+    if (!hasLocalStorage()) return defaultValue;
+
     try {
-      const namespacedKey = `${NAMESPACE}${key}`;
-      const json = localStorage.getItem(namespacedKey);
-      
-      if (json === null) return defaultValue;
-      
-      const data = JSON.parse(json);
-      console.log(`[Storage] Loaded ${key}:`, data);
-      return data;
-      
-    } catch (error) {
-      console.error(`[Storage] Failed to load ${key}:`, error);
+      // 1) New key
+      const json = localStorage.getItem(nsKey(key));
+      if (json !== null) return JSON.parse(json);
+
+      // 2) Legacy key fallback (vmq- + vmq.* => vmq-vmq.*)
+      const legacyJson = localStorage.getItem(legacyKey(key));
+      if (legacyJson !== null) {
+        const val = JSON.parse(legacyJson);
+        // Migrate forward transparently
+        try {
+          localStorage.setItem(nsKey(key), legacyJson);
+          localStorage.removeItem(legacyKey(key));
+        } catch {}
+        return val;
+      }
+
+      return defaultValue;
+    } catch {
       return defaultValue;
     }
   },
 
   /**
-   * Remove specific key
+   * Remove specific key (also removes legacy key)
    */
   remove(key) {
+    if (!hasLocalStorage()) return false;
+
     try {
-      const namespacedKey = `${NAMESPACE}${key}`;
-      localStorage.removeItem(namespacedKey);
-      console.log(`[Storage] Removed ${key}`);
+      localStorage.removeItem(nsKey(key));
+      localStorage.removeItem(legacyKey(key));
       return true;
-      
-    } catch (error) {
-      console.error(`[Storage] Failed to remove ${key}:`, error);
+    } catch {
       return false;
     }
   },
 
   /**
-   * Clear all VMQ data
+   * Clear all VMQ data (new + legacy)
    */
   clearAll() {
+    if (!hasLocalStorage()) return false;
+
     try {
-      Object.keys(localStorage).forEach(key => {
-        if (key.startsWith(NAMESPACE)) {
-          localStorage.removeItem(key);
+      const keys = Object.keys(localStorage);
+      for (const k of keys) {
+        if (k.startsWith('vmq.') || k.startsWith('vmq-vmq.') || k.startsWith(LEGACY_NAMESPACE)) {
+          localStorage.removeItem(k);
         }
-      });
-      console.log('[Storage] Cleared all VMQ data');
+      }
       return true;
-      
-    } catch (error) {
-      console.error('[Storage] Failed to clear', error);
+    } catch {
       return false;
     }
   },
 
   /**
-   * Export all data for backup
-   * @returns {object} { json, url, blob }
+   * Export all VMQ data for backup
+   * @returns {object|null} { json, url, blob }
    */
   exportAll() {
     try {
+      if (!hasLocalStorage()) return null;
+
       const data = {};
-      Object.keys(localStorage).forEach(key => {
-        if (key.startsWith(NAMESPACE)) {
-          const cleanKey = key.replace(NAMESPACE, '');
-          data[cleanKey] = JSON.parse(localStorage.getItem(key));
+      for (const k of Object.keys(localStorage)) {
+        // include current keys and legacy keys
+        if (k.startsWith('vmq.') || k.startsWith('vmq-vmq.') || k.startsWith(LEGACY_NAMESPACE)) {
+          const cleanKey = k.startsWith(LEGACY_NAMESPACE) ? k.slice(LEGACY_NAMESPACE.length) : k;
+          try {
+            data[cleanKey] = JSON.parse(localStorage.getItem(k));
+          } catch {
+            data[cleanKey] = localStorage.getItem(k);
+          }
         }
-      });
-      
+      }
+
       const exportData = {
         version: VMQ_VERSION,
         timestamp: new Date().toISOString(),
@@ -170,39 +205,34 @@ const STORAGE = {
         itemCount: Object.keys(data).length,
         data
       };
-      
+
       const json = JSON.stringify(exportData, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
-      
-      console.log('[Storage] Exported data');
+
       return { json, url, blob };
-      
-    } catch (error) {
-      console.error('[Storage] Export failed:', error);
+    } catch {
       return null;
     }
   },
 
   /**
    * Import data from JSON string
-   * @param {string} jsonString - JSON string to import
-   * @returns {boolean} Success status
+   * @param {string} jsonString
+   * @returns {boolean}
    */
   importAll(jsonString) {
+    if (!hasLocalStorage()) return false;
+
     try {
       const importData = JSON.parse(jsonString);
       const data = importData.data || importData;
-      
-      Object.entries(data).forEach(([key, value]) => {
+
+      for (const [key, value] of Object.entries(data)) {
         STORAGE.set(key, value);
-      });
-      
-      console.log(`[Storage] Imported ${Object.keys(data).length} items`);
+      }
       return true;
-      
-    } catch (error) {
-      console.error('[Storage] Import failed:', error);
+    } catch {
       return false;
     }
   }
@@ -212,31 +242,26 @@ const STORAGE = {
 // STORAGE ESTIMATE & QUOTA MANAGEMENT
 // ======================================
 
-/**
- * Get storage quota and usage stats
- * @returns {Promise<object>} Storage estimate with calculations
- */
 export async function getStorageEstimate() {
-  if ('storage' in navigator && 'estimate' in navigator.storage) {
-    try {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.estimate) {
       const estimate = await navigator.storage.estimate();
+      const usage = estimate.usage || 0;
+      const quota = estimate.quota || 0;
       return {
-        usage: estimate.usage,
-        quota: estimate.quota,
-        used: estimate.usage,
-        available: estimate.quota - estimate.usage,
-        percentage: Math.round((estimate.usage / estimate.quota) * 100),
-        isFull: estimate.usage >= estimate.quota * 0.95
+        usage,
+        quota,
+        used: usage,
+        available: Math.max(0, quota - usage),
+        percentage: quota ? Math.round((usage / quota) * 100) : 0,
+        isFull: quota ? usage >= quota * 0.95 : false
       };
-    } catch (error) {
-      console.warn('[Storage] Estimate failed:', error);
     }
-  }
-  
-  // Fallback estimate
+  } catch {}
+
   return {
     usage: 0,
-    quota: 5242880, // 5MB fallback
+    quota: 5242880,
     used: 0,
     available: 5242880,
     percentage: 0,
@@ -248,86 +273,63 @@ export async function getStorageEstimate() {
 // SMART DATA PRUNING
 // ======================================
 
-/**
- * Intelligently prune old data when quota exceeds 90%
- * @param {number} daysThreshold - Remove data older than this
- */
 function pruneOldData(daysThreshold = 30) {
   try {
     const cutoff = Date.now() - (daysThreshold * 24 * 60 * 60 * 1000);
-    
-    // Prune practice log (most valuable to keep recent)
+
+    // Practice log
     const log = STORAGE.get(STORAGE_KEYS.PRACTICE_LOG, []);
-    const cleanedLog = log.filter(entry => 
-      new Date(entry.timestamp).getTime() > cutoff
-    );
-    
-    if (cleanedLog.length < log.length) {
+    const cleanedLog = Array.isArray(log)
+      ? log.filter(entry => new Date(entry.timestamp).getTime() > cutoff)
+      : [];
+
+    if (Array.isArray(log) && cleanedLog.length < log.length) {
       STORAGE.set(STORAGE_KEYS.PRACTICE_LOG, cleanedLog);
-      console.log(`[Storage] Pruned practice log: ${log.length} → ${cleanedLog.length}`);
     }
-    
-    // Prune analytics events (older than threshold)
+
+    // Analytics events
     const analytics = STORAGE.get(STORAGE_KEYS.ANALYTICS, {});
-    if (analytics.events && Array.isArray(analytics.events)) {
-      analytics.events = analytics.events.filter(event => 
-        new Date(event.timestamp).getTime() > cutoff
-      );
+    if (analytics && Array.isArray(analytics.events)) {
+      analytics.events = analytics.events.filter(ev => new Date(ev.timestamp).getTime() > cutoff);
       STORAGE.set(STORAGE_KEYS.ANALYTICS, analytics);
-      console.log('[Storage] Pruned analytics events');
     }
-    
+
     return true;
-  } catch (error) {
-    console.error('[Storage] Prune failed:', error);
+  } catch {
     return false;
   }
+}
+
+// Exported for shell/bootstrap calls
+export async function autoPrune(days = 30) {
+  return pruneOldData(days);
 }
 
 // ======================================
 // DATA MIGRATION
 // ======================================
 
-/**
- * Migrate data from older VMQ versions
- */
 export function migrateData() {
+  // Only run in browser contexts
+  if (typeof window === 'undefined' || !hasLocalStorage()) return;
+
   try {
     const currentVersion = STORAGE.get(STORAGE_KEYS.VERSION, '0.0.0');
-    
-    if (currentVersion === VMQ_VERSION) {
-      console.log('[Storage] No migration needed (v' + VMQ_VERSION + ')');
-      return;
-    }
-    
-    console.log('[Storage] Migrating from v' + currentVersion + ' to v' + VMQ_VERSION);
-    
-    // v2.x → v3.0: Add ML tracking fields
-    if (compareVersions(currentVersion, '3.0.0') < 0) {
-      migrateV2toV3();
-    }
-    
-    // v3.0 → v3.1: Add confusion matrix & learning velocity
-    if (compareVersions(currentVersion, '3.1.0') < 0) {
-      migrateV3toV3_1();
-    }
-    
-    // Mark as migrated
+    if (currentVersion === VMQ_VERSION) return;
+
+    // v2.x → v3.0
+    if (compareVersions(currentVersion, '3.0.0') < 0) migrateV2toV3();
+    // v3.0 → v3.1
+    if (compareVersions(currentVersion, '3.1.0') < 0) migrateV3toV3_1();
+
     STORAGE.set(STORAGE_KEYS.VERSION, VMQ_VERSION);
-    console.log('[Storage] Migration complete');
-    
-  } catch (error) {
-    console.error('[Storage] Migration failed:', error);
-  }
+  } catch {}
 }
 
-/**
- * Simple semantic version comparison
- */
 function compareVersions(v1, v2) {
   const p1 = (v1 || '0.0.0').split('.').map(Number);
   const p2 = (v2 || '0.0.0').split('.').map(Number);
-  
+
   for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
     const n1 = p1[i] || 0;
     const n2 = p2[i] || 0;
@@ -337,57 +339,35 @@ function compareVersions(v1, v2) {
   return 0;
 }
 
-/**
- * v2.x → v3.0: Add analytics, coach data structure
- */
 function migrateV2toV3() {
-  try {
-    // Ensure profile exists and has required fields
-    const profile = STORAGE.get(STORAGE_KEYS.PROFILE, {});
-    profile.onboardingComplete = profile.onboardingComplete ?? false;
-    profile.userSegment = profile.userSegment ?? 'beginner';
-    STORAGE.set(STORAGE_KEYS.PROFILE, profile);
-    
-    // Initialize coach data if missing
-    const coachData = STORAGE.get(STORAGE_KEYS.COACH_DATA, {});
-    coachData.initialized = true;
-    coachData.lastUpdated = Date.now();
-    STORAGE.set(STORAGE_KEYS.COACH_DATA, coachData);
-    
-    console.log('[Storage] v2→v3 migration: Profile & Coach data updated');
-  } catch (error) {
-    console.error('[Storage] v2→v3 migration failed:', error);
-  }
+  const profile = STORAGE.get(STORAGE_KEYS.PROFILE, {});
+  profile.onboardingComplete = profile.onboardingComplete ?? false;
+  profile.userSegment = profile.userSegment ?? 'beginner';
+  STORAGE.set(STORAGE_KEYS.PROFILE, profile);
+
+  const coachData = STORAGE.get(STORAGE_KEYS.COACH_DATA, {});
+  coachData.initialized = true;
+  coachData.lastUpdated = Date.now();
+  STORAGE.set(STORAGE_KEYS.COACH_DATA, coachData);
 }
 
-/**
- * v3.0 → v3.1: Add confusion matrix & learning velocity tracking
- */
 function migrateV3toV3_1() {
-  try {
-    // Initialize confusion matrix (tracks common errors)
-    const confusionMatrix = STORAGE.get(STORAGE_KEYS.CONFUSION_MATRIX, {});
-    if (!confusionMatrix.initialized) {
-      confusionMatrix.intervalEar = {};
-      confusionMatrix.keySignatures = {};
-      confusionMatrix.rhythm = {};
-      confusionMatrix.initialized = Date.now();
-      STORAGE.set(STORAGE_KEYS.CONFUSION_MATRIX, confusionMatrix);
-    }
-    
-    // Initialize learning velocity tracker
-    const learningVelocity = STORAGE.get(STORAGE_KEYS.LEARNING_VELOCITY, {});
-    if (!learningVelocity.initialized) {
-      learningVelocity.intervals = [];
-      learningVelocity.keys = [];
-      learningVelocity.rhythm = [];
-      learningVelocity.initialized = Date.now();
-      STORAGE.set(STORAGE_KEYS.LEARNING_VELOCITY, learningVelocity);
-    }
-    
-    console.log('[Storage] v3.0→v3.1 migration: ML tracking fields initialized');
-  } catch (error) {
-    console.error('[Storage] v3.0→v3.1 migration failed:', error);
+  const confusionMatrix = STORAGE.get(STORAGE_KEYS.CONFUSION_MATRIX, {});
+  if (!confusionMatrix.initialized) {
+    confusionMatrix.intervalEar = {};
+    confusionMatrix.keySignatures = {};
+    confusionMatrix.rhythm = {};
+    confusionMatrix.initialized = Date.now();
+    STORAGE.set(STORAGE_KEYS.CONFUSION_MATRIX, confusionMatrix);
+  }
+
+  const learningVelocity = STORAGE.get(STORAGE_KEYS.LEARNING_VELOCITY, {});
+  if (!learningVelocity.initialized) {
+    learningVelocity.intervals = [];
+    learningVelocity.keys = [];
+    learningVelocity.rhythm = [];
+    learningVelocity.initialized = Date.now();
+    STORAGE.set(STORAGE_KEYS.LEARNING_VELOCITY, learningVelocity);
   }
 }
 
@@ -395,161 +375,87 @@ function migrateV3toV3_1() {
 // CLEANUP UTILITIES
 // ======================================
 
-/**
- * Clean up all user data (dangerous)
- */
 export function cleanupAllData() {
   return STORAGE.clearAll();
 }
 
-/**
- * Remove data older than specified days
- * @param {number} days - Days threshold
- */
 export function cleanupOldData(days = 90) {
-  try {
-    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
-    const log = STORAGE.get(STORAGE_KEYS.PRACTICE_LOG, []);
-    
-    const cleanedLog = log.filter(entry => 
-      new Date(entry.timestamp).getTime() > cutoff
-    );
-    
-    STORAGE.set(STORAGE_KEYS.PRACTICE_LOG, cleanedLog);
-    
-    console.log(`[Storage] Cleaned old data (${log.length} → ${cleanedLog.length} entries)`);
-    return true;
-    
-  } catch (error) {
-    console.error('[Storage] Cleanup failed:', error);
-    return false;
-  }
+  return pruneOldData(days);
 }
 
-/**
- * Track ML confusion (for adaptive difficulty)
- * @param {string} module - Module name (intervalEar, keys, rhythm)
- * @param {string} itemId - What was confused
- * @param {string} guessedId - What it was confused with
- */
 export function trackConfusion(module, itemId, guessedId) {
   try {
     const matrix = STORAGE.get(STORAGE_KEYS.CONFUSION_MATRIX, {});
-    
     if (!matrix[module]) matrix[module] = {};
     if (!matrix[module][itemId]) matrix[module][itemId] = {};
-    
-    const confused = matrix[module][itemId][guessedId] || 0;
-    matrix[module][itemId][guessedId] = confused + 1;
-    
+
+    matrix[module][itemId][guessedId] = (matrix[module][itemId][guessedId] || 0) + 1;
     STORAGE.set(STORAGE_KEYS.CONFUSION_MATRIX, matrix);
     return true;
-  } catch (error) {
-    console.error('[Storage] Failed to track confusion:', error);
+  } catch {
     return false;
   }
 }
 
-/**
- * Get confusion data for a module (for ML adaptive selection)
- * @param {string} module - Module name
- * @returns {object} Confusion pairs ranked by frequency
- */
 export function getConfusionData(module) {
-  try {
-    const matrix = STORAGE.get(STORAGE_KEYS.CONFUSION_MATRIX, {});
-    return matrix[module] || {};
-  } catch (error) {
-    console.error('[Storage] Failed to get confusion data:', error);
-    return {};
-  }
+  const matrix = STORAGE.get(STORAGE_KEYS.CONFUSION_MATRIX, {});
+  return matrix[module] || {};
 }
 
-/**
- * Track learning velocity (acceleration of mastery)
- * @param {string} module - Module name
- * @param {number} accuracy - Current accuracy %
- * @param {number} timeMs - Time to answer (milliseconds)
- */
 export function trackLearningVelocity(module, accuracy, timeMs) {
   try {
     const velocity = STORAGE.get(STORAGE_KEYS.LEARNING_VELOCITY, {});
-    
     if (!velocity[module]) velocity[module] = [];
-    
+
     velocity[module].push({
       timestamp: Date.now(),
       accuracy,
       timeMs,
       week: Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000))
     });
-    
-    // Keep only recent data (last 1000 entries per module)
-    if (velocity[module].length > 1000) {
-      velocity[module] = velocity[module].slice(-1000);
-    }
-    
+
+    if (velocity[module].length > 1000) velocity[module] = velocity[module].slice(-1000);
     STORAGE.set(STORAGE_KEYS.LEARNING_VELOCITY, velocity);
     return true;
-  } catch (error) {
-    console.error('[Storage] Failed to track learning velocity:', error);
+  } catch {
     return false;
   }
 }
 
-/**
- * Calculate learning acceleration for a module
- * @param {string} module - Module name
- * @returns {object} { acceleration, trend, weeklyAvg }
- */
 export function calculateLearningAcceleration(module) {
   try {
     const velocity = STORAGE.get(STORAGE_KEYS.LEARNING_VELOCITY, {});
     const data = velocity[module] || [];
-    
-    if (data.length < 2) {
-      return { acceleration: 0, trend: 'flat', weeklyAvg: [] };
-    }
-    
-    // Group by week, calculate avg accuracy
+    if (data.length < 2) return { acceleration: 0, trend: 'flat', weeklyAvg: [] };
+
     const byWeek = {};
     data.forEach(entry => {
       if (!byWeek[entry.week]) byWeek[entry.week] = [];
       byWeek[entry.week].push(entry.accuracy);
     });
-    
-    const weeks = Object.keys(byWeek).sort((a, b) => a - b);
+
+    const weeks = Object.keys(byWeek).sort((a, b) => Number(a) - Number(b));
     const weeklyAvgs = weeks.map(w => ({
-      week: w,
+      week: Number(w),
       avg: byWeek[w].reduce((a, b) => a + b, 0) / byWeek[w].length
     }));
-    
-    // Simple linear acceleration: change in avg per week
-    const acceleration = weeklyAvgs.length >= 2 
+
+    const acceleration = weeklyAvgs.length >= 2
       ? weeklyAvgs[weeklyAvgs.length - 1].avg - weeklyAvgs[0].avg
       : 0;
-    
+
     const trend = acceleration > 2 ? 'accelerating' : acceleration < -2 ? 'declining' : 'flat';
-    
     return { acceleration, trend, weeklyAvg: weeklyAvgs };
-  } catch (error) {
-    console.error('[Storage] Failed to calculate acceleration:', error);
+  } catch {
     return { acceleration: 0, trend: 'error', weeklyAvg: [] };
   }
 }
 
-// ======================================
-// CONVENIENCE HELPERS (backward compatibility)
-// ======================================
-
-export const loadJSON = STORAGE.get;
-export const saveJSON = STORAGE.set;
-
-// ======================================
-// EXPORTS
-// ======================================
+// Backward compatible convenience names
+export const loadJSON = STORAGE.get.bind(STORAGE);
+export const saveJSON = STORAGE.set.bind(STORAGE);
 
 export default STORAGE;
 
-// Auto-migrate on module load
+// Auto-migrate on module load (browser only)
 migrateData();
