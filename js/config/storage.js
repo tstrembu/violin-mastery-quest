@@ -122,9 +122,27 @@ const STORAGE = {
 
   get(key, defaultValue = null) {
     try {
-      const json = localStorage.getItem(ns(key));
-      if (json === null) return defaultValue;
-      return JSON.parse(json);
+      const primaryKey = ns(key);
+      const candidates = keyCandidates(key);
+  
+      // Find the first key that exists in storage
+      let foundKey = null;
+      let raw = null;
+  
+      for (const k of candidates) {
+        raw = localStorage.getItem(k);
+        if (raw != null) {
+          foundKey = k;
+          break;
+        }
+      }
+  
+      if (raw == null) return defaultValue;
+  
+      // If it came from a legacy key, migrate it to the primary key
+      migrateLegacyKeyIfNeeded(foundKey, primaryKey, raw);
+  
+      return JSON.parse(raw);
     } catch (error) {
       console.error(`[Storage] Failed to load ${key}:`, error);
       return defaultValue;
