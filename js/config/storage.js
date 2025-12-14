@@ -151,7 +151,10 @@ const STORAGE = {
 
   remove(key) {
     try {
-      localStorage.removeItem(ns(key));
+      // Remove primary + any legacy variants so deletes are thorough.
+      for (const k of keyCandidates(key)) {
+        localStorage.removeItem(k);
+      }
       return true;
     } catch (error) {
       console.error(`[Storage] Failed to remove ${key}:`, error);
