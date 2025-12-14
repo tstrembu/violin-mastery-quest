@@ -1,19 +1,23 @@
 {
   "name": "Violin Mastery Quest",
   "short_name": "VMQ",
-  "description": "Offline violin training app - Bieler Method: intervals, keys, rhythm, technique mastery, spaced repetition, AI coach",
-  "start_url": "./index.html",
+  "description": "Offline-capable violin training app: intervals, keys, rhythm, technique, spaced repetition, AI coach",
+  "start_url": "./",
   "scope": "./",
+  "id": "./",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui", "browser"],
   "background_color": "#f8fafc",
-  "theme_color": "#3a5ba0",
-  "theme_color_secondary": "#64748b",
+  "theme_color": "#3b82f6",
   "orientation": "portrait-primary",
   "lang": "en-US",
   "dir": "ltr",
-
   "icons": [
+    {
+      "src": "./icons/icon-16.png",
+      "sizes": "16x16",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "./icons/icon-32.png",
       "sizes": "32x32",
@@ -21,279 +25,94 @@
       "purpose": "any"
     },
     {
-      "src": "./icons/icon-72.png",
-      "sizes": "72x72",
+      "src": "./icons/icon-180.png",
+      "sizes": "180x180",
       "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./icons/icon-96.png",
-      "sizes": "96x96",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./icons/icon-128.png",
-      "sizes": "128x128",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./icons/icon-144.png",
-      "sizes": "144x144",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./icons/icon-152.png",
-      "sizes": "152x152",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "./icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./icons/icon-384.png",
-      "sizes": "384x384",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "./icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ],
-
-  "categories": ["education", "music", "productivity"],
-
-  "screenshots": [
-    {
-      "src": "./screenshots/home-540.png",
-      "sizes": "540x720",
-      "type": "image/png",
-      "form_factor": "narrow"
-    },
-    {
-      "src": "./screenshots/training-540.png",
-      "sizes": "540x720",
-      "type": "image/png",
-      "form_factor": "narrow"
-    },
-    {
-      "src": "./screenshots/home-1280.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide"
-    },
-    {
-      "src": "./screenshots/training-1280.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide"
-    }
+  "categories": [
+    "education",
+    "music",
+    "productivity"
   ],
-
-  "_comment_shortcuts": "App shortcuts for quick access to core VMQ modules; also used for analytics.",
   "shortcuts": [
     {
       "name": "Intervals Trainer",
       "short_name": "Intervals",
-      "description": "Interval recognition drill - Suzuki method",
-      "url": "./index.html#intervals",
-      "icons": [{ "src": "./icons/icon-96.png", "sizes": "96x96" }]
+      "description": "Interval recognition drill",
+      "url": "./#intervals",
+      "icons": [
+        {
+          "src": "./icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     },
     {
       "name": "Key Signatures",
       "short_name": "Keys",
       "description": "Key signature mastery",
-      "url": "./index.html#keys",
-      "icons": [{ "src": "./icons/icon-96.png", "sizes": "96x96" }]
+      "url": "./#keys",
+      "icons": [
+        {
+          "src": "./icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     },
     {
       "name": "Rhythm Drills",
       "short_name": "Rhythm",
       "description": "Rhythm pattern recognition",
-      "url": "./index.html#rhythm",
-      "icons": [{ "src": "./icons/icon-96.png", "sizes": "96x96" }]
+      "url": "./#rhythm",
+      "icons": [
+        {
+          "src": "./icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     },
     {
       "name": "Bieler Method",
       "short_name": "Bieler",
-      "description": "Professor Bieler hand frame technique",
-      "url": "./index.html#bieler",
-      "icons": [{ "src": "./icons/icon-96.png", "sizes": "96x96" }]
+      "description": "Hand frame technique",
+      "url": "./#bieler",
+      "icons": [
+        {
+          "src": "./icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     },
     {
       "name": "Dashboard",
       "short_name": "Stats",
-      "description": "Practice statistics & progress tracking",
-      "url": "./index.html#dashboard",
-      "icons": [{ "src": "./icons/icon-96.png", "sizes": "96x96" }]
-    },
-    {
-      "name": "Scales Lab",
-      "short_name": "Scales",
-      "description": "Harmony explorer - scale degrees",
-      "url": "./index.html#scales",
-      "icons": [{ "src": "./icons/icon-96.png", "sizes": "96x96" }]
-    },
-    {
-      "name": "AI Coach",
-      "short_name": "Coach",
-      "description": "Personalized learning guidance",
-      "url": "./index.html#coach",
-      "icons": [{ "src": "./icons/icon-96.png", "sizes": "96x96" }]
-    },
-    {
-      "name": "Practice Journal",
-      "short_name": "Journal",
-      "description": "Session notes & reflections",
-      "url": "./index.html#journal",
-      "icons": [{ "src": "./icons/icon-96.png", "sizes": "96x96" }]
-    }
-  ],
-
-  "_comment_share_target": "Share target for practice recordings, performance snapshots, and practice sessions.",
-  "share_target": {
-    "action": "./share.html",
-    "method": "POST",
-    "enctype": "multipart/form-data",
-    "params": {
-      "title": "title",
-      "text": "text",
-      "url": "url",
-      "files": [
+      "description": "Practice statistics & progress",
+      "url": "./#dashboard",
+      "icons": [
         {
-          "name": "audio",
-          "accept": ["audio/wav", "audio/mp3", "audio/ogg", "audio/*"]
-        },
-        {
-          "name": "snapshot",
-          "accept": ["application/json"]
+          "src": "./icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
         }
       ]
     }
-  },
-
-  "_comment_file_handlers": "File handlers for importing VMQ practice files, recordings, and analytics exports.",
-  "file_handlers": [
-    {
-      "action": "./import.html",
-      "accept": {
-        "application/json": [".vmq", ".practice"],
-        "application/vnd.vmq+json": [".vmq"],
-        "audio/wav": [".wav"],
-        "audio/mpeg": [".mp3"],
-        "text/csv": [".csv"]
-      },
-      "launch_type": "single-client"
-    }
-  ],
-
-  "_comment_launch_handler": "Single-window behavior with state restoration.",
-  "launch_handler": {
-    "client_mode": ["auto"]
-  },
-
-  "_comment_protocol_handlers": "Register custom protocols for VMQ deep links and notation.",
-  "protocol_handlers": [
-    {
-      "protocol": "web+vmq",
-      "url": "./index.html?vmq=%s"
-    },
-    {
-      "protocol": "web+musicxml",
-      "url": "./index.html?notation=%s"
-    }
-  ],
-
-  "_comment_handle_links": "Prefer VMQ to open supported music links when installed.",
-  "handle_links": "preferred",
-
-  "_comment_scope_extensions": "Allow cached CDN resources to be considered in-scope for offline.",
-  "scope_extensions": [
-    { "origin": "https://cdn.jsdelivr.net" },
-    { "origin": "https://unpkg.com" }
-  ],
-
-  "_comment_edge_side_panel": "Desktop side-panel default width for supported browsers.",
-  "edge_side_panel": {
-    "preferred_width": 400
-  },
-
-  "_comment_related_applications": "App store variants (optional; safe to keep even if not yet published).",
-  "related_applications": [
-    {
-      "platform": "play",
-      "url": "https://play.google.com/store/apps/details?id=com.violinmasteryquest.app",
-      "id": "com.violinmasteryquest.app"
-    },
-    {
-      "platform": "itunes",
-      "url": "https://apps.apple.com/app/violin-mastery-quest/id123456789"
-    }
-  ],
-  "prefer_related_applications": true,
-
-  "_comment_iarc_rating": "IARC rating used by some stores; safe placeholder.",
-  "iarc_rating_id": "e84b9050-6cc7-4530-9a18-dff8b2f94ff1",
-
-  "_comment_screenshots_v2": "Optional richer metadata for stores that support it.",
-  "screenshots_v2": [
-    {
-      "src": "./screenshots/home-540.png",
-      "sizes": "540x720",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Home screen with training modules"
-    },
-    {
-      "src": "./screenshots/training-540.png",
-      "sizes": "540x720",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Interactive training drill"
-    },
-    {
-      "src": "./screenshots/home-1280.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide",
-      "label": "Desktop home screen"
-    },
-    {
-      "src": "./screenshots/training-1280.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide",
-      "label": "Desktop training view"
-    }
-  ],
-
-  "features": {
-    "AudioCapture": true,
-    "FileHandling": true,
-    "WebShare": true,
-    "OfflineSync": true,
-    "InstallPrompt": true
-  },
-
-  "_comment_ml_analytics": "Flags used by VMQ analytics/ML engine when present.",
-  "vmq_analytics_config": {
-    "track_shortcuts": true,
-    "track_share_target": true,
-    "track_file_imports": true,
-    "track_offline_sessions": true,
-    "track_session_recovery": true
-  },
-
-  "_comment_version": "VMQ PWA manifest v3.0.5 (icons/screenshots filenames matched to repo).",
-  "version": "3.0.5",
-  "manifest_version": 3
+  ]
 }
