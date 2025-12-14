@@ -641,22 +641,33 @@ self.addEventListener('message', event => {
 // ===================================
 self.addEventListener('sync', event => {
   console.log('[SW Sync] Background sync triggered:', event.tag);
-  
-  if (event.tag === 'sync-analytics') {
+
+  if (event.tag === 'analytics-sync') {
     event.waitUntil(syncAnalyticsQueue());
+    return;
   }
-  
+
+  if (event.tag === 'offline-data-sync') {
+    event.waitUntil(
+      self.clients.matchAll({ type: 'window' }).then(clients => {
+        clients.forEach(client =>
+          client.postMessage({ type: 'SYNC_OFFLINE_DATA', timestamp: Date.now() })
+        );
+      })
+    );
+    return;
+  }
+
+  // Legacy tag support (optional)
   if (event.tag === 'sync-sm2') {
     event.waitUntil(
       self.clients.matchAll({ type: 'window' }).then(clients => {
         clients.forEach(client => {
-          client.postMessage({
-            type: 'SYNC_SM2',
-            timestamp: Date.now()
-          });
+          client.postMessage({ type: 'SYNC_SM2', timestamp: Date.now() });
         });
       })
     );
+    return;
   }
 });
 
