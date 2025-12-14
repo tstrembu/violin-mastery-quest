@@ -1,10 +1,16 @@
 // ======================================
-// VMQ CONSTANTS - Complete PedagogICAL Reference System - Violin Mastery Quest
+// VMQ CONSTANTS - Complete Pedagogical Reference System - Violin Mastery Quest
 // ======================================
 
 import { VMQ_VERSION } from './version.js';
-
 export { VMQ_VERSION }; // Re-export for convenience
+
+// --------------------------------------
+// STORAGE KEYS (single source of truth)
+// Re-export from storage.js so older imports keep working:
+//   import { STORAGE_KEYS } from './constants.js'
+// --------------------------------------
+export { STORAGE_KEYS } from './storage.js';
 
 // ======================================
 // INTERVALS - With Repertoire Mapping & Pedagogical Context
