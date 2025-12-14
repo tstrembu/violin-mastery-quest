@@ -531,14 +531,67 @@ export default function App() {
       metaTheme.setAttribute('content', color);
     }
     
-    // Also update manifest theme-color for next PWA launch
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-      navigator.serviceWorker.controller.postMessage({
-        type: 'UPDATE_THEME_COLOR',
-        color: color
+    // App.js (near the bottom) — NO duplicate SW register here.
+    // We assume index.html registers ./sw.js.
+    
+    if ('serviceWorker' in navigator) {
+      // Wait for the already-registered SW (from index.html)
+      navigator.serviceWorker.ready
+        .then(async (registration) => {
+          // Enable periodic background sync (check for due items)
+          if ('periodicSync' in registration) {
+            try {
+              await registration.periodicSync.register('check-due-items', {
+                minInterval: 30 * 60 * 1000
+              });
+              console.log('✓ Periodic sync registered');
+            } catch (e) {
+              console.warn('Periodic sync failed:', e);
+            }
+          }
+    
+          // Request notification permission
+          if ('Notification' in window && Notification.permission === 'default') {
+            setTimeout(async () => {
+              try {
+                const permission = await Notification.requestPermission();
+                if (permission === 'granted') console.log('✓ Notifications enabled');
+              } catch {}
+            }, 60000);
+          }
+    
+          // Listen for SW messages
+          navigator.serviceWorker.addEventListener('message', (event) => {
+            const { type, data } = event.data || {};
+    
+            if (type === 'SYNC_ANALYTICS') {
+              console.log('Syncing analytics:', data?.events?.length || 0);
+            }
+    
+            if (type === 'CHECK_DUE_ITEMS') {
+              (async () => {
+                try {
+                  const dueItems = await getDueItems('all', 100);
+                  const dueCount = dueItems?.length || 0;
+    
+                  if (dueCount > 0) {
+                    window.dispatchEvent(new CustomEvent('vmq-show-toast', {
+                      detail: { message: `${dueCount} flashcards are due for review!`, type: 'info' }
+                    }));
+                  }
+                } catch {}
+              })();
+            }
+          });
+        })
+        .catch((err) => console.warn('SW ready failed:', err));
+    
+      // Send navigation events to SW for ML prefetching
+      window.addEventListener('hashchange', () => {
+        const route = window.location.hash.slice(1) || 'menu';
+        navigator.serviceWorker.controller?.postMessage({ type: 'NAVIGATION', route });
       });
     }
-  }
 
   // ====================================
   // ML: Predict time to next level
