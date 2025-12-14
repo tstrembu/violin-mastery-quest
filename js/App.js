@@ -6,7 +6,8 @@
 const { createElement: h, useState, useEffect, useCallback, useRef, useMemo } = React;
 
 // Core imports
-import { STORAGE_KEYS, VMQ_VERSION, FEATURES } from './config/constants.js';
+import { STORAGE_KEYS } from './config/storage.js';
+import { VMQ_VERSION, FEATURES } from './config/constants.js';
 import { loadJSON, saveJSON, storage } from './config/storage.js';
 import { audioEngine } from './engines/audioEngine.js';
 import { loadXP, loadStreak, updateStreak, getLevel, addXP, unlockAchievement } from './engines/gamification.js';
