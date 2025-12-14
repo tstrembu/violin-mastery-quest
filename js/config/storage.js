@@ -290,3 +290,116 @@ export default STORAGE;
 
 // Auto-migrate on module load
 migrateData();
+
+// ======================================
+// STORAGE ESTIMATE & QUOTA MANAGEMENT (exported)
+// ======================================
+export async function getStorageEstimate() {
+  if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
+    try {
+      const { usage = 0, quota = 0 } = await navigator.storage.estimate();
+      const percentage = quota ? Math.round((usage / quota) * 100) : 0;
+      return {
+        usage,
+        quota,
+        used: usage,
+        available: Math.max(0, quota - usage),
+        percentage,
+        isFull: quota ? usage >= quota * 0.95 : false
+      };
+    } catch (e) {
+      console.warn('[Storage] estimate failed:', e);
+    }
+  }
+  return { usage: 0, quota: 5242880, used: 0, available: 5242880, percentage: 0, isFull: false };
+}
+
+// ======================================
+// CLEANUP UTILITIES (exported)
+// ======================================
+export function cleanupAllData() {
+  return STORAGE.clearAll();
+}
+
+export function cleanupOldData(days = 90) {
+  // Use your pruning logic (practice log + analytics events)
+  return pruneOldData(days);
+}
+
+// ======================================
+// ML TRACKING HELPERS (exported)
+// ======================================
+export function trackConfusion(module, itemId, guessedId) {
+  try {
+    const matrix = STORAGE.get(STORAGE_KEYS.CONFUSION_MATRIX, {});
+    if (!matrix[module]) matrix[module] = {};
+    if (!matrix[module][itemId]) matrix[module][itemId] = {};
+    matrix[module][itemId][guessedId] = (matrix[module][itemId][guessedId] || 0) + 1;
+    STORAGE.set(STORAGE_KEYS.CONFUSION_MATRIX, matrix);
+    return true;
+  } catch (e) {
+    console.error('[Storage] trackConfusion failed:', e);
+    return false;
+  }
+}
+
+export function getConfusionData(module) {
+  try {
+    const matrix = STORAGE.get(STORAGE_KEYS.CONFUSION_MATRIX, {});
+    return matrix?.[module] || {};
+  } catch (e) {
+    console.error('[Storage] getConfusionData failed:', e);
+    return {};
+  }
+}
+
+export function trackLearningVelocity(module, accuracy, timeMs) {
+  try {
+    const velocity = STORAGE.get(STORAGE_KEYS.LEARNING_VELOCITY, {});
+    if (!velocity[module]) velocity[module] = [];
+
+    velocity[module].push({
+      timestamp: Date.now(),
+      accuracy,
+      timeMs,
+      week: Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000))
+    });
+
+    if (velocity[module].length > 1000) velocity[module] = velocity[module].slice(-1000);
+    STORAGE.set(STORAGE_KEYS.LEARNING_VELOCITY, velocity);
+    return true;
+  } catch (e) {
+    console.error('[Storage] trackLearningVelocity failed:', e);
+    return false;
+  }
+}
+
+export function calculateLearningAcceleration(module) {
+  try {
+    const velocity = STORAGE.get(STORAGE_KEYS.LEARNING_VELOCITY, {});
+    const data = velocity?.[module] || [];
+    if (data.length < 2) return { acceleration: 0, trend: 'flat', weeklyAvg: [] };
+
+    const byWeek = {};
+    for (const entry of data) {
+      const w = entry.week;
+      if (!byWeek[w]) byWeek[w] = [];
+      byWeek[w].push(entry.accuracy);
+    }
+
+    const weeks = Object.keys(byWeek).map(Number).sort((a, b) => a - b);
+    const weeklyAvg = weeks.map(w => ({
+      week: w,
+      avg: byWeek[w].reduce((a, b) => a + b, 0) / byWeek[w].length
+    }));
+
+    const acceleration =
+      weeklyAvg.length >= 2 ? (weeklyAvg[weeklyAvg.length - 1].avg - weeklyAvg[0].avg) : 0;
+
+    const trend = acceleration > 2 ? 'accelerating' : acceleration < -2 ? 'declining' : 'flat';
+    return { acceleration, trend, weeklyAvg };
+  } catch (e) {
+    console.error('[Storage] calculateLearningAcceleration failed:', e);
+    return { acceleration: 0, trend: 'error', weeklyAvg: [] };
+  }
+}
