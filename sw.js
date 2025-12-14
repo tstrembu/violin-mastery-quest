@@ -21,38 +21,23 @@ const STORE_ML_PREDICTIONS = 'ml-predictions';
 const CORE_FILES = [
   './',
   './index.html',
+  './offline.html',
   './manifest.json',
-  './js/App.js',
-  './js/bootstrap.js',
-  
-  // CSS
   './css/base.css',
   './css/components.css',
   './css/themes.css',
   './css/animations.css',
-  
-  // Config
+  './js/App.js',
+  './js/bootstrap.js',
   './js/config/constants.js',
   './js/config/storage.js',
   './js/config/repertoirePlans.js',
-  './js/config/version.js',
-  
-  // Contexts
-  './js/contexts/AppContext.js',
-  
-  // Icons
-  './icons/icon-16.png',
-  './icons/icon-32.png',
-  './icons/icon-180.png',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  
-  // Utils
   './js/utils/helpers.js',
   './js/utils/keyboard.js',
   './js/utils/router.js',
-  
-  // React
+  './js/contexts/AppContext.js',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js'
 ];
@@ -69,13 +54,15 @@ const MODULE_FILES = [
   './js/engines/sessionTracker.js',
   './js/engines/difficultyAdapter.js',
 
-  // Components
+  // Components - Core
   './js/components/Toast.js',
   './js/components/MainMenu.js',
   './js/components/Dashboard.js',
   './js/components/Analytics.js',
   './js/components/Settings.js',
   './js/components/Welcome.js',
+
+  // Components - Learning
   './js/components/Intervals.js',
   './js/components/KeySignatures.js',
   './js/components/Rhythm.js',
@@ -83,12 +70,16 @@ const MODULE_FILES = [
   './js/components/Fingerboard.js',
   './js/components/ScalesLab.js',
   './js/components/PositionCharts.js',
+
+  // Components - Ear Training & Drills
   './js/components/IntervalEarTester.js',
   './js/components/IntervalSprint.js',
   './js/components/KeyTester.js',
   './js/components/RhythmDrills.js',
   './js/components/BielerLab.js',
   './js/components/TempoTrainer.js',
+
+  // Components - Advanced
   './js/components/CoachPanel.js',
   './js/components/DailyGoals.js',
   './js/components/Achievements.js',
@@ -153,14 +144,6 @@ function openIDB() {
   });
 }
 
-// Promisify IDBRequest results (native IndexedDB API is callback-based)
-function idbReq(req) {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
 // ===================================
 // ML PREDICTIVE PREFETCHING
 // ===================================
@@ -181,9 +164,10 @@ async function updateNavigationHistory(route) {
     const db = await openIDB();
     const tx = db.transaction(STORE_ML_PREDICTIONS, 'readwrite');
     const store = tx.objectStore(STORE_ML_PREDICTIONS);
+    // Use idbReq to promisify the request
     await idbReq(store.put({
       key: 'navigationHistory',
-       data: mlState.navigationHistory
+      data: mlState.navigationHistory
     }));
   } catch (e) {
     console.warn('[SW ML] Failed to save nav history:', e);
@@ -405,12 +389,20 @@ self.addEventListener('install', event => {
   
   event.waitUntil(
     Promise.all([
-      caches.open(CACHE_CORE).then(cache => cache.addAll(CORE_FILES)),
-      caches.open(CACHE_MODULES).then(cache => cache.addAll(MODULE_FILES)),
-      openIDB() // Initialize IDB
+      // Cache only the core assets defined above.  Modules are cached on demand.
+      caches.open(CACHE_CORE).then(async (cache) => {
+        try {
+          await cache.addAll(CORE_FILES);
+        } catch (err) {
+          // A failure to cache one asset shouldn't stop the whole install.
+          console.warn('[SW] Failed to cache core asset:', err);
+        }
+      }),
+      // Initialize IndexedDB stores
+      openIDB()
     ])
       .then(() => {
-        console.log(`[SW v${VMQ_VERSION}] ✓ Core+modules cached, IDB ready`);
+        console.log(`[SW v${VMQ_VERSION}] ✓ Core cached, IDB ready`);
       })
       .catch(err => {
         console.error('[SW] Caching during install failed:', err);
@@ -641,7 +633,8 @@ self.addEventListener('message', event => {
 // ===================================
 self.addEventListener('sync', event => {
   console.log('[SW Sync] Background sync triggered:', event.tag);
-
+  
+  // Harmonize with tags registered in index.html
   if (event.tag === 'analytics-sync') {
     event.waitUntil(syncAnalyticsQueue());
     return;
@@ -650,20 +643,26 @@ self.addEventListener('sync', event => {
   if (event.tag === 'offline-data-sync') {
     event.waitUntil(
       self.clients.matchAll({ type: 'window' }).then(clients => {
-        clients.forEach(client =>
-          client.postMessage({ type: 'SYNC_OFFLINE_DATA', timestamp: Date.now() })
-        );
+        clients.forEach(client => {
+          client.postMessage({
+            type: 'SYNC_OFFLINE_DATA',
+            timestamp: Date.now()
+          });
+        });
       })
     );
     return;
   }
 
-  // Legacy tag support (optional)
+  // Legacy support for older tags (sync-sm2)
   if (event.tag === 'sync-sm2') {
     event.waitUntil(
       self.clients.matchAll({ type: 'window' }).then(clients => {
         clients.forEach(client => {
-          client.postMessage({ type: 'SYNC_SM2', timestamp: Date.now() });
+          client.postMessage({
+            type: 'SYNC_SM2',
+            timestamp: Date.now()
+          });
         });
       })
     );
@@ -703,7 +702,8 @@ self.addEventListener('push', event => {
     body: data.body || 'Time to practice!',
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
-     data: data.data || {},
+    // Attach any custom data payload
+    data: data.data || {},
     tag: data.tag || 'vmq-notification',
     requireInteraction: data.requireInteraction || false
   };
@@ -737,5 +737,17 @@ self.addEventListener('notificationclick', event => {
 // ===================================
 // PERIODIC TASKS
 // ===================================
+setInterval(() => {
+  // Report performance metrics every 5 minutes
+  reportPerformanceMetrics();
+  
+  // Manage cache quota
+  manageCacheQuota();
+  
+  // Sync analytics if online
+  if (mlState.isOnline) {
+    syncAnalyticsQueue();
+  }
+}, 300000); // 5 minutes
 
 console.log(`[SW v${VMQ_VERSION}] 🎻 VMQ Service Worker loaded with ML enhancements`);
