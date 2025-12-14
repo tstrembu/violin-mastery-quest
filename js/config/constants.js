@@ -7,28 +7,6 @@ import { VMQ_VERSION } from './version.js';
 export { VMQ_VERSION }; // Re-export for convenience
 
 // ======================================
-// STORAGE KEYS - Unified localStorage namespace
-// ======================================
-
-export const STORAGE_KEYS = {
-  VERSION: 'vmq.version',
-  PROFILE: 'vmq.profile',
-  SETTINGS: 'vmq.settings',
-  XP: 'vmq.xp',
-  STREAK: 'vmq.streak',
-  STATS: 'vmq.stats',
-  PRACTICE_LOG: 'vmq.practiceLog',
-  JOURNAL: 'vmq.journal',
-  ACHIEVEMENTS: 'vmq.achievements',
-  DAILY_GOALS: 'vmq.dailyGoals',
-  ANALYTICS: 'vmq.analytics',
-  REPERTOIRE: 'vmq.repertoire',
-  SPACED_REPETITION: 'vmq.spacedRepetition',
-  DIFFICULTY: 'vmq.difficulty',
-  COACH_DATA: 'vmq.coachData'
-};
-
-// ======================================
 // INTERVALS - With Repertoire Mapping & Pedagogical Context
 // ======================================
 
