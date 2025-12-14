@@ -4,7 +4,7 @@
 // ML Analytics Integration • Quota Management • Data Migration
 // ======================================
 
-import { VMQ_VERSION } from './constants.js';
+import { VMQ_VERSION } from './version.js';
 
 // ======================================
 // STORAGE KEYS - Unified namespace
