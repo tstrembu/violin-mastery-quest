@@ -1,3 +1,4 @@
+// js/App.js
 // ======================================
 // VMQ ROOT APP v3.0.0 - ML-Adaptive PWA
 // Error Boundaries • Theme Sync • 50+ Modules • Predictive Loading
@@ -962,7 +963,7 @@ export default function App() {
     ),
 
     // Main Content
-    h('main', { className: 'app-main', role: 'main' }, 
+    h('main', { id: 'main', className: 'app-main', role: 'main', tabIndex: -1 },
       renderCurrentRoute()
     ),
 
