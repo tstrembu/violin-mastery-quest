@@ -1,3 +1,4 @@
+// js/components/Settings.js
 // ========================================================
 // VMQ SETTINGS v2.0 - Theme, Accessibility, Smart Difficulty
 // ========================================================
