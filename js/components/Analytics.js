@@ -1,3 +1,4 @@
+// js/engines/analytics.js
 /**
  * Analytics Component
  * Detailed progress tracking and insights
