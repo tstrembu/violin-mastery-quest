@@ -218,6 +218,90 @@
       window.vmqMetrics.mlWarmupTime = Math.round(performance.now() - mlStart);
       logDiagnostic('ML', `Warmup complete: ${window.vmqMetrics.mlWarmupTime}ms`);
     }
+    
+    // =========================================================
+    // ✅ Component prefetch resolver (ROUTE_TO_COMPONENT_FILE logic)
+    // Keeps bootstrap lightweight, avoids dead prefetch paths.
+    // =========================================================
+    const ROUTE_TO_COMPONENT_FILE = {
+      // Core / common
+      'menu': 'Menu.js',
+      'dashboard': 'Dashboard.js',
+      'coach': 'Coach.js',
+      'settings': 'Settings.js',
+      'analytics': 'Analytics.js',
+      'achievements': 'Achievements.js',
+      'dailygoals': 'DailyGoals.js',
+
+      // Theory / drills
+      'intervals': 'Intervals.js',
+      'interval-ear': 'IntervalEar.js',
+      'interval-sprint': 'IntervalSprint.js',
+      'keys': 'Keys.js',
+      'key-tester': 'KeyTester.js',
+      'rhythm': 'Rhythm.js',
+      'rhythm-drills': 'RhythmDrills.js',
+      'tempotrainer': 'TempoTrainer.js',
+
+      // Technique
+      'bieler': 'Bieler.js',
+      'bielerlab': 'BielerLab.js',
+      'fingerboard': 'Fingerboard.js',
+      'notelocator': 'NoteLocator.js',
+
+      // ✅ Known mismatch in your note: “scales” often actually means ScalesLab
+      'scales': 'ScalesLab.js',
+      'scaleslab': 'ScalesLab.js',
+
+      // Speed / misc
+      'speeddrill': 'SpeedDrill.js',
+      'practicejournal': 'PracticeJournal.js',
+      'datamanager': 'DataManager.js',
+      'spaced-rep': 'SpacedRep.js',
+      'flashcards': 'Flashcards.js'
+    };
+
+    function _toPascalCase(route) {
+      return String(route)
+        .split(/[-_]/g)
+        .filter(Boolean)
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join('');
+    }
+
+    function resolveComponentHref(routeOrId) {
+      if (!routeOrId) return null;
+
+      // Normalize (strip hash/query)
+      const raw = String(routeOrId).replace(/^#/, '').split('?')[0].trim();
+      if (!raw) return null;
+
+      const key = raw.toLowerCase();
+      const mapped = ROUTE_TO_COMPONENT_FILE[key];
+      if (mapped) return `./js/components/${mapped}`;
+
+      // Fallback 1: exact filename match (route.js)
+      // This supports modules that truly are lowercase route names.
+      if (/^[a-z0-9_-]+$/i.test(raw)) {
+        return `./js/components/${raw}.js`;
+      }
+
+      // Fallback 2: PascalCase guess (IntervalEar.js, ScalesLab.js, etc.)
+      return `./js/components/${_toPascalCase(key)}.js`;
+    }
+
+    function prefetchScript(href) {
+      if (!href) return;
+
+      // Avoid duplicates
+      if (document.head.querySelector(`link[rel="prefetch"][href="${href}"]`)) return;
+
+      const link = document.createElement('link');
+      link.rel = 'prefetch';
+      link.as = 'script';
+      link.href = href;
+      document.head.appendChild(link);
+    }
 
     async function prefetchUserModules() {
       try {
@@ -225,19 +309,19 @@
         const storage = await import('./js/engines/storage.js');
         const profile = await storage.loadJSON('vmq-profile', { level: 'beginner' });
 
+        // Keep your existing intent, but ensure routes map to *real* component files.
         const modulesToPrefetch = {
           beginner: ['intervals', 'keys', 'rhythm'],
           intermediate: ['bieler', 'scales', 'fingerboard'],
-          advanced: ['bieler', 'scales', 'speed-drill']
+          advanced: ['bieler', 'scales', 'speeddrill']
         };
 
         const modules = modulesToPrefetch[profile.level] || modulesToPrefetch.beginner;
-        modules.forEach(module => {
-          const link = document.createElement('link');
-          link.rel = 'prefetch';
-          link.href = `./js/components/${module}.js`;
-          document.head.appendChild(link);
-        });
+
+        for (const routeOrId of modules) {
+          const href = resolveComponentHref(routeOrId);
+          prefetchScript(href);
+        }
 
         logDiagnostic('PREFETCH', `Prefetched modules for ${profile.level}`, modules);
       } catch (e) {
