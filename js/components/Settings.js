@@ -164,7 +164,7 @@ function capitalize(str) {
 }
 
 export function Settings({ navigate, audioEngine, showToast }) {
-  const storageAvailable = isStorageAvailable?.() ?? true;
+  const storageAvailable = isStorageAvailableSafe();
 
   const [settings, setSettings] = useState(() => {
     const s = loadJSON(KEY_SETTINGS, DEFAULT_SETTINGS);
@@ -321,28 +321,34 @@ export function Settings({ navigate, audioEngine, showToast }) {
   }
 
   function handleExport() {
+    // Best: use the storage engine’s exportAll if present
     try {
-      if (typeof exportAllData === 'function') {
-        exportAllData();
-        showToast?.('Progress exported successfully', 'success');
-        return;
+      if (storage?.exportAll) {
+        const out = storage.exportAll();
+        if (out?.blob) {
+          const a = document.createElement('a');
+          a.href = out.url;
+          a.download = `vmq-backup-${new Date().toISOString().split('T')[0]}.json`;
+          a.click();
+          URL.revokeObjectURL(out.url);
+          showToast?.('Progress exported successfully', 'success');
+          return;
+        }
       }
     } catch {}
-
-    const statsRaw = loadStatsSafe();
-    const g = loadGamificationSafe();
-
+  
+    // Fallback: manual export (what you already had)
     const data = {
       profile: loadProfileSafe(),
-      gamification: g,
+      gamification: loadGamificationSafe(),
       achievements: loadAchievementsSafe(),
-      stats: statsRaw,
+      stats: loadStatsSafe(),
       settings,
       difficulties,
       exportDate: new Date().toISOString(),
       version: '1.0.0'
     };
-
+  
     const dataStr = JSON.stringify(data, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -351,7 +357,7 @@ export function Settings({ navigate, audioEngine, showToast }) {
     a.download = `vmq-backup-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
-
+  
     showToast?.('Progress exported successfully', 'success');
   }
 
