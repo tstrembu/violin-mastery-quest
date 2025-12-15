@@ -1,3 +1,4 @@
+// js/engines/analytics.js
 // ======================================
 // VMQ ANALYTICS v3.0 - Advanced ML Intelligence
 // Predictive Learning • Adaptive Patterns • Deep Integration
