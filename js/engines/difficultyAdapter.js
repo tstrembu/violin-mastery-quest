@@ -428,3 +428,59 @@ export { DIFFICULTY_LEVELS, MODULE_CATEGORIES, ADAPTATION_RULES };
 
 // Default export is the singleton instance (unchanged intent)
 export default difficultyAdapter;
+
+// --------------------------------------
+// Back-compat exports for older components
+// --------------------------------------
+
+// Settings.js expects setDifficulty(mode, levelString)
+export function setDifficulty(mode, level) {
+  // Try a few likely method names without assuming internals
+  if (typeof difficultyAdapter.setDifficulty === 'function') {
+    return difficultyAdapter.setDifficulty(mode, level);
+  }
+  if (typeof difficultyAdapter.setUserDifficulty === 'function') {
+    return difficultyAdapter.setUserDifficulty(mode, level);
+  }
+  if (typeof difficultyAdapter.setOverride === 'function') {
+    return difficultyAdapter.setOverride(mode, level);
+  }
+
+  // Fail soft (don’t crash Settings UI)
+  console.warn('[difficultyAdapter] setDifficulty() not implemented on adapter');
+  return false;
+}
+
+// Welcome.js expects updateSettings(patchObject)
+export function updateSettings(patch = {}) {
+  if (typeof difficultyAdapter.updateSettings === 'function') {
+    return difficultyAdapter.updateSettings(patch);
+  }
+  if (typeof difficultyAdapter.setSettings === 'function') {
+    return difficultyAdapter.setSettings(patch);
+  }
+  if (typeof difficultyAdapter.configure === 'function') {
+    return difficultyAdapter.configure(patch);
+  }
+
+  console.warn('[difficultyAdapter] updateSettings() not implemented on adapter');
+  return false;
+}
+
+// Settings.js expects DIFFICULTY_SETTINGS to be an object whose keys are “modes/modules”
+export const DIFFICULTY_SETTINGS = (() => {
+  // Prefer a real adapter source if it exists
+  if (difficultyAdapter?.modules && typeof difficultyAdapter.modules === 'object') {
+    return difficultyAdapter.modules;
+  }
+
+  // Fall back to exported rules/constants you already expose
+  try {
+    return Object.keys(ADAPTATION_RULES || {}).reduce((acc, k) => {
+      acc[k] = true;
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+})();
