@@ -1,3 +1,4 @@
+// js/components/dashboard.js
 // ======================================
 // VMQ DASHBOARD v3.0 - ML-Powered Learning Intelligence
 // Full Analytics v3.0 + Coach + Gamification + Session + SM-2
