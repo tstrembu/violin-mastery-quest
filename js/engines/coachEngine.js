@@ -1,3 +1,4 @@
+// js/engines/
 // ======================================
 // VMQ COACH ENGINE v2.1.1 - Advanced AI Practice Intelligence
 // 7-Day Adaptive Plans + Learning Pattern Recognition + Bieler Pedagogy
