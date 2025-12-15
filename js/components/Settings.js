@@ -1,84 +1,217 @@
 // js/components/Settings.js
 // ========================================================
-// VMQ SETTINGS v2.0 - Theme, Accessibility, Smart Difficulty
+// VMQ SETTINGS v2.1 - Theme, Accessibility, Smart Difficulty
+// (Drop-in replacement: removes dependency on undefined storage helpers)
 // ========================================================
 
-const { createElement: h, useState, useEffect } = React;
-
-// Imports
 import {
   STORAGE_KEYS,
   loadJSON,
   saveJSON,
   clearAll,
   exportData as exportAllData,
-  isStorageAvailable,
-  loadProfile,
-  saveProfile,
-  loadXP,
-  loadLevel,
-  loadStreak,
-  loadAchievements,
-  loadStats
+  isStorageAvailable
 } from '../config/storage.js';
-import {
-  setDifficulty,
-  DIFFICULTY_SETTINGS
-} from '../engines/difficultyAdapter.js';
+
+import { setDifficulty, DIFFICULTY_SETTINGS } from '../engines/difficultyAdapter.js';
 import { PROFILE_TYPES } from '../config/constants.js';
 
+// React (global in index.html)
+const { createElement: h, useState, useEffect, useMemo } = React;
+
+// --------------------------
+// Storage key helpers
+// --------------------------
+const KEY = (name, fallback) => (STORAGE_KEYS && STORAGE_KEYS[name]) ? STORAGE_KEYS[name] : fallback;
+
+const KEY_PROFILE       = KEY('PROFILE',       'vmq_profile');
+const KEY_SETTINGS      = KEY('SETTINGS',      'vmq_settings');
+const KEY_DIFFICULTY    = KEY('DIFFICULTY',    'vmq_difficulty');
+const KEY_GAMIFICATION  = KEY('GAMIFICATION',  'vmq_gamification');
+const KEY_ACHIEVEMENTS  = KEY('ACHIEVEMENTS',  'vmq_achievements');
+const KEY_STATS         = KEY('STATS',         'vmq_stats');
+const KEY_ANALYTICS     = KEY('ANALYTICS',     'vmq_analytics');
+
+// --------------------------
+// Defaults
+// --------------------------
+const DEFAULT_SETTINGS = {
+  muted: false,
+  darkMode: false,
+  highContrast: false,
+  largeFonts: false,
+  compactLayout: false
+};
+
+const DEFAULT_PROFILE = {
+  name: '',
+  level: 'beginner',
+  goals: [],
+  preferredTime: 'flexible',
+  practiceMinutes: 20,
+  repertoire: 'suzuki1',
+  onboardingComplete: false
+};
+
+// --------------------------
+// Safe loaders (no missing imports)
+// --------------------------
+function loadProfileSafe() {
+  const p = loadJSON(KEY_PROFILE, DEFAULT_PROFILE);
+  return (p && typeof p === 'object') ? { ...DEFAULT_PROFILE, ...p } : { ...DEFAULT_PROFILE };
+}
+
+function saveProfileSafe(profile) {
+  saveJSON(KEY_PROFILE, profile);
+}
+
+function loadGamificationSafe() {
+  const g = loadJSON(KEY_GAMIFICATION, null);
+  if (g && typeof g === 'object') return g;
+
+  // Back-compat: some builds store these separately
+  const xp = loadJSON(KEY('XP', 'vmq_xp'), null);
+  const level = loadJSON(KEY('LEVEL', 'vmq_level'), null);
+  const streak = loadJSON(KEY('STREAK', 'vmq_streak'), null);
+
+  return {
+    xp: Number.isFinite(Number(xp)) ? Number(xp) : 0,
+    level: Number.isFinite(Number(level)) ? Number(level) : 1,
+    streak: Number.isFinite(Number(streak)) ? Number(streak) : 0
+  };
+}
+
+function loadAchievementsSafe() {
+  const a1 = loadJSON(KEY_ACHIEVEMENTS, null);
+  if (Array.isArray(a1)) return a1;
+  if (a1 && typeof a1 === 'object') {
+    if (Array.isArray(a1.unlocked)) return a1.unlocked;
+    if (Array.isArray(a1.list)) return a1.list;
+  }
+
+  // Back-compat: sometimes bundled into gamification
+  const g = loadGamificationSafe();
+  if (Array.isArray(g.achievements)) return g.achievements;
+
+  return [];
+}
+
+function loadStatsSafe() {
+  // Prefer analytics stats object if your app stores them there
+  const a = loadJSON(KEY_ANALYTICS, null);
+  if (a && typeof a === 'object' && ('total' in a || 'correct' in a || 'byModule' in a)) return a;
+
+  const s = loadJSON(KEY_STATS, null);
+  if (s && typeof s === 'object') return s;
+
+  // Back-compat: some apps store stats in ANALYTICS even as { events: [] }
+  const a2 = loadJSON(KEY_ANALYTICS, {});
+  return (a2 && typeof a2 === 'object') ? a2 : {};
+}
+
+// --------------------------
+// DOM theme application
+// --------------------------
+function applyThemeSettings(currentSettings, canPersist) {
+  if (typeof document === 'undefined') return;
+
+  const html = document.documentElement;
+
+  // Theme resolution
+  let theme = 'light';
+  if (currentSettings.darkMode) theme = 'dark';
+  else if (currentSettings.highContrast) theme = 'high-contrast';
+
+  html.setAttribute('data-theme', theme);
+
+  if (canPersist) {
+    try { localStorage.setItem('vmq-theme', theme); } catch {}
+  }
+
+  // Large fonts
+  if (currentSettings.largeFonts) {
+    html.setAttribute('data-font-size', 'large');
+    if (canPersist) {
+      try { localStorage.setItem('vmq-font-size', 'large'); } catch {}
+    }
+  } else {
+    html.removeAttribute('data-font-size');
+    if (canPersist) {
+      try { localStorage.removeItem('vmq-font-size'); } catch {}
+    }
+  }
+
+  // Compact layout
+  if (currentSettings.compactLayout) html.setAttribute('data-layout', 'compact');
+  else html.removeAttribute('data-layout');
+
+  // Broadcast settings change for listeners
+  try {
+    window.dispatchEvent(new CustomEvent('vmq-settings-changed', { detail: { settings: currentSettings } }));
+  } catch {}
+}
+
+function capitalize(str) {
+  return str ? str.charAt(0).toUpperCase() + str.slice(1) : '';
+}
+
 export function Settings({ navigate, audioEngine, showToast }) {
-  // Settings state
+  const storageAvailable = isStorageAvailable?.() ?? true;
+
   const [settings, setSettings] = useState(() =>
-    loadJSON(STORAGE_KEYS.SETTINGS, {
-      muted: false,
-      darkMode: false,
-      highContrast: false,
-      largeFonts: false,
-      compactLayout: false
-    })
+    loadJSON(KEY_SETTINGS, DEFAULT_SETTINGS)
   );
 
-  // Profile state
-  const [profile, setProfile] = useState(() => loadProfile());
+  const [profile, setProfile] = useState(() => loadProfileSafe());
 
-  // Difficulty state (per mode)
   const [difficulties, setDifficulties] = useState(() =>
-    loadJSON(STORAGE_KEYS.DIFFICULTY, {})
+    loadJSON(KEY_DIFFICULTY, {})
   );
 
-  // Lightweight learning summary for smart recommendations
   const [learningSummary, setLearningSummary] = useState(null);
   const [recommendedDifficulty, setRecommendedDifficulty] = useState(null);
 
-  const storageAvailable = isStorageAvailable();
-
-  // ✨ Apply settings whenever they change
+  // Apply persisted theme/profile on mount
   useEffect(() => {
-    saveJSON(STORAGE_KEYS.SETTINGS, settings);
+    try { document.body?.setAttribute?.('data-profile', profile?.level || profile?.profile || profile?.id || 'beginner'); } catch {}
+    applyThemeSettings(settings, storageAvailable);
+  }, []); // eslint-disable-line
 
-    // Audio
+  // Persist settings + apply to DOM/audio whenever they change
+  useEffect(() => {
+    saveJSON(KEY_SETTINGS, settings);
+
     if (audioEngine && typeof audioEngine.setMute === 'function') {
-      audioEngine.setMute(settings.muted);
+      audioEngine.setMute(!!settings.muted);
     }
 
-    // Theme / layout attributes + PWA shell sync
     applyThemeSettings(settings, storageAvailable);
   }, [settings, audioEngine, storageAvailable]);
 
-  // 📊 Load learning summary once for smart difficulty
+  // Ensure difficulty engine is synchronized with stored values (mount)
   useEffect(() => {
     try {
-      const statsRaw = loadStats() || {};
-      const xp = loadXP?.() ?? 0;
-      const level = loadLevel?.() ?? 1;
-      const streak = loadStreak?.() ?? 0;
-      const achievements = loadAchievements?.() ?? [];
+      const modes = Object.keys(DIFFICULTY_SETTINGS || {});
+      modes.forEach((mode) => {
+        const level = (difficulties && difficulties[mode]) ? difficulties[mode] : 'easy';
+        setDifficulty?.(mode, level);
+      });
+    } catch {}
+  }, []); // eslint-disable-line
+
+  // Load learning summary once for smart difficulty
+  useEffect(() => {
+    try {
+      const statsRaw = loadStatsSafe();
+      const g = loadGamificationSafe();
+      const achievements = loadAchievementsSafe();
 
       const total =
         statsRaw.total ??
         statsRaw.totalQuestions ??
+        statsRaw.questions ??
         0;
+
       const correct =
         statsRaw.correct ??
         statsRaw.correctAnswers ??
@@ -97,200 +230,82 @@ export function Settings({ navigate, audioEngine, showToast }) {
         correct,
         accuracy,
         avgResponseTime,
-        xp,
-        level,
-        streak,
-        achievementsCount: Array.isArray(achievements)
-          ? achievements.length
-          : achievements.unlocked?.length ?? 0
+        xp: Number(g?.xp) || 0,
+        level: Number(g?.level) || 1,
+        streak: Number(g?.streak) || 0,
+        achievementsCount: Array.isArray(achievements) ? achievements.length : 0
       };
 
       setLearningSummary(summary);
 
-      // Heuristic “ML‑style” global difficulty suggestion:
-      // - < 70% => easy
-      // - 70–85% => medium
-      // - > 85% => hard
-      if (accuracy == null || total < 30) {
-        setRecommendedDifficulty(null);
-      } else if (accuracy < 70) {
-        setRecommendedDifficulty('easy');
-      } else if (accuracy < 86) {
-        setRecommendedDifficulty('medium');
-      } else {
-        setRecommendedDifficulty('hard');
-      }
-    } catch (e) {
-      // Fail soft; settings UI must always work.
+      // Heuristic global difficulty suggestion
+      if (accuracy == null || total < 30) setRecommendedDifficulty(null);
+      else if (accuracy < 70) setRecommendedDifficulty('easy');
+      else if (accuracy < 86) setRecommendedDifficulty('medium');
+      else setRecommendedDifficulty('hard');
+    } catch {
       setLearningSummary(null);
       setRecommendedDifficulty(null);
     }
   }, []);
 
-  /**
-   * ✨ Apply theme and accessibility settings to DOM
-   * Also sync to localStorage keys the shell reads (vmq-theme, vmq-font-size)
-   */
-  function applyThemeSettings(currentSettings, canPersist) {
-    const html = document.documentElement;
-
-    // Theme resolution
-    let theme = 'light';
-    if (currentSettings.darkMode) {
-      theme = 'dark';
-    } else if (currentSettings.highContrast) {
-      theme = 'high-contrast';
-    }
-
-    html.setAttribute('data-theme', theme);
-
-    // Persist theme for PWA shell bootstrap, if storage is available
-    if (canPersist) {
-      try {
-        localStorage.setItem('vmq-theme', theme);
-      } catch (e) {
-        // Ignore quota / private mode errors
-      }
-    }
-
-    // Large fonts
-    if (currentSettings.largeFonts) {
-      html.setAttribute('data-font-size', 'large');
-      if (canPersist) {
-        try {
-          localStorage.setItem('vmq-font-size', 'large');
-        } catch (e) {}
-      }
-    } else {
-      html.removeAttribute('data-font-size');
-      if (canPersist) {
-        try {
-          localStorage.removeItem('vmq-font-size');
-        } catch (e) {}
-      }
-    }
-
-    // Compact layout
-    if (currentSettings.compactLayout) {
-      html.setAttribute('data-layout', 'compact');
-    } else {
-      html.removeAttribute('data-layout');
-    }
-
-    // Broadcast settings change for other engines (session tracker, coach) if they listen
-    try {
-      window.dispatchEvent(
-        new CustomEvent('vmq-settings-changed', {
-          detail: { settings: currentSettings }
-        })
-      );
-    } catch (e) {
-      // Non‑critical
-    }
-  }
-
-  /**
-   * Toggle mute (bug‑fixed messaging)
-   */
+  // Toggles
   function toggleMute() {
     const nextMuted = !settings.muted;
     setSettings((prev) => ({ ...prev, muted: nextMuted }));
-    showToast?.(
-      nextMuted ? '🔇 Sound muted' : '🔊 Sound enabled',
-      'info'
-    );
+    showToast?.(nextMuted ? '🔇 Sound muted' : '🔊 Sound enabled', 'info');
   }
 
-  /**
-   * ✨ Toggle dark mode
-   */
   function toggleDarkMode() {
     const nextDark = !settings.darkMode;
-    setSettings((prev) => ({
-      ...prev,
-      darkMode: nextDark,
-      highContrast: false
-    }));
-    showToast?.(
-      nextDark ? '🌙 Dark mode enabled' : '☀️ Light mode enabled',
-      'info'
-    );
+    setSettings((prev) => ({ ...prev, darkMode: nextDark, highContrast: false }));
+    showToast?.(nextDark ? '🌙 Dark mode enabled' : '☀️ Light mode enabled', 'info');
   }
 
-  /**
-   * ✨ Toggle high contrast mode
-   */
   function toggleHighContrast() {
     const next = !settings.highContrast;
-    setSettings((prev) => ({
-      ...prev,
-      highContrast: next,
-      darkMode: false
-    }));
-    showToast?.(
-      next ? 'High contrast enabled' : 'High contrast disabled',
-      'info'
-    );
+    setSettings((prev) => ({ ...prev, highContrast: next, darkMode: false }));
+    showToast?.(next ? 'High contrast enabled' : 'High contrast disabled', 'info');
   }
 
-  /**
-   * ✨ Toggle large fonts
-   */
   function toggleLargeFonts() {
     const next = !settings.largeFonts;
     setSettings((prev) => ({ ...prev, largeFonts: next }));
-    showToast?.(
-      next ? 'Large fonts enabled' : 'Normal fonts restored',
-      'info'
-    );
+    showToast?.(next ? 'Large fonts enabled' : 'Normal fonts restored', 'info');
   }
 
-  /**
-   * ✨ Toggle compact layout
-   */
   function toggleCompactLayout() {
     const next = !settings.compactLayout;
     setSettings((prev) => ({ ...prev, compactLayout: next }));
-    showToast?.(
-      next ? 'Compact layout enabled' : 'Normal layout restored',
-      'info'
-    );
+    showToast?.(next ? 'Compact layout enabled' : 'Normal layout restored', 'info');
   }
 
-  /**
-   * ✨ Handle profile change
-   */
-  function handleProfileChange(newProfile) {
-    setProfile(newProfile);
-    saveProfile(newProfile);
-    document.body.setAttribute('data-profile', newProfile);
+  function handleProfileChange(newProfileId) {
+    const next = { ...profile, level: newProfileId };
+    setProfile(next);
+    saveProfileSafe(next);
+    try { document.body.setAttribute('data-profile', newProfileId); } catch {}
     showToast?.('Profile updated', 'success');
   }
 
-  /**
-   * Change difficulty for a mode
-   */
   function handleDifficultyChange(mode, level) {
-    setDifficulty(mode, level);
-    setDifficulties((prev) => ({ ...prev, [mode]: level }));
+    try { setDifficulty?.(mode, level); } catch {}
+
+    const next = { ...(difficulties || {}), [mode]: level };
+    setDifficulties(next);
+    saveJSON(KEY_DIFFICULTY, next);
+
     showToast?.(`${mode} difficulty set to ${level}`, 'success');
   }
 
-  /**
-   * ⚙️ Auto‑calibrate difficulty from stats
-   * Uses global accuracy heuristic to set all modes at once.
-   */
   function autoCalibrateDifficulty() {
     if (!recommendedDifficulty) return;
 
     const level = recommendedDifficulty;
     const modes = Object.keys(DIFFICULTY_SETTINGS || {});
-
     if (!modes.length) return;
 
-    modes.forEach((mode) => {
-      handleDifficultyChange(mode, level);
-    });
+    modes.forEach((mode) => handleDifficultyChange(mode, level));
 
     showToast?.(
       `Difficulty auto-calibrated to ${capitalize(level)} based on your recent performance.`,
@@ -298,28 +313,23 @@ export function Settings({ navigate, audioEngine, showToast }) {
     );
   }
 
-  /**
-   * ✨ Export all user data
-   */
   function handleExport() {
     try {
-      // Prefer centralized engine export if available
       if (typeof exportAllData === 'function') {
         exportAllData();
         showToast?.('Progress exported successfully', 'success');
         return;
       }
-    } catch (e) {
-      // Fall back to manual export below
-    }
+    } catch {}
+
+    const statsRaw = loadStatsSafe();
+    const g = loadGamificationSafe();
 
     const data = {
-      profile: loadProfile(),
-      xp: loadXP(),
-      level: loadLevel(),
-      streak: loadStreak(),
-      achievements: loadAchievements(),
-      stats: loadStats(),
+      profile: loadProfileSafe(),
+      gamification: g,
+      achievements: loadAchievementsSafe(),
+      stats: statsRaw,
       settings,
       difficulties,
       exportDate: new Date().toISOString(),
@@ -338,30 +348,30 @@ export function Settings({ navigate, audioEngine, showToast }) {
     showToast?.('Progress exported successfully', 'success');
   }
 
-  /**
-   * Reset all progress
-   */
   function handleReset() {
     if (
       confirm(
         '⚠️ Are you sure? This will erase ALL progress data including XP, achievements, and stats. This cannot be undone.'
       )
     ) {
-      clearAll();
+      try { clearAll?.(); } catch {
+        // Fallback: clear our known keys
+        try {
+          [KEY_PROFILE, KEY_SETTINGS, KEY_DIFFICULTY, KEY_GAMIFICATION, KEY_ACHIEVEMENTS, KEY_STATS, KEY_ANALYTICS].forEach((k) => {
+            try { localStorage.removeItem(k); } catch {}
+          });
+        } catch {}
+      }
       showToast?.('All progress reset', 'info');
-      setTimeout(() => window.location.reload(), 1000);
+      setTimeout(() => window.location.reload(), 800);
     }
   }
 
-  function capitalize(str) {
-    return str ? str.charAt(0).toUpperCase() + str.slice(1) : '';
-  }
-
-  // Derived display for smart difficulty summary
-  const difficultySummaryText =
-    learningSummary && learningSummary.accuracy != null
+  const difficultySummaryText = useMemo(() => {
+    return learningSummary && learningSummary.accuracy != null
       ? `Overall accuracy ${learningSummary.accuracy}% over ${learningSummary.total} questions`
       : 'Not enough data yet to suggest a difficulty.';
+  }, [learningSummary]);
 
   return h(
     'div',
@@ -372,10 +382,7 @@ export function Settings({ navigate, audioEngine, showToast }) {
       { className: 'mode-header' },
       h(
         'button',
-        {
-          className: 'btn-back',
-          onClick: () => navigate?.('menu')
-        },
+        { className: 'btn-back', onClick: () => navigate?.('menu') },
         '← Back'
       ),
       h('h2', null, '⚙️ Settings')
@@ -386,7 +393,7 @@ export function Settings({ navigate, audioEngine, showToast }) {
       'div',
       { className: 'mode-content settings-content' },
 
-      // ✨ Profile Selection Section
+      // Profile selection
       h(
         'section',
         { className: 'settings-section' },
@@ -413,31 +420,21 @@ export function Settings({ navigate, audioEngine, showToast }) {
                 alignItems: 'center',
                 padding: 'var(--space-md)',
                 marginBottom: 'var(--space-sm)',
-                background:
-                  profile === profileType.id
-                    ? '#e7f3ff'
-                    : 'var(--bg)',
-                border: `2px solid ${
-                  profile === profileType.id
-                    ? profileType.color
-                    : 'var(--border)'
-                }`,
+                background: (profile?.level === profileType.id) ? '#e7f3ff' : 'var(--bg)',
+                border: `2px solid ${ (profile?.level === profileType.id) ? profileType.color : 'var(--border)' }`,
                 borderRadius: 'var(--radius)',
                 cursor: 'pointer',
                 transition: 'all var(--transition-base)'
               },
               onMouseEnter: (e) => {
-                if (profile !== profileType.id) {
-                  e.currentTarget.style.borderColor =
-                    profileType.color;
-                  e.currentTarget.style.background =
-                    'var(--card)';
+                if (profile?.level !== profileType.id) {
+                  e.currentTarget.style.borderColor = profileType.color;
+                  e.currentTarget.style.background = 'var(--card)';
                 }
               },
               onMouseLeave: (e) => {
-                if (profile !== profileType.id) {
-                  e.currentTarget.style.borderColor =
-                    'var(--border)';
+                if (profile?.level !== profileType.id) {
+                  e.currentTarget.style.borderColor = 'var(--border)';
                   e.currentTarget.style.background = 'var(--bg)';
                 }
               }
@@ -446,35 +443,21 @@ export function Settings({ navigate, audioEngine, showToast }) {
               type: 'radio',
               name: 'profile',
               value: profileType.id,
-              checked: profile === profileType.id,
+              checked: profile?.level === profileType.id,
               onChange: () => handleProfileChange(profileType.id),
-              style: {
-                marginRight: 'var(--space-md)',
-                accentColor: profileType.color
-              }
+              style: { marginRight: 'var(--space-md)', accentColor: profileType.color }
             }),
             h(
               'div',
               null,
               h(
                 'div',
-                {
-                  style: {
-                    fontWeight: 'bold',
-                    color: profileType.color,
-                    marginBottom: 'var(--space-xs)'
-                  }
-                },
+                { style: { fontWeight: 'bold', color: profileType.color, marginBottom: 'var(--space-xs)' } },
                 profileType.label
               ),
               h(
                 'div',
-                {
-                  style: {
-                    fontSize: 'var(--font-size-sm)',
-                    color: 'var(--ink-light)'
-                  }
-                },
+                { style: { fontSize: 'var(--font-size-sm)', color: 'var(--ink-light)' } },
                 profileType.description
               )
             )
@@ -482,156 +465,87 @@ export function Settings({ navigate, audioEngine, showToast }) {
         )
       ),
 
-      // ✨ Appearance Section
+      // Appearance
       h(
         'section',
         { className: 'settings-section' },
         h('h3', null, '🎨 Appearance'),
 
-        h(
-          'label',
-          { className: 'setting-item' },
+        h('label', { className: 'setting-item' },
           h('span', null, 'Dark Mode'),
-          h('input', {
-            type: 'checkbox',
-            checked: settings.darkMode,
-            onChange: toggleDarkMode,
-            'aria-label': 'Toggle dark mode'
-          })
+          h('input', { type: 'checkbox', checked: !!settings.darkMode, onChange: toggleDarkMode, 'aria-label': 'Toggle dark mode' })
         ),
 
-        h(
-          'label',
-          { className: 'setting-item' },
+        h('label', { className: 'setting-item' },
           h('span', null, 'High Contrast'),
-          h('input', {
-            type: 'checkbox',
-            checked: settings.highContrast,
-            onChange: toggleHighContrast,
-            'aria-label': 'Toggle high contrast mode'
-          })
+          h('input', { type: 'checkbox', checked: !!settings.highContrast, onChange: toggleHighContrast, 'aria-label': 'Toggle high contrast mode' })
         )
       ),
 
-      // ✨ Accessibility Section
+      // Accessibility
       h(
         'section',
         { className: 'settings-section' },
         h('h3', null, '♿ Accessibility'),
 
-        h(
-          'label',
-          { className: 'setting-item' },
+        h('label', { className: 'setting-item' },
           h('span', null, 'Large Fonts'),
-          h('input', {
-            type: 'checkbox',
-            checked: settings.largeFonts,
-            onChange: toggleLargeFonts,
-            'aria-label': 'Toggle large fonts'
-          })
+          h('input', { type: 'checkbox', checked: !!settings.largeFonts, onChange: toggleLargeFonts, 'aria-label': 'Toggle large fonts' })
         ),
 
-        h(
-          'label',
-          { className: 'setting-item' },
+        h('label', { className: 'setting-item' },
           h('span', null, 'Compact Layout'),
-          h('input', {
-            type: 'checkbox',
-            checked: settings.compactLayout,
-            onChange: toggleCompactLayout,
-            'aria-label': 'Toggle compact layout'
-          })
+          h('input', { type: 'checkbox', checked: !!settings.compactLayout, onChange: toggleCompactLayout, 'aria-label': 'Toggle compact layout' })
         )
       ),
 
-      // Audio settings
+      // Audio
       h(
         'section',
         { className: 'settings-section' },
         h('h3', null, '🔊 Audio'),
-        h(
-          'label',
-          { className: 'setting-item' },
+        h('label', { className: 'setting-item' },
           h('span', null, 'Mute all sounds'),
-          h('input', {
-            type: 'checkbox',
-            checked: settings.muted,
-            onChange: toggleMute,
-            'aria-label': 'Toggle sound mute'
-          })
+          h('input', { type: 'checkbox', checked: !!settings.muted, onChange: toggleMute, 'aria-label': 'Toggle sound mute' })
         )
       ),
 
-      // 📈 Smart Difficulty (uses stored stats)
+      // Smart difficulty
       h(
         'section',
         { className: 'settings-section' },
         h('h3', null, '🤖 Smart Difficulty (beta)'),
-        h(
-          'p',
-          {
-            style: {
-              fontSize: 'var(--font-size-sm)',
-              color: 'var(--ink-light)',
-              marginBottom: 'var(--space-xs)'
-            }
-          },
-          difficultySummaryText
-        ),
-        recommendedDifficulty &&
-          h(
-            'p',
-            {
-              style: {
-                fontSize: 'var(--font-size-sm)',
-                color: 'var(--ink-light)',
-                marginBottom: 'var(--space-md)'
-              }
-            },
-            `Recommended global level: ${capitalize(
-              recommendedDifficulty
-            )} (you can still override per module).`
-          ),
-        h(
-          'button',
-          {
-            className: 'btn btn-secondary',
-            onClick: autoCalibrateDifficulty,
-            disabled: !recommendedDifficulty
-          },
-          'Auto-calibrate difficulty'
-        )
+        h('p', {
+          style: { fontSize: 'var(--font-size-sm)', color: 'var(--ink-light)', marginBottom: 'var(--space-xs)' }
+        }, difficultySummaryText),
+
+        recommendedDifficulty && h('p', {
+          style: { fontSize: 'var(--font-size-sm)', color: 'var(--ink-light)', marginBottom: 'var(--space-md)' }
+        }, `Recommended global level: ${capitalize(recommendedDifficulty)} (you can still override per module).`),
+
+        h('button', {
+          className: 'btn btn-secondary',
+          onClick: autoCalibrateDifficulty,
+          disabled: !recommendedDifficulty
+        }, 'Auto-calibrate difficulty')
       ),
 
-      // Difficulty settings
+      // Difficulty per mode
       h(
         'section',
         { className: 'settings-section' },
         h('h3', null, '📊 Difficulty Levels'),
-        Object.keys(DIFFICULTY_SETTINGS).map((mode) =>
-          h(
-            'div',
-            { key: mode, className: 'setting-item' },
-            h(
-              'label',
-              null,
-              mode.charAt(0).toUpperCase() + mode.slice(1)
-            ),
-            h(
-              'select',
-              {
-                value: difficulties[mode] || 'easy',
-                onChange: (e) =>
-                  handleDifficultyChange(mode, e.target.value),
-                className: 'select-difficulty',
-                'aria-label': `Difficulty for ${mode}`
-              },
+        Object.keys(DIFFICULTY_SETTINGS || {}).map((mode) =>
+          h('div', { key: mode, className: 'setting-item' },
+            h('label', null, mode.charAt(0).toUpperCase() + mode.slice(1)),
+            h('select', {
+              value: (difficulties && difficulties[mode]) || 'easy',
+              onChange: (e) => handleDifficultyChange(mode, e.target.value),
+              className: 'select-difficulty',
+              'aria-label': `Difficulty for ${mode}`
+            },
               ['easy', 'medium', 'hard'].map((level) =>
-                h(
-                  'option',
-                  { key: level, value: level },
-                  level.charAt(0).toUpperCase() + level.slice(1)
-                )
+                h('option', { key: level, value: level }, capitalize(level))
               )
             )
           )
@@ -644,58 +558,18 @@ export function Settings({ navigate, audioEngine, showToast }) {
         { className: 'settings-section' },
         h('h3', null, '💾 Data Management'),
 
-        // Storage status indicator
-        !storageAvailable &&
-          h(
-            'div',
-            {
-              className: 'feedback feedback-warning',
-              style: {
-                marginBottom: 'var(--space-md)',
-                fontSize: 'var(--font-size-sm)'
-              }
-            },
-            '⚠️ Private browsing detected. Progress will reset when you close the app.'
-          ),
+        !storageAvailable && h('div', {
+          className: 'feedback feedback-warning',
+          style: { marginBottom: 'var(--space-md)', fontSize: 'var(--font-size-sm)' }
+        }, '⚠️ Private browsing detected. Progress will reset when you close the app.'),
 
-        h(
-          'p',
-          {
-            style: {
-              fontSize: 'var(--font-size-sm)',
-              color: 'var(--ink-light)',
-              marginBottom: 'var(--space-md)'
-            }
-          },
-          'Export your progress as a backup file, or reset to start fresh.'
-        ),
+        h('p', {
+          style: { fontSize: 'var(--font-size-sm)', color: 'var(--ink-light)', marginBottom: 'var(--space-md)' }
+        }, 'Export your progress as a backup file, or reset to start fresh.'),
 
-        h(
-          'div',
-          {
-            style: {
-              display: 'flex',
-              gap: 'var(--space-md)',
-              flexWrap: 'wrap'
-            }
-          },
-          h(
-            'button',
-            {
-              className: 'btn btn-secondary',
-              onClick: handleExport
-            },
-            '📥 Export Progress'
-          ),
-
-          h(
-            'button',
-            {
-              className: 'btn btn-danger',
-              onClick: handleReset
-            },
-            '🗑️ Reset All Progress'
-          )
+        h('div', { style: { display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' } },
+          h('button', { className: 'btn btn-secondary', onClick: handleExport }, '📥 Export Progress'),
+          h('button', { className: 'btn btn-danger', onClick: handleReset }, '🗑️ Reset All Progress')
         )
       ),
 
@@ -704,32 +578,14 @@ export function Settings({ navigate, audioEngine, showToast }) {
         'section',
         { className: 'settings-section' },
         h('h3', null, 'ℹ️ About'),
-        h(
-          'p',
-          { className: 'about-text' },
-          '🎻 Violin Mastery Quest v1.0.0'
+        h('p', { className: 'about-text' }, '🎻 Violin Mastery Quest v1.0.0'),
+        h('p', { className: 'about-text' },
+          "Built for serious young violinists. Pedagogy aligned with Ida Bieler Method and Suzuki tradition."
         ),
-        h(
-          'p',
-          { className: 'about-text' },
-          'Built for serious young violinists. Pedagogy aligned with Ida Bieler Method and Suzuki tradition.'
-        ),
-        h(
-          'p',
-          {
-            className: 'about-text',
-            style: {
-              fontSize: 'var(--font-size-sm)',
-              color: 'var(--ink-lighter)',
-              marginTop: 'var(--space-md)'
-            }
-          },
-          `Storage: ${
-            storageAvailable
-              ? '✅ Available'
-              : '⚠️ Unavailable (Private Mode)'
-          }`
-        )
+        h('p', {
+          className: 'about-text',
+          style: { fontSize: 'var(--font-size-sm)', color: 'var(--ink-lighter)', marginTop: 'var(--space-md)' }
+        }, `Storage: ${storageAvailable ? '✅ Available' : '⚠️ Unavailable (Private Mode)'}`)
       )
     )
   );
