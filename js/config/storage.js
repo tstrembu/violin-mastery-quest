@@ -198,32 +198,33 @@ const STORAGE = {
     }
   },
 
+  // Replace STORAGE.get with this pattern
   get(key, defaultValue = null) {
     try {
-      const primaryKey = ns(key);
-      const candidates = keyCandidates(key);
-  
-      // Find the first key that exists in storage
       let foundKey = null;
       let raw = null;
   
-      for (const k of candidates) {
+      for (const k of allCandidateKeys(key)) {
         raw = localStorage.getItem(k);
-        if (raw != null) {
-          foundKey = k;
-          break;
-        }
+        if (raw != null) { foundKey = k; break; }
       }
-  
       if (raw == null) return defaultValue;
   
-      // If it came from a legacy key, migrate it to the primary key
-      migrateLegacyKeyIfNeeded(foundKey, primaryKey, raw);
-  
+      migrateIfLegacy(foundKey, key, raw);
       return JSON.parse(raw);
-    } catch (error) {
-      console.error(`[Storage] Failed to load ${key}:`, error);
+    } catch (e) {
+      console.error(`[Storage] Failed to load ${key}:`, e);
       return defaultValue;
+    }
+  },
+  
+    // If it came from a legacy key, migrate it to the primary key
+    migrateLegacyKeyIfNeeded(foundKey, primaryKey, raw);
+  
+    return JSON.parse(raw);
+    } catch (error) {
+    console.error(`[Storage] Failed to load ${key}:`, error);
+    return defaultValue;
     }
   },
 
@@ -324,11 +325,12 @@ export function saveJSON(key, data) {
 // ======================================
 
 // Storage availability check (private mode / blocked storage)
+// Add this helper export (Settings wants it)
 export function isStorageAvailable() {
   try {
-    const testKey = ns('vmq.__storage_test__');
-    localStorage.setItem(testKey, '1');
-    localStorage.removeItem(testKey);
+    const k = '__vmq_test__';
+    localStorage.setItem(k, '1');
+    localStorage.removeItem(k);
     return true;
   } catch {
     return false;
