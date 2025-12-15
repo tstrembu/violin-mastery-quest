@@ -1,6 +1,6 @@
 // js/components/Settings.js
 // ========================================================
-// VMQ SETTINGS v2.1 - Theme, Accessibility, Smart Difficulty
+// VMQ SETTINGS v2.0.5 - Theme, Accessibility, Smart Difficulty
 // (Drop-in replacement: removes dependency on undefined storage helpers)
 // ========================================================
 
