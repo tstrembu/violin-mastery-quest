@@ -38,8 +38,37 @@ export const STORAGE_KEYS = {
 // Keeping as-is to avoid breaking existing stored data.
 const NAMESPACE = 'vmq-';
 
-function ns(key) {
-  return `${NAMESPACE}${key}`;
+function primaryKey(key) {
+  return `${NAMESPACE}${key}`; // canonical on disk
+}
+
+function legacyKeys(key) {
+  const underscore = key.replace(/\./g, '_');
+  return [
+    key,                 // raw dotted legacy (no namespace)
+    underscore,           // raw underscore legacy (no namespace)
+    `${NAMESPACE}${underscore}` // namespaced underscore legacy
+  ];
+}
+
+function allCandidateKeys(key) {
+  return [primaryKey(key), ...legacyKeys(key)];
+}
+
+// Optional: migrate on read (copy legacy -> canonical). Leave legacy in place if you want it truly "read-only".
+const MIGRATE_LEGACY_ON_READ = true;
+
+function migrateIfLegacy(foundKey, key, raw) {
+  if (!MIGRATE_LEGACY_ON_READ) return;
+  const pk = primaryKey(key);
+  if (foundKey === pk) return;
+  try {
+    if (localStorage.getItem(pk) == null) {
+      localStorage.setItem(pk, raw);
+      // If you DO want to delete legacy after migration, uncomment:
+      // localStorage.removeItem(foundKey);
+    }
+  } catch {}
 }
 
 // ======================================
