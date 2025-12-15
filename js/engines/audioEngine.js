@@ -1,5 +1,6 @@
+// js/engines/audioEngine.js
 // ======================================
-// VMQ AUDIO ENGINE 3.0.0 - Web Audio API for Violin Training
+// VMQ AUDIO ENGINE 3.0.4 - Web Audio API for Violin Training
 // ML-Adaptive • Performance-Optimized • Pedagogically-Designed
 // ======================================
 
