@@ -1,3 +1,4 @@
+// js/engines/gamification.js
 // ====================================
 // VMQ GAMIFICATION v3.0
 // XP • Levels • Streaks • Achievements • Adaptive Rewards
