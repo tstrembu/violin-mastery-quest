@@ -158,9 +158,10 @@ function capitalize(str) {
 export function Settings({ navigate, audioEngine, showToast }) {
   const storageAvailable = isStorageAvailable?.() ?? true;
 
-  const [settings, setSettings] = useState(() =>
-    loadJSON(KEY_SETTINGS, DEFAULT_SETTINGS)
-  );
+  const [settings, setSettings] = useState(() => {
+    const s = loadJSON(KEY_SETTINGS, DEFAULT_SETTINGS);
+    return (s && typeof s === 'object') ? { ...DEFAULT_SETTINGS, ...s } : { ...DEFAULT_SETTINGS };
+  });
 
   const [profile, setProfile] = useState(() => loadProfileSafe());
 
