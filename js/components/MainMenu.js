@@ -1,5 +1,6 @@
+// js/components/MainMenu.js
 // ===================================
-// MAIN MENU - Mode Selection Hub v3.0
+// MAIN MENU - Mode Selection Hub v3.0.4
 // Central navigation + ML stats + Coach preview
 // ===================================
 
