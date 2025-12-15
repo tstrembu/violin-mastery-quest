@@ -1,6 +1,6 @@
 // js/engines/analytics.js
 // ======================================
-// VMQ ANALYTICS v3.1 — drop-in replacement
+// VMQ ANALYTICS v3.0.5 — drop-in replacement
 //
 // High-impact bug fixes implemented (per your list):
 // 1) ✅ No hard ESM import for optional helpers (uses globalThis.VMQHelpers fallback)
