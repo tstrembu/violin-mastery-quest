@@ -1,3 +1,4 @@
+// js/sessionTracker.js
 // ======================================
 // SESSION TRACKER v2.1.2 - Advanced Auto-Detection & Learning Analytics
 // Powers Analytics + Coach + Gamification + Spaced Repetition
