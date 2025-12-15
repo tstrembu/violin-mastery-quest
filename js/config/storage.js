@@ -43,6 +43,55 @@ function ns(key) {
 }
 
 // ======================================
+// LEGACY KEY SUPPORT (MISSING IN FILE)
+// ======================================
+
+// Build a prioritized list of storage keys to check.
+// Primary is ns(key) => "vmq-" + "vmq.profile" => "vmq-vmq.profile"
+// Legacy includes raw "vmq.profile", and older variants like "vmq-profile" / "profile".
+function keyCandidates(key) {
+  const candidates = [];
+  const k = String(key || '');
+
+  const primary = ns(k);
+  candidates.push(primary);
+
+  // raw (no namespace) legacy
+  candidates.push(k);
+
+  // If your logical key is "vmq.something", also try stripped variants:
+  // "vmq-something" and "something" (covers earlier schemas).
+  const stripped = k.startsWith('vmq.') ? k.slice(4) : k;
+  if (stripped !== k) {
+    candidates.push(ns(stripped));     // "vmq-profile"
+    candidates.push(stripped);         // "profile"
+    candidates.push(`${NAMESPACE}${stripped}`); // same as ns(stripped) but kept explicit
+  }
+
+  // De-dupe while preserving order
+  return [...new Set(candidates)];
+}
+
+// If we read from a legacy key, copy it forward to the primary namespaced key.
+function migrateLegacyKeyIfNeeded(foundKey, primaryKey, raw) {
+  try {
+    if (!foundKey || foundKey === primaryKey) return;
+
+    // Only migrate if primary doesn't already exist
+    const already = localStorage.getItem(primaryKey);
+    if (already == null) {
+      localStorage.setItem(primaryKey, raw);
+    }
+
+    // Optionally remove the legacy key to reduce bloat
+    // (Safe because primary now holds the value)
+    try { localStorage.removeItem(foundKey); } catch {}
+  } catch (e) {
+    console.warn('[Storage] Legacy migration skipped:', e);
+  }
+}
+
+// ======================================
 // SMART DATA PRUNING
 // ======================================
 
