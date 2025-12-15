@@ -1,31 +1,44 @@
 // js/components/Welcome.js
 // ======================================
-// VMQ ONBOARDING v3.0 - ML-Powered Smart Start
-// Seeds: Coach, Analytics, Difficulty, Gamification
+// VMQ ONBOARDING v3.1 - Smart Start (Drop-in replacement)
+// - No dependency on missing named exports (e.g., updateSettings)
+// - Uses loadJSON/saveJSON directly and seeds keys safely
 // ======================================
 
-const { createElement: h, useState, useEffect } = React;
 import { saveJSON, loadJSON, STORAGE_KEYS } from '../config/storage.js';
 import { addXP, unlockAchievement } from '../engines/gamification.js';
-import { updateSettings } from '../engines/difficultyAdapter.js';
+import { setDifficulty, DIFFICULTY_SETTINGS } from '../engines/difficultyAdapter.js';
+
+// React (global in index.html)
+const { createElement: h, useState, useEffect, useMemo } = React;
+
+const KEY = (name, fallback) => (STORAGE_KEYS && STORAGE_KEYS[name]) ? STORAGE_KEYS[name] : fallback;
+
+const KEY_PROFILE    = KEY('PROFILE',    'vmq_profile');
+const KEY_COACHDATA  = KEY('COACHDATA',  'vmq_coachdata');
+const KEY_STATS      = KEY('STATS',      'vmq_stats');
+const KEY_ANALYTICS  = KEY('ANALYTICS',  'vmq_analytics');
+const KEY_DIFFICULTY = KEY('DIFFICULTY', 'vmq_difficulty');
 
 export default function Welcome({ onComplete }) {
   const [step, setStep] = useState(0);
+
   const [profile, setProfile] = useState({
     name: '',
-    level: 'beginner', // beginner, intermediate, advanced
+    level: 'beginner',          // beginner, intermediate, advanced
     goals: [],
-    preferredTime: 'flexible', // morning, afternoon, evening, flexible
-    practiceMinutes: 20, // daily target
-    repertoire: 'suzuki1' // suzuki1-6, kreutzer, etc.
+    preferredTime: 'flexible',  // morning, afternoon, evening, flexible
+    practiceMinutes: 20,        // daily target
+    repertoire: 'suzuki1'       // suzuki1-6, kreutzer, etc.
   });
+
   const [smartSuggestions, setSmartSuggestions] = useState([]);
 
-  const STEPS = [
+  const STEPS = useMemo(() => ([
     {
       title: 'Welcome to Violin Mastery Quest! 🎻',
-      subtitle: 'ML-Powered Practice',
-      content: 'Based on Professor Ida Bieler\'s teaching method. Combines spaced repetition, adaptive difficulty, and intelligent coaching.',
+      subtitle: 'Smart Practice',
+      content: "Based on Professor Ida Bieler’s method. Combines spaced repetition, adaptive difficulty, and intelligent coaching.",
       action: 'Begin →',
       icon: '🎻'
     },
@@ -39,14 +52,14 @@ export default function Welcome({ onComplete }) {
     {
       title: 'Your current level?',
       subtitle: 'Adaptive Difficulty',
-      content: 'This calibrates our ML algorithm to your skill level.',
+      content: 'This calibrates practice challenge to your level.',
       input: 'level',
       icon: '📊'
     },
     {
       title: 'Practice preferences',
       subtitle: 'Smart Scheduling',
-      content: 'Help our AI coach optimize your practice schedule.',
+      content: 'Help optimize your practice schedule.',
       input: 'preferences',
       icon: '⏰'
     },
@@ -58,132 +71,160 @@ export default function Welcome({ onComplete }) {
       icon: '🎯'
     },
     {
-      title: 'You\'re all set! 🎉',
+      title: "You’re all set! 🎉",
       subtitle: 'Ready to Practice',
       content: 'Your personalized training environment is ready.',
       action: 'Start Training →',
       icon: '🚀'
     }
-  ];
+  ]), []);
 
   // Smart goal recommendations based on level
   useEffect(() => {
-    const recommendations = generateGoalRecommendations(profile.level);
-    setSmartSuggestions(recommendations);
+    setSmartSuggestions(generateGoalRecommendations(profile.level));
   }, [profile.level]);
 
-  const handleNext = () => {
-    if (step < STEPS.length - 1) {
-      setStep(step + 1);
-    } else {
-      completeOnboarding();
-    }
-  };
+  const currentStep = STEPS[step];
+  const canProceed = validateStep(currentStep, profile);
 
-  const completeOnboarding = () => {
-    // Save comprehensive profile
+  function handleNext() {
+    setStep((prev) => {
+      if (prev < STEPS.length - 1) return prev + 1;
+      completeOnboarding(profile, { skipped: false });
+      return prev;
+    });
+  }
+
+  function handleBack() {
+    setStep((prev) => Math.max(0, prev - 1));
+  }
+
+  function completeOnboarding(p, { skipped }) {
     const enrichedProfile = {
-      ...profile,
+      ...p,
       onboardingComplete: true,
       onboardedAt: Date.now(),
-      version: '3.0'
+      skipped: !!skipped,
+      version: '3.1'
     };
-    saveJSON(STORAGE_KEYS.PROFILE, enrichedProfile);
 
-    // Seed difficulty adapter
-    const difficultyMapping = { beginner: 0.7, intermediate: 1.0, advanced: 1.3 };
-    updateSettings?.({ 
-      baseDifficulty: difficultyMapping[profile.level],
-      adaptiveEnabled: true 
+    // Save profile
+    saveJSON(KEY_PROFILE, enrichedProfile);
+
+    // Seed difficulty:
+    // 1) Store per-mode difficulty levels (easy/medium/hard)
+    // 2) Also prime difficulty engine immediately
+    const levelToDifficulty = {
+      beginner: 'easy',
+      intermediate: 'medium',
+      advanced: 'hard'
+    };
+    const seedLevel = levelToDifficulty[enrichedProfile.level] || 'easy';
+
+    const modes = Object.keys(DIFFICULTY_SETTINGS || {});
+    const diffState = loadJSON(KEY_DIFFICULTY, {});
+    const nextDiff = { ...(diffState && typeof diffState === 'object' ? diffState : {}) };
+
+    modes.forEach((mode) => {
+      nextDiff[mode] = nextDiff[mode] || seedLevel;
+      try { setDifficulty?.(mode, nextDiff[mode]); } catch {}
     });
 
-    // Initialize coach with goals
-    saveJSON(STORAGE_KEYS.COACHDATA, {
-      goals: profile.goals,
-      preferredTime: profile.preferredTime,
-      targetMinutes: profile.practiceMinutes,
-      learningStyle: inferLearningStyle(profile),
+    saveJSON(KEY_DIFFICULTY, nextDiff);
+
+    // Seed coach data
+    saveJSON(KEY_COACHDATA, {
+      goals: enrichedProfile.goals,
+      preferredTime: enrichedProfile.preferredTime,
+      targetMinutes: enrichedProfile.practiceMinutes,
+      learningStyle: inferLearningStyle(enrichedProfile),
       initialized: Date.now()
     });
 
-    // Award onboarding XP + achievement
-    addXP(50, 'onboarding_complete', { source: 'system' });
-    unlockAchievement('welcome_aboard', { level: profile.level });
+    // Award onboarding XP + achievement (fail-soft)
+    try { addXP?.(50, 'onboarding_complete', { source: 'system' }); } catch {}
+    try { unlockAchievement?.('welcome_aboard', { level: enrichedProfile.level }); } catch {}
 
-    // Create first practice plan in analytics
+    // Seed stats in BOTH keys to avoid breaking any older components:
+    // - Some builds read STORAGE_KEYS.STATS
+    // - Your analytics engine often reads STORAGE_KEYS.ANALYTICS
     const initialStats = {
       total: 0,
       correct: 0,
       byModule: {},
       profile: {
-        level: profile.level,
-        goals: profile.goals,
+        level: enrichedProfile.level,
+        goals: enrichedProfile.goals,
         startDate: Date.now()
       }
     };
-    saveJSON(STORAGE_KEYS.STATS, initialStats);
+    saveJSON(KEY_STATS, initialStats);
 
-    // Log onboarding analytics event
-    const analytics = loadJSON(STORAGE_KEYS.ANALYTICS, { events: [] });
-    analytics.events = analytics.events || [];
-    analytics.events.unshift({
+    // Merge into analytics object safely (don’t overwrite if analytics stats already exist)
+    const analytics = loadJSON(KEY_ANALYTICS, {});
+    const aObj = (analytics && typeof analytics === 'object') ? analytics : {};
+    // Ensure stats fields exist (preserve existing if present)
+    if (!('total' in aObj)) aObj.total = initialStats.total;
+    if (!('correct' in aObj)) aObj.correct = initialStats.correct;
+    if (!('byModule' in aObj)) aObj.byModule = initialStats.byModule;
+    // Keep an event log without breaking stats consumers
+    if (!Array.isArray(aObj.events)) aObj.events = [];
+    aObj.events.unshift({
       type: 'onboarding_complete',
       timestamp: Date.now(),
       profile: enrichedProfile
     });
-    saveJSON(STORAGE_KEYS.ANALYTICS, analytics);
+    saveJSON(KEY_ANALYTICS, aObj);
 
-    onComplete();
-  };
+    onComplete?.();
+  }
 
-  const currentStep = STEPS[step];
-  const canProceed = validateStep(currentStep, profile);
+  return h(
+    'div',
+    { className: 'module-container welcome-screen' },
+    h(
+      'div',
+      {
+        className: 'card card-welcome',
+        style: { textAlign: 'center', maxWidth: '600px', margin: '0 auto' }
+      },
 
-  return h('div', { className: 'module-container welcome-screen' },
-    h('div', { className: 'card card-welcome', style: { 
-      textAlign: 'center',
-      maxWidth: '600px',
-      margin: '0 auto'
-    }},
-      // Step icon
-      h('div', { className: 'welcome-icon', style: {
-        fontSize: 'clamp(3rem, 10vw, 5rem)',
-        marginBottom: 'var(--space-lg)',
-        animation: 'fadeInScale 0.5s ease-out'
-      }}, currentStep.icon),
+      // Icon
+      h('div', {
+        className: 'welcome-icon',
+        style: {
+          fontSize: 'clamp(3rem, 10vw, 5rem)',
+          marginBottom: 'var(--space-lg)',
+          animation: 'fadeInScale 0.5s ease-out'
+        }
+      }, currentStep.icon),
 
-      // Title & Subtitle
-      h('h1', { style: { marginBottom: 'var(--space-xs)' }}, currentStep.title),
-      h('p', { 
+      // Title & subtitle
+      h('h1', { style: { marginBottom: 'var(--space-xs)' } }, currentStep.title),
+      h('p', {
         className: 'text-muted',
         style: { fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-md)' }
       }, currentStep.subtitle),
-      
-      h('p', { 
-        style: { 
-          fontSize: 'var(--font-size-lg)', 
-          marginBottom: 'var(--space-xl)',
-          lineHeight: 1.6
-        } 
+
+      h('p', {
+        style: { fontSize: 'var(--font-size-lg)', marginBottom: 'var(--space-xl)', lineHeight: 1.6 }
       }, currentStep.content),
 
-      // Step-specific inputs
-      currentStep.input === 'name' && renderNameInput(profile, setProfile),
+      // Inputs
+      currentStep.input === 'name' && renderNameInput(profile, setProfile, canProceed, handleNext),
       currentStep.input === 'level' && renderLevelInput(profile, setProfile),
       currentStep.input === 'preferences' && renderPreferencesInput(profile, setProfile),
       currentStep.input === 'goals' && renderGoalsInput(profile, setProfile, smartSuggestions),
 
-      // Progress indicator
-      h('div', { 
+      // Progress
+      h('div', {
         style: { margin: 'var(--space-xl) 0 var(--space-lg)' },
         'aria-label': `Step ${step + 1} of ${STEPS.length}`
       },
-        h('div', { className: 'progress-dots', style: {
-          display: 'flex',
-          justifyContent: 'center',
-          gap: 'var(--space-sm)',
-          marginBottom: 'var(--space-md)'
-        }},
+        h('div', {
+          className: 'progress-dots',
+          style: { display: 'flex', justifyContent: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }
+        },
           STEPS.map((_, i) =>
             h('div', {
               key: i,
@@ -200,7 +241,7 @@ export default function Welcome({ onComplete }) {
           )
         ),
         h('div', { className: 'progress-bar' },
-          h('div', { 
+          h('div', {
             className: 'progress-fill',
             style: { width: `${((step + 1) / STEPS.length) * 100}%` }
           })
@@ -208,40 +249,40 @@ export default function Welcome({ onComplete }) {
       ),
 
       // Navigation
-      h('div', { 
-        className: 'welcome-nav',
-        style: { display: 'flex', gap: 'var(--space-sm)' } 
-      },
+      h('div', { className: 'welcome-nav', style: { display: 'flex', gap: 'var(--space-sm)' } },
         step > 0 && step < STEPS.length - 1 && h('button', {
           className: 'btn btn-outline',
-          onClick: () => setStep(step - 1),
+          onClick: handleBack,
           'aria-label': 'Go back'
         }, '← Back'),
-        
+
         h('button', {
           className: 'btn btn-primary btn-lg',
-          onClick: handleNext,
+          onClick: () => {
+            if (step === STEPS.length - 1) completeOnboarding(profile, { skipped: false });
+            else handleNext();
+          },
           disabled: !canProceed,
           style: { flex: 1 },
           'aria-label': step === STEPS.length - 1 ? 'Complete onboarding' : 'Continue to next step'
-        }, 
-          step === STEPS.length - 1 ? '🎻 Start Training' : 
-          currentStep.action || 'Next →'
+        },
+          step === STEPS.length - 1 ? '🎻 Start Training' : (currentStep.action || 'Next →')
         )
       ),
 
-      // Skip option (for returning users)
+      // Skip option
       step === 0 && h('button', {
         className: 'btn-text',
         onClick: () => {
-          saveJSON(STORAGE_KEYS.PROFILE, { 
-            name: 'Student', 
+          const quick = {
+            name: 'Student',
             level: 'beginner',
             goals: [],
-            onboardingComplete: true,
-            skipped: true
-          });
-          onComplete();
+            preferredTime: 'flexible',
+            practiceMinutes: 20,
+            repertoire: 'suzuki1'
+          };
+          completeOnboarding(quick, { skipped: true });
         },
         style: { marginTop: 'var(--space-md)', fontSize: 'var(--font-size-sm)' }
       }, 'Skip setup →')
@@ -253,23 +294,23 @@ export default function Welcome({ onComplete }) {
 // INPUT RENDERERS
 // ======================================
 
-function renderNameInput(profile, setProfile) {
-  return h('div', { style: { marginBottom: 'var(--space-lg)' }},
+function renderNameInput(profile, setProfile, canProceed, onNext) {
+  return h('div', { style: { marginBottom: 'var(--space-lg)' } },
     h('input', {
       type: 'text',
       value: profile.name,
       onChange: (e) => setProfile({ ...profile, name: e.target.value }),
       onKeyDown: (e) => {
-        if (e.key === 'Enter' && profile.name.trim()) {
+        if (e.key === 'Enter' && canProceed) {
           e.preventDefault();
-          // Trigger next (would need callback)
+          onNext?.();
         }
       },
       placeholder: 'Enter your name',
       autoFocus: true,
       className: 'input-large',
       'aria-label': 'Your name',
-      style: { 
+      style: {
         width: '100%',
         maxWidth: '400px',
         padding: 'var(--space-md)',
@@ -284,15 +325,12 @@ function renderNameInput(profile, setProfile) {
 
 function renderLevelInput(profile, setProfile) {
   const levels = [
-    { id: 'beginner', label: 'Beginner', desc: 'Suzuki Books 1-2', icon: '🌱' },
-    { id: 'intermediate', label: 'Intermediate', desc: 'Suzuki Books 3-5', icon: '🎵' },
+    { id: 'beginner', label: 'Beginner', desc: 'Suzuki Books 1–2', icon: '🌱' },
+    { id: 'intermediate', label: 'Intermediate', desc: 'Suzuki Books 3–5', icon: '🎵' },
     { id: 'advanced', label: 'Advanced', desc: 'Kreutzer, Concerti', icon: '🎻' }
   ];
 
-  return h('div', { 
-    className: 'level-selector',
-    style: { marginBottom: 'var(--space-lg)' } 
-  },
+  return h('div', { className: 'level-selector', style: { marginBottom: 'var(--space-lg)' } },
     levels.map(lvl =>
       h('button', {
         key: lvl.id,
@@ -312,7 +350,7 @@ function renderLevelInput(profile, setProfile) {
           transition: 'all 0.2s ease'
         }
       },
-        h('div', { style: { fontSize: '2rem', marginBottom: 'var(--space-sm)' }}, lvl.icon),
+        h('div', { style: { fontSize: '2rem', marginBottom: 'var(--space-sm)' } }, lvl.icon),
         h('strong', null, lvl.label),
         h('small', { className: 'text-muted' }, lvl.desc)
       )
@@ -322,28 +360,22 @@ function renderLevelInput(profile, setProfile) {
 
 function renderPreferencesInput(profile, setProfile) {
   const times = [
-    { id: 'morning', label: 'Morning', icon: '🌅', desc: '6am-12pm' },
-    { id: 'afternoon', label: 'Afternoon', icon: '☀️', desc: '12pm-6pm' },
-    { id: 'evening', label: 'Evening', icon: '🌙', desc: '6pm-12am' },
+    { id: 'morning', label: 'Morning', icon: '🌅', desc: '6am–12pm' },
+    { id: 'afternoon', label: 'Afternoon', icon: '☀️', desc: '12pm–6pm' },
+    { id: 'evening', label: 'Evening', icon: '🌙', desc: '6pm–12am' },
     { id: 'flexible', label: 'Flexible', icon: '🔄', desc: 'Any time' }
   ];
 
-  return h('div', { style: { marginBottom: 'var(--space-lg)' }},
-    // Practice time
-    h('div', { style: { marginBottom: 'var(--space-xl)' }},
-      h('h4', { style: { marginBottom: 'var(--space-md)' }}, 'When do you usually practice?'),
+  return h('div', { style: { marginBottom: 'var(--space-lg)' } },
+    h('div', { style: { marginBottom: 'var(--space-xl)' } },
+      h('h4', { style: { marginBottom: 'var(--space-md)' } }, 'When do you usually practice?'),
       h('div', { className: 'grid-2' },
         times.map(time =>
           h('button', {
             key: time.id,
             className: `btn ${profile.preferredTime === time.id ? 'btn-primary' : 'btn-outline'}`,
             onClick: () => setProfile({ ...profile, preferredTime: time.id }),
-            style: { 
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.25rem',
-              padding: 'var(--space-md)'
-            }
+            style: { display: 'flex', flexDirection: 'column', gap: '0.25rem', padding: 'var(--space-md)' }
           },
             h('span', null, `${time.icon} ${time.label}`),
             h('small', { className: 'text-muted' }, time.desc)
@@ -352,24 +384,21 @@ function renderPreferencesInput(profile, setProfile) {
       )
     ),
 
-    // Daily target
     h('div', null,
-      h('h4', { style: { marginBottom: 'var(--space-md)' }}, 
-        `Daily practice goal: ${profile.practiceMinutes} min`
-      ),
+      h('h4', { style: { marginBottom: 'var(--space-md)' } }, `Daily practice goal: ${profile.practiceMinutes} min`),
       h('input', {
         type: 'range',
         min: 10,
         max: 60,
         step: 5,
         value: profile.practiceMinutes,
-        onChange: (e) => setProfile({ ...profile, practiceMinutes: parseInt(e.target.value) }),
+        onChange: (e) => setProfile({ ...profile, practiceMinutes: parseInt(e.target.value, 10) || 20 }),
         style: { width: '100%' },
         'aria-label': 'Daily practice minutes'
       }),
-      h('div', { 
-        style: { 
-          display: 'flex', 
+      h('div', {
+        style: {
+          display: 'flex',
           justifyContent: 'space-between',
           fontSize: 'var(--font-size-sm)',
           color: 'var(--ink-light)',
@@ -386,19 +415,19 @@ function renderPreferencesInput(profile, setProfile) {
 
 function renderGoalsInput(profile, setProfile, smartSuggestions) {
   const allGoals = [
-    { id: 'intonation', label: 'Improve intonation', icon: '🎯', category: 'technique' },
-    { id: 'keys', label: 'Master key signatures', icon: '🔑', category: 'theory' },
-    { id: 'rhythm', label: 'Rhythm precision', icon: '🥁', category: 'rhythm' },
-    { id: 'bieler', label: 'Bieler technique', icon: '🎻', category: 'technique' },
-    { id: 'sightreading', label: 'Sight reading', icon: '📖', category: 'reading' },
-    { id: 'eartraining', label: 'Ear training', icon: '👂', category: 'aural' },
-    { id: 'scales', label: 'Scales & arpeggios', icon: '🎹', category: 'technique' },
-    { id: 'memorization', label: 'Memorization', icon: '🧠', category: 'memory' }
+    { id: 'intonation', label: 'Improve intonation', icon: '🎯' },
+    { id: 'keys', label: 'Master key signatures', icon: '🔑' },
+    { id: 'rhythm', label: 'Rhythm precision', icon: '🥁' },
+    { id: 'bieler', label: 'Bieler technique', icon: '🎻' },
+    { id: 'sightreading', label: 'Sight reading', icon: '📖' },
+    { id: 'eartraining', label: 'Ear training', icon: '👂' },
+    { id: 'scales', label: 'Scales & arpeggios', icon: '🎹' },
+    { id: 'memorization', label: 'Memorization', icon: '🧠' }
   ];
 
-  return h('div', { style: { marginBottom: 'var(--space-lg)', textAlign: 'left' }},
-    // Smart suggestions banner
-    smartSuggestions.length > 0 && h('div', { 
+  return h('div', { style: { marginBottom: 'var(--space-lg)', textAlign: 'left' } },
+
+    smartSuggestions.length > 0 && h('div', {
       className: 'smart-suggestion-banner',
       style: {
         background: 'rgba(59, 130, 246, 0.1)',
@@ -408,11 +437,11 @@ function renderGoalsInput(profile, setProfile, smartSuggestions) {
         marginBottom: 'var(--space-lg)'
       }
     },
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }},
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' } },
         h('span', null, '💡'),
         h('strong', null, 'Recommended for your level')
       ),
-      h('div', { style: { marginTop: 'var(--space-sm)' }},
+      h('div', { style: { marginTop: 'var(--space-sm)' } },
         smartSuggestions.map(goalId =>
           h('button', {
             key: goalId,
@@ -423,19 +452,18 @@ function renderGoalsInput(profile, setProfile, smartSuggestions) {
                 setProfile({ ...profile, goals: [...profile.goals, goalId] });
               }
             }
-          }, 
+          },
             `+ ${allGoals.find(g => g.id === goalId)?.label || goalId}`
           )
         )
       )
     ),
 
-    // All goals
     allGoals.map(goal =>
       h('label', {
         key: goal.id,
         className: 'goal-checkbox',
-        style: { 
+        style: {
           display: 'flex',
           alignItems: 'center',
           padding: 'var(--space-md)',
@@ -457,7 +485,7 @@ function renderGoalsInput(profile, setProfile, smartSuggestions) {
           },
           style: { marginRight: 'var(--space-md)' }
         }),
-        h('span', { style: { fontSize: '1.5rem', marginRight: 'var(--space-md)' }}, goal.icon),
+        h('span', { style: { fontSize: '1.5rem', marginRight: 'var(--space-md)' } }, goal.icon),
         h('span', null, goal.label)
       )
     )
@@ -465,13 +493,13 @@ function renderGoalsInput(profile, setProfile, smartSuggestions) {
 }
 
 // ======================================
-// HELPER FUNCTIONS
+// HELPERS
 // ======================================
 
 function validateStep(step, profile) {
   if (step.input === 'name') return profile.name.trim().length > 0;
-  if (step.input === 'level') return profile.level !== '';
-  if (step.input === 'goals') return profile.goals.length >= 1;
+  if (step.input === 'level') return !!profile.level;
+  if (step.input === 'goals') return Array.isArray(profile.goals) && profile.goals.length >= 1;
   return true;
 }
 
@@ -485,10 +513,10 @@ function generateGoalRecommendations(level) {
 }
 
 function inferLearningStyle(profile) {
-  // Simple heuristic based on goals
-  const hasAural = profile.goals.includes('eartraining');
-  const hasTechnique = profile.goals.includes('bieler') || profile.goals.includes('intonation');
-  const hasTheory = profile.goals.includes('keys') || profile.goals.includes('sightreading');
+  const goals = Array.isArray(profile.goals) ? profile.goals : [];
+  const hasAural = goals.includes('eartraining');
+  const hasTechnique = goals.includes('bieler') || goals.includes('intonation');
+  const hasTheory = goals.includes('keys') || goals.includes('sightreading');
 
   if (hasAural && hasTechnique) return 'kinesthetic-auditory';
   if (hasTheory && hasAural) return 'visual-auditory';
