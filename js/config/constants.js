@@ -1,3 +1,4 @@
+// js/
 // ======================================
 // VMQ CONSTANTS - Complete Pedagogical Reference System - Violin Mastery Quest
 // ======================================
