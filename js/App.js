@@ -271,22 +271,26 @@ function useEngagementOptimizer() {
   }, []);
 
   // Suggest breaks after 25 minutes (Pomodoro)
-  useEffect(() => {
-    const startTime = Date.now();
-    const breakInterval = setInterval(() => {
-      const elapsed = Date.now() - startTime;
-      if (elapsed > 25 * 60 * 1000 && elapsed < 26 * 60 * 1000) {
-        setState(prev => ({ ...prev, breakSuggested: true }));
-        // Show break suggestion toast
-        window.dispatchEvent(new CustomEvent('vmq-suggest-break'));
-      }
-    }, 60000);
-
-    return () => clearInterval(breakInterval);
-  }, []);
-
-  return state;
-}
+    useEffect(() => {
+      if (!initialized) return;
+    
+      let breakEmitted = false;
+    
+      const tracker = setInterval(() => {
+        const idleMs = Date.now() - engagement.lastInteraction;
+    
+        if (idleMs > 60000) {
+          emitAnalyticsEvent('engagement', 'idle-detected', { duration: idleMs });
+        }
+    
+        if (engagement.breakSuggested && !breakEmitted) {
+          breakEmitted = true;
+          emitAnalyticsEvent('engagement', 'break-suggested');
+        }
+      }, 5000);
+    
+      return () => clearInterval(tracker);
+    }, [initialized, engagement.lastInteraction, engagement.breakSuggested, emitAnalyticsEvent]);
 
 // ======================================
 // ROOT APP v3.0 - Production Ready
@@ -531,68 +535,6 @@ export default function App() {
     if (metaTheme) {
       metaTheme.setAttribute('content', color);
     }
-    
-    // App.js (near the bottom) — NO duplicate SW register here.
-    // We assume index.html registers ./sw.js.
-    
-    if ('serviceWorker' in navigator) {
-      // Wait for the already-registered SW (from index.html)
-      navigator.serviceWorker.ready
-        .then(async (registration) => {
-          // Enable periodic background sync (check for due items)
-          if ('periodicSync' in registration) {
-            try {
-              await registration.periodicSync.register('check-due-items', {
-                minInterval: 30 * 60 * 1000
-              });
-              console.log('✓ Periodic sync registered');
-            } catch (e) {
-              console.warn('Periodic sync failed:', e);
-            }
-          }
-    
-          // Request notification permission
-          if ('Notification' in window && Notification.permission === 'default') {
-            setTimeout(async () => {
-              try {
-                const permission = await Notification.requestPermission();
-                if (permission === 'granted') console.log('✓ Notifications enabled');
-              } catch {}
-            }, 60000);
-          }
-    
-          // Listen for SW messages
-          navigator.serviceWorker.addEventListener('message', (event) => {
-            const { type, data } = event.data || {};
-    
-            if (type === 'SYNC_ANALYTICS') {
-              console.log('Syncing analytics:', data?.events?.length || 0);
-            }
-    
-            if (type === 'CHECK_DUE_ITEMS') {
-              (async () => {
-                try {
-                  const dueItems = await getDueItems('all', 100);
-                  const dueCount = dueItems?.length || 0;
-    
-                  if (dueCount > 0) {
-                    window.dispatchEvent(new CustomEvent('vmq-show-toast', {
-                      detail: { message: `${dueCount} flashcards are due for review!`, type: 'info' }
-                    }));
-                  }
-                } catch {}
-              })();
-            }
-          });
-        })
-        .catch((err) => console.warn('SW ready failed:', err));
-    
-      // Send navigation events to SW for ML prefetching
-      window.addEventListener('hashchange', () => {
-        const route = window.location.hash.slice(1) || 'menu';
-        navigator.serviceWorker.controller?.postMessage({ type: 'NAVIGATION', route });
-      });
-    }
 
   // ====================================
   // ML: Predict time to next level
@@ -719,27 +661,27 @@ export default function App() {
   // ====================================
   // ENGAGEMENT MONITORING
   // ====================================
-  useEffect(() => {
-    if (!initialized) return;
+    useEffect(() => {
+      if (!initialized) return;
     
-    // Track engagement every 5 seconds
-    const tracker = setInterval(() => {
-      const timeSinceLastInteraction = Date.now() - engagement.lastInteraction;
-      
-      if (timeSinceLastInteraction > 60000) { // 1 minute idle
-        emitAnalyticsEvent('engagement', 'idle-detected', { 
-          duration: timeSinceLastInteraction 
-        });
-      }
-      
-      if (engagement.breakSuggested) {
-        emitAnalyticsEvent('engagement', 'break-suggested');
-      }
-    }, 5000);
+      let breakEmitted = false;
     
-    return () => clearInterval(tracker);
-  }, [initialized, engagement, emitAnalyticsEvent]);
-
+      const tracker = setInterval(() => {
+        const idleMs = Date.now() - engagement.lastInteraction;
+    
+        if (idleMs > 60000) {
+          emitAnalyticsEvent('engagement', 'idle-detected', { duration: idleMs });
+        }
+    
+        if (engagement.breakSuggested && !breakEmitted) {
+          breakEmitted = true;
+          emitAnalyticsEvent('engagement', 'break-suggested');
+        }
+      }, 5000);
+    
+      return () => clearInterval(tracker);
+    }, [initialized, engagement.lastInteraction, engagement.breakSuggested, emitAnalyticsEvent]);
+    
   // ====================================
   // PWA UPDATE HANDLER
   // ====================================
@@ -765,6 +707,76 @@ export default function App() {
   }, [emitAnalyticsEvent]);
 
   // ====================================
+  // SW messaging/periodicSync
+  // ====================================
+    useEffect(() => {
+      if (!('serviceWorker' in navigator)) return;
+    
+      const onMessage = (event) => {
+        const { type, data } = event.data || {};
+    
+        if (type === 'SYNC_ANALYTICS') {
+          console.log('Syncing analytics:', data?.events?.length || 0);
+        }
+    
+        if (type === 'CHECK_DUE_ITEMS') {
+          (async () => {
+            try {
+              const dueItems = await getDueItems('all', 100);
+              const dueCount = dueItems?.length || 0;
+    
+              if (dueCount > 0) {
+                window.dispatchEvent(new CustomEvent('vmq-show-toast', {
+                  detail: { message: `${dueCount} flashcards are due for review!`, type: 'info' }
+                }));
+              }
+            } catch {}
+          })();
+        }
+      };
+    
+      const onHashChange = () => {
+        const route = window.location.hash.slice(1) || 'menu';
+        navigator.serviceWorker.controller?.postMessage({ type: 'NAVIGATION', route });
+      };
+    
+      navigator.serviceWorker.addEventListener('message', onMessage);
+      window.addEventListener('hashchange', onHashChange);
+      onHashChange(); // <-- add this
+    
+      // Wait for SW that index.html registered
+      navigator.serviceWorker.ready
+        .then(async (registration) => {
+          if ('periodicSync' in registration) {
+            try {
+              await registration.periodicSync.register('check-due-items', {
+                minInterval: 30 * 60 * 1000
+              });
+              console.log('✓ Periodic sync registered');
+            } catch (e) {
+              console.warn('Periodic sync failed:', e);
+            }
+          }
+    
+          // (Optional) Notifications prompt belongs in engagement logic, but OK here if you want it global
+          if ('Notification' in window && Notification.permission === 'default') {
+            setTimeout(async () => {
+              try {
+                const permission = await Notification.requestPermission();
+                if (permission === 'granted') console.log('✓ Notifications enabled');
+              } catch {}
+            }, 60000);
+          }
+        })
+        .catch((err) => console.warn('SW ready failed:', err));
+    
+      return () => {
+        navigator.serviceWorker.removeEventListener('message', onMessage);
+        window.removeEventListener('hashchange', onHashChange);
+      };
+    }, []);
+    
+  // ====================================
   // A/B TESTING INTEGRATION
   // ====================================
   useEffect(() => {
@@ -788,10 +800,6 @@ export default function App() {
       segment: userSegment
     });
   }, [emitAnalyticsEvent]);
-
-  // ====================================
-  // ROUTE RENDERER WITH PREDICTIVE LOADING
-  // ====================================
   
   // ====================================
   // ROUTE RENDERER WITH PREDICTIVE LOADING
@@ -815,8 +823,9 @@ export default function App() {
 
   // Ensure lazy components are wrapped in React.Suspense in the parent
   // Note: We don't see the Suspense boundary here, but we'll assume the caller (App) or a parent component handles it.
-    return h(Component, commonProps);
-  };
+    return h(React.Suspense, { fallback: h(Loading, { message: 'Loading module…' }) },
+      h(Component, commonProps)
+    );
 
   // ====================================
   // ERROR BOUNDARY UI with Diagnostics
