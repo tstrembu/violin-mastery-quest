@@ -1,7 +1,12 @@
 // js/config/storage.js
 // ======================================
-// VMQ STORAGE v3.0.5 - Enhanced localStorage Wrapper
-// ML Analytics Integration • Quota Management • Data Migration
+// VMQ STORAGE v3.0.6 - Enhanced localStorage Wrapper (Drop-in)
+// ✅ Canonical keying + legacy reads + optional migrate-on-read
+// ✅ Quota handling + pruning
+// ✅ Data migration (v2→v3, v3.0→v3.1)
+// ✅ Stable public API: storage, STORAGE_KEYS, loadJSON/saveJSON,
+//    isStorageAvailable, clearAll, exportData, importAll,
+//    getStorageEstimate, cleanupOldData, ML helpers
 // ======================================
 
 import { VMQ_VERSION } from './version.js';
@@ -9,7 +14,6 @@ import { VMQ_VERSION } from './version.js';
 // ======================================
 // STORAGE KEYS - Unified namespace
 // ======================================
-
 export const STORAGE_KEYS = {
   VERSION: 'vmq.version',
   PROFILE: 'vmq.profile',
@@ -26,7 +30,12 @@ export const STORAGE_KEYS = {
 
   REPERTOIRE: 'vmq.repertoire',
   SPACED_REPETITION: 'vmq.spacedRepetition',
+
+  // NOTE: This key is used by some builds for ML/perf difficulty state.
+  // If you want Settings UI overrides separate, add a new key like:
+  // DIFFICULTY_OVERRIDES: 'vmq.difficultyOverrides',
   DIFFICULTY: 'vmq.difficulty',
+
   CONFUSION_MATRIX: 'vmq.confusionMatrix',
   LEARNING_VELOCITY: 'vmq.learningVelocity',
 
@@ -34,117 +43,128 @@ export const STORAGE_KEYS = {
   COACH_DATA: 'vmq.coachData'
 };
 
-// NOTE: Your keys already include "vmq.*" so this becomes "vmq-vmq.*" on disk.
+// NOTE: Keys already include "vmq.*", so on disk we get "vmq-vmq.*".
 // Keeping as-is to avoid breaking existing stored data.
 const NAMESPACE = 'vmq-';
 
-function primaryKey(key) {
-  return `${NAMESPACE}${key}`; // canonical on disk
+// ======================================
+// KEY CANONICALIZATION + LEGACY SUPPORT
+// ======================================
+
+// Canonical on disk: "vmq-" + logicalKey (e.g. "vmq-vmq.profile")
+function ns(logicalKey) {
+  return `${NAMESPACE}${logicalKey}`;
 }
 
-function legacyKeys(key) {
-  const underscore = key.replace(/\./g, '_');
-  return [
-    key,                 // raw dotted legacy (no namespace)
-    underscore,           // raw underscore legacy (no namespace)
-    `${NAMESPACE}${underscore}` // namespaced underscore legacy
+// A minimal, safe legacy set:
+// - raw dotted: "vmq.profile"
+// - raw underscore: "vmq_profile"
+// - namespaced underscore: "vmq-vmq_profile"
+// PLUS (optional) older stripped forms if your app ever used them:
+// - "profile" or "vmq-profile" variants.
+function legacyCandidates(logicalKey) {
+  const k = String(logicalKey || '');
+  const underscore = k.replace(/\./g, '_');
+
+  const candidates = [
+    // raw
+    k,
+    underscore,
+
+    // namespaced underscore
+    ns(underscore)
   ];
-}
 
-function allCandidateKeys(key) {
-  return [primaryKey(key), ...legacyKeys(key)];
-}
-
-// Optional: migrate on read (copy legacy -> canonical). Leave legacy in place if you want it truly "read-only".
-const MIGRATE_LEGACY_ON_READ = true;
-
-function migrateIfLegacy(foundKey, key, raw) {
-  if (!MIGRATE_LEGACY_ON_READ) return;
-  const pk = primaryKey(key);
-  if (foundKey === pk) return;
-  try {
-    if (localStorage.getItem(pk) == null) {
-      localStorage.setItem(pk, raw);
-      // If you DO want to delete legacy after migration, uncomment:
-      // localStorage.removeItem(foundKey);
-    }
-  } catch {}
-}
-
-// ======================================
-// LEGACY KEY SUPPORT (MISSING IN FILE)
-// ======================================
-
-// Build a prioritized list of storage keys to check.
-// Primary is ns(key) => "vmq-" + "vmq.profile" => "vmq-vmq.profile"
-// Legacy includes raw "vmq.profile", and older variants like "vmq-profile" / "profile".
-function keyCandidates(key) {
-  const candidates = [];
-  const k = String(key || '');
-
-  const primary = ns(k);
-  candidates.push(primary);
-
-  // raw (no namespace) legacy
-  candidates.push(k);
-
-  // If your logical key is "vmq.something", also try stripped variants:
-  // "vmq-something" and "something" (covers earlier schemas).
-  const stripped = k.startsWith('vmq.') ? k.slice(4) : k;
-  if (stripped !== k) {
-    candidates.push(ns(stripped));     // "vmq-profile"
-    candidates.push(stripped);         // "profile"
-    candidates.push(`${NAMESPACE}${stripped}`); // same as ns(stripped) but kept explicit
+  // If key starts with "vmq.", try stripped variants ("profile")
+  if (k.startsWith('vmq.')) {
+    const stripped = k.slice(4); // "profile"
+    const dashed = `vmq-${stripped}`; // "vmq-profile"
+    candidates.push(stripped);
+    candidates.push(dashed);
+    candidates.push(ns(dashed)); // "vmq-vmq-profile"
   }
 
-  // De-dupe while preserving order
-  return [...new Set(candidates)];
+  return candidates;
 }
 
-// If we read from a legacy key, copy it forward to the primary namespaced key.
-function migrateLegacyKeyIfNeeded(foundKey, primaryKey, raw) {
+function keyCandidates(logicalKey) {
+  const primary = ns(String(logicalKey || ''));
+  const candidates = [primary, ...legacyCandidates(logicalKey)];
+
+  // De-dupe while preserving order
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+// Optional migrate-on-read: copy legacy -> primary
+// If you want legacy truly read-only, set false (we'll still read them).
+const MIGRATE_LEGACY_ON_READ = true;
+
+function maybeMigrate(foundKey, logicalKey, rawValue) {
+  if (!MIGRATE_LEGACY_ON_READ) return;
+  const primary = ns(String(logicalKey || ''));
+  if (!foundKey || foundKey === primary) return;
+
   try {
-    if (!foundKey || foundKey === primaryKey) return;
-
-    // Only migrate if primary doesn't already exist
-    const already = localStorage.getItem(primaryKey);
-    if (already == null) {
-      localStorage.setItem(primaryKey, raw);
+    if (localStorage.getItem(primary) == null) {
+      localStorage.setItem(primary, rawValue);
+      // IMPORTANT: leaving legacy keys in place prevents any risk of
+      // "new primary exists but legacy is still referenced somewhere".
+      // If you want to delete after migration, you can:
+      // localStorage.removeItem(foundKey);
     }
+  } catch {
+    // best-effort only
+  }
+}
 
-    // Optionally remove the legacy key to reduce bloat
-    // (Safe because primary now holds the value)
-    try { localStorage.removeItem(foundKey); } catch {}
-  } catch (e) {
-    console.warn('[Storage] Legacy migration skipped:', e);
+// ======================================
+// AVAILABILITY CHECK
+// ======================================
+export function isStorageAvailable() {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    const k = '__vmq_test__';
+    localStorage.setItem(k, '1');
+    localStorage.removeItem(k);
+    return true;
+  } catch {
+    return false;
   }
 }
 
 // ======================================
 // SMART DATA PRUNING
 // ======================================
-
 function pruneOldData(daysThreshold = 30) {
   try {
     const cutoff = Date.now() - (daysThreshold * 24 * 60 * 60 * 1000);
 
     const log = STORAGE.get(STORAGE_KEYS.PRACTICE_LOG, []);
     const cleanedLog = Array.isArray(log)
-      ? log.filter(entry => new Date(entry.timestamp).getTime() > cutoff)
+      ? log.filter(entry => {
+          const t = entry?.timestamp;
+          const ms = typeof t === 'number' ? t : new Date(t).getTime();
+          return Number.isFinite(ms) && ms > cutoff;
+        })
       : [];
 
-    if (cleanedLog.length < (log?.length || 0)) {
+    if (Array.isArray(log) && cleanedLog.length < log.length) {
       STORAGE.set(STORAGE_KEYS.PRACTICE_LOG, cleanedLog);
       console.log(`[Storage] Pruned practice log: ${log.length} → ${cleanedLog.length}`);
     }
 
     const analytics = STORAGE.get(STORAGE_KEYS.ANALYTICS, {});
-    if (analytics?.events && Array.isArray(analytics.events)) {
-      analytics.events = analytics.events.filter(event =>
-        new Date(event.timestamp).getTime() > cutoff
-      );
-      STORAGE.set(STORAGE_KEYS.ANALYTICS, analytics);
-      console.log('[Storage] Pruned analytics events');
+    if (analytics && typeof analytics === 'object' && Array.isArray(analytics.events)) {
+      const before = analytics.events.length;
+      analytics.events = analytics.events.filter(event => {
+        const t = event?.timestamp;
+        const ms = typeof t === 'number' ? t : new Date(t).getTime();
+        return Number.isFinite(ms) && ms > cutoff;
+      });
+      if (analytics.events.length < before) {
+        STORAGE.set(STORAGE_KEYS.ANALYTICS, analytics);
+        console.log('[Storage] Pruned analytics events');
+      }
     }
 
     return true;
@@ -160,12 +180,13 @@ export async function autoPrune(daysThreshold = 30) {
 }
 
 // ======================================
-// STORAGE ENGINE - Core API with Validation
+// STORAGE ENGINE - Core API
 // ======================================
-
 const STORAGE = {
   set(key, data) {
     try {
+      if (!isStorageAvailable()) return false;
+
       if (data === undefined || data === null) {
         STORAGE.remove(key);
         return true;
@@ -174,12 +195,14 @@ const STORAGE = {
       const json = JSON.stringify(data);
       localStorage.setItem(ns(key), json);
 
+      // Version bump when profile/settings written
       if (key === STORAGE_KEYS.PROFILE || key === STORAGE_KEYS.SETTINGS) {
-        STORAGE.set(STORAGE_KEYS.VERSION, VMQ_VERSION);
+        localStorage.setItem(ns(STORAGE_KEYS.VERSION), JSON.stringify(VMQ_VERSION));
       }
 
       return true;
     } catch (error) {
+      // Quota handling
       if (error?.name === 'QuotaExceededError') {
         console.error(`[Storage] Quota exceeded for ${key}. Triggering auto-prune.`);
         pruneOldData(30);
@@ -198,41 +221,38 @@ const STORAGE = {
     }
   },
 
-  // Replace STORAGE.get with this pattern
   get(key, defaultValue = null) {
     try {
+      if (!isStorageAvailable()) return defaultValue;
+
       let foundKey = null;
       let raw = null;
-  
-      for (const k of allCandidateKeys(key)) {
+
+      for (const k of keyCandidates(key)) {
         raw = localStorage.getItem(k);
-        if (raw != null) { foundKey = k; break; }
+        if (raw != null) {
+          foundKey = k;
+          break;
+        }
       }
+
       if (raw == null) return defaultValue;
-  
-      migrateIfLegacy(foundKey, key, raw);
+
+      // If read from legacy, optionally migrate forward.
+      maybeMigrate(foundKey, key, raw);
+
       return JSON.parse(raw);
-    } catch (e) {
-      console.error(`[Storage] Failed to load ${key}:`, e);
-      return defaultValue;
-    }
-  },
-  
-    // If it came from a legacy key, migrate it to the primary key
-    migrateLegacyKeyIfNeeded(foundKey, primaryKey, raw);
-  
-    return JSON.parse(raw);
     } catch (error) {
-    console.error(`[Storage] Failed to load ${key}:`, error);
-    return defaultValue;
+      console.error(`[Storage] Failed to load ${key}:`, error);
+      return defaultValue;
     }
   },
 
   remove(key) {
     try {
-      // Remove primary + any legacy variants so deletes are thorough.
+      if (!isStorageAvailable()) return false;
       for (const k of keyCandidates(key)) {
-        localStorage.removeItem(k);
+        try { localStorage.removeItem(k); } catch {}
       }
       return true;
     } catch (error) {
@@ -243,15 +263,24 @@ const STORAGE = {
 
   clearAll() {
     try {
-      const primaryPrefix = NAMESPACE;   // "vmq-"
-      const rawPrefix = 'vmq.';          // your logical key prefix inside STORAGE_KEYS
-  
+      if (!isStorageAvailable()) return false;
+
+      const primaryPrefix = NAMESPACE; // "vmq-"
+      const rawPrefix = 'vmq.';        // raw dotted legacy keys
+
+      // Remove:
+      // - all "vmq-" namespaced keys
+      // - any raw dotted legacy "vmq.*"
+      // - any raw underscore legacy "vmq_*"
       Object.keys(localStorage).forEach(k => {
-        const isPrimary = primaryPrefix && k.startsWith(primaryPrefix);
-        const isRawLegacy = k.startsWith(rawPrefix);
-        if (isPrimary || isRawLegacy) localStorage.removeItem(k);
+        const isPrimary = k.startsWith(primaryPrefix);
+        const isRawDotted = k.startsWith(rawPrefix);
+        const isRawUnderscore = k.startsWith('vmq_');
+        if (isPrimary || isRawDotted || isRawUnderscore) {
+          localStorage.removeItem(k);
+        }
       });
-  
+
       return true;
     } catch (error) {
       console.error('[Storage] Failed to clear:', error);
@@ -261,18 +290,46 @@ const STORAGE = {
 
   exportAll() {
     try {
+      if (!isStorageAvailable()) return null;
+
       const data = {};
+
+      // Export canonical + legacy (so backups capture everything),
+      // but store them under their logical key name when possible.
+      // Priority: canonical ("vmq-" prefixed) then raw dotted/underscore.
+      const seenLogical = new Set();
+
+      // 1) canonical keys
       Object.keys(localStorage).forEach(k => {
         if (!k.startsWith(NAMESPACE)) return;
-        const cleanKey = k.replace(NAMESPACE, '');
+        const logical = k.slice(NAMESPACE.length);
+        seenLogical.add(logical);
         try {
-          data[cleanKey] = JSON.parse(localStorage.getItem(k));
+          data[logical] = JSON.parse(localStorage.getItem(k));
         } catch {
-          data[cleanKey] = null;
+          data[logical] = null;
         }
       });
 
-      const exportData = {
+      // 2) raw dotted / underscore legacy that haven't been captured
+      Object.keys(localStorage).forEach(k => {
+        // raw dotted
+        if (k.startsWith('vmq.') && !seenLogical.has(k)) {
+          try { data[k] = JSON.parse(localStorage.getItem(k)); } catch { data[k] = null; }
+          seenLogical.add(k);
+        }
+        // raw underscore -> map to dotted if it looks like "vmq_*"
+        if (k.startsWith('vmq_')) {
+          const dotted = k.replace(/_/g, '.');
+          const logical = dotted.startsWith('vmq.') ? dotted : k;
+          if (!seenLogical.has(logical)) {
+            try { data[logical] = JSON.parse(localStorage.getItem(k)); } catch { data[logical] = null; }
+            seenLogical.add(logical);
+          }
+        }
+      });
+
+      const exportPayload = {
         version: VMQ_VERSION,
         timestamp: new Date().toISOString(),
         userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
@@ -281,9 +338,17 @@ const STORAGE = {
         data
       };
 
-      const json = JSON.stringify(exportData, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
+      const json = JSON.stringify(exportPayload, null, 2);
+
+      // Browser-only download helpers
+      let blob = null;
+      let url = null;
+      try {
+        blob = new Blob([json], { type: 'application/json' });
+        url = URL.createObjectURL(blob);
+      } catch {
+        // ignore (non-browser runtime)
+      }
 
       return { json, url, blob };
     } catch (error) {
@@ -294,11 +359,23 @@ const STORAGE = {
 
   importAll(jsonString) {
     try {
+      if (!isStorageAvailable()) return false;
+
       const importData = JSON.parse(jsonString);
-      const data = importData.data || importData;
+      const data = importData?.data || importData;
+
+      if (!data || typeof data !== 'object') return false;
 
       Object.entries(data).forEach(([key, value]) => {
-        STORAGE.set(key, value);
+        // Important: write to canonical logical keys (dotted),
+        // but allow raw keys if caller intentionally provided them.
+        // If key is "vmq_profile", convert to "vmq.profile" where safe.
+        const logical =
+          typeof key === 'string' && key.startsWith('vmq_')
+            ? key.replace(/_/g, '.')
+            : key;
+
+        STORAGE.set(logical, value);
       });
 
       return true;
@@ -323,34 +400,19 @@ export function saveJSON(key, data) {
 // ======================================
 // COMPAT EXPORTS (for older components)
 // ======================================
-
-// Storage availability check (private mode / blocked storage)
-// Add this helper export (Settings wants it)
-export function isStorageAvailable() {
-  try {
-    const k = '__vmq_test__';
-    localStorage.setItem(k, '1');
-    localStorage.removeItem(k);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// Back-compat alias: clear all VMQ data
 export function clearAll() {
   return STORAGE.clearAll();
 }
 
-export function exportData() {
-  return STORAGE.exportAll();
-}
-
-// Back-compat: exportData() triggers a file download
+/**
+ * exportData()
+ * Back-compat helper: triggers a file download (browser).
+ * Returns true on success, false otherwise.
+ */
 export function exportData(filenamePrefix = 'vmq-backup') {
   try {
     const out = STORAGE.exportAll();
-    if (!out?.url) return false;
+    if (!out?.url || typeof document === 'undefined') return false;
 
     const a = document.createElement('a');
     a.href = out.url;
@@ -390,13 +452,13 @@ export function loadXP() {
   return 0;
 }
 
-// Your STORAGE_KEYS has no LEVEL key; derive a gamification level from XP if needed.
+// Your STORAGE_KEYS has no LEVEL key; derive a level from XP if needed.
 export function loadLevel() {
   const v = STORAGE.get(STORAGE_KEYS.XP, 0);
   if (v && typeof v === 'object' && typeof v.level === 'number') return v.level;
 
   const xp = loadXP();
-  // Simple, stable derivation (100xp per level)
+  // Simple stable derivation (100xp per level)
   return Math.max(1, Math.floor(xp / 100) + 1);
 }
 
@@ -413,11 +475,9 @@ export function loadAchievements() {
 }
 
 export function loadStats() {
-  // Prefer STATS (your canonical stats key)
   const s = STORAGE.get(STORAGE_KEYS.STATS, null);
   if (s && typeof s === 'object') return s;
 
-  // Fallback: analytics sometimes stores totals
   const a = STORAGE.get(STORAGE_KEYS.ANALYTICS, {});
   return (a && typeof a === 'object') ? a : {};
 }
@@ -425,11 +485,9 @@ export function loadStats() {
 // ======================================
 // DATA MIGRATION
 // ======================================
-
 export function migrateData() {
   try {
     const currentVersion = STORAGE.get(STORAGE_KEYS.VERSION, '0.0.0');
-
     if (currentVersion === VMQ_VERSION) return;
 
     if (compareVersions(currentVersion, '3.0.0') < 0) migrateV2toV3();
@@ -456,14 +514,18 @@ function compareVersions(v1, v2) {
 function migrateV2toV3() {
   try {
     const profile = STORAGE.get(STORAGE_KEYS.PROFILE, {});
-    profile.onboardingComplete = profile.onboardingComplete ?? false;
-    profile.userSegment = profile.userSegment ?? 'beginner';
-    STORAGE.set(STORAGE_KEYS.PROFILE, profile);
+    if (profile && typeof profile === 'object') {
+      profile.onboardingComplete = profile.onboardingComplete ?? false;
+      profile.userSegment = profile.userSegment ?? 'beginner';
+      STORAGE.set(STORAGE_KEYS.PROFILE, profile);
+    }
 
     const coachData = STORAGE.get(STORAGE_KEYS.COACH_DATA, {});
-    coachData.initialized = true;
-    coachData.lastUpdated = Date.now();
-    STORAGE.set(STORAGE_KEYS.COACH_DATA, coachData);
+    if (coachData && typeof coachData === 'object') {
+      coachData.initialized = true;
+      coachData.lastUpdated = Date.now();
+      STORAGE.set(STORAGE_KEYS.COACH_DATA, coachData);
+    }
   } catch (error) {
     console.error('[Storage] v2→v3 migration failed:', error);
   }
@@ -472,19 +534,19 @@ function migrateV2toV3() {
 function migrateV3toV3_1() {
   try {
     const confusionMatrix = STORAGE.get(STORAGE_KEYS.CONFUSION_MATRIX, {});
-    if (!confusionMatrix.initialized) {
-      confusionMatrix.intervalEar = {};
-      confusionMatrix.keySignatures = {};
-      confusionMatrix.rhythm = {};
+    if (confusionMatrix && typeof confusionMatrix === 'object' && !confusionMatrix.initialized) {
+      confusionMatrix.intervalEar = confusionMatrix.intervalEar || {};
+      confusionMatrix.keySignatures = confusionMatrix.keySignatures || {};
+      confusionMatrix.rhythm = confusionMatrix.rhythm || {};
       confusionMatrix.initialized = Date.now();
       STORAGE.set(STORAGE_KEYS.CONFUSION_MATRIX, confusionMatrix);
     }
 
     const learningVelocity = STORAGE.get(STORAGE_KEYS.LEARNING_VELOCITY, {});
-    if (!learningVelocity.initialized) {
-      learningVelocity.intervals = [];
-      learningVelocity.keys = [];
-      learningVelocity.rhythm = [];
+    if (learningVelocity && typeof learningVelocity === 'object' && !learningVelocity.initialized) {
+      learningVelocity.intervals = learningVelocity.intervals || [];
+      learningVelocity.keys = learningVelocity.keys || [];
+      learningVelocity.rhythm = learningVelocity.rhythm || [];
       learningVelocity.initialized = Date.now();
       STORAGE.set(STORAGE_KEYS.LEARNING_VELOCITY, learningVelocity);
     }
@@ -519,7 +581,15 @@ export async function getStorageEstimate() {
       console.warn('[Storage] estimate failed:', e);
     }
   }
-  return { usage: 0, quota: 5242880, used: 0, available: 5242880, percentage: 0, isFull: false };
+  // reasonable fallback
+  return {
+    usage: 0,
+    quota: 5_242_880,
+    used: 0,
+    available: 5_242_880,
+    percentage: 0,
+    isFull: false
+  };
 }
 
 // ======================================
@@ -530,7 +600,6 @@ export function cleanupAllData() {
 }
 
 export function cleanupOldData(days = 90) {
-  // Use your pruning logic (practice log + analytics events)
   return pruneOldData(days);
 }
 
@@ -573,7 +642,9 @@ export function trackLearningVelocity(module, accuracy, timeMs) {
       week: Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000))
     });
 
+    // cap growth
     if (velocity[module].length > 1000) velocity[module] = velocity[module].slice(-1000);
+
     STORAGE.set(STORAGE_KEYS.LEARNING_VELOCITY, velocity);
     return true;
   } catch (e) {
@@ -604,7 +675,13 @@ export function calculateLearningAcceleration(module) {
     const acceleration =
       weeklyAvg.length >= 2 ? (weeklyAvg[weeklyAvg.length - 1].avg - weeklyAvg[0].avg) : 0;
 
-    const trend = acceleration > 2 ? 'accelerating' : acceleration < -2 ? 'declining' : 'flat';
+    // NOTE: accuracy is usually 0–1 or 0–100 depending on caller.
+    // Keep your prior intent (thresholds at 2) but make it resilient:
+    const trend =
+      acceleration > 2 ? 'accelerating' :
+      acceleration < -2 ? 'declining' :
+      'flat';
+
     return { acceleration, trend, weeklyAvg };
   } catch (e) {
     console.error('[Storage] calculateLearningAcceleration failed:', e);
