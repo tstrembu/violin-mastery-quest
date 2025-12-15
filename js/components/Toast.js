@@ -1,6 +1,10 @@
+// js/components/Toast.js
 // ======================================
-// VMQ TOAST v3.0 - ML-AWARE NOTIFICATIONS
-// Fingerboard • Intervals • KeySignatures • 6-Engine LIVE
+// VMQ TOAST v3.0.5 - ML-AWARE NOTIFICATIONS (Drop-in)
+// ✅ Fixes syntax error: `data: data.data || {}` (and supports both shapes safely)
+// ✅ Robust to sessionTracker default-vs-named export
+// ✅ Never crashes callers when disabled (window.VMQToast still exists)
+// ✅ Better numeric checks for xp/streak (shows 0 correctly when desired)
 // ======================================
 
 const {
@@ -11,53 +15,85 @@ const {
   useRef
 } = React;
 
-// Local modules: paths are relative to /js/components/
+// Local modules
 import FEATURES from '../config/version.js';
-import sessionTracker from '../engines/sessionTracker.js';
+import * as sessionTrackerModule from '../engines/sessionTracker.js';
 import { trackEvent } from '../engines/analytics.js';
 
+const sessionTracker =
+  sessionTrackerModule?.default ||
+  sessionTrackerModule?.sessionTracker ||
+  sessionTrackerModule;
+
 const TOAST_TYPES = {
-  success:   { icon: '✅', bg: 'rgba(16, 185, 129, 0.95)', sound: 523.25 },
-  error:     { icon: '❌', bg: 'rgba(239, 68, 68, 0.95)', sound: 349.23 },
-  warning:   { icon: '⚠️', bg: 'rgba(245, 158, 11, 0.95)', sound: 523.25 },
-  info:      { icon: 'ℹ️', bg: 'rgba(14, 165, 233, 0.95)', sound: 659.25 },
-  xp:        { icon: '⭐', bg: 'rgba(251, 191, 36, 0.95)', sound: 784.0  },
-  streak:    { icon: '🔥', bg: 'rgba(251, 146, 60, 0.95)', sound: 880.0  },
-  achievement: { icon: '🏆', bg: 'rgba(168, 85, 247, 0.95)', sound: 1046.5 },
-  // Special system/update channel (uses .info styling in CSS if no specific rule)
-  update:    { icon: '⬆️', bg: 'rgba(14, 165, 233, 0.98)', sound: 659.25 }
+  success:      { icon: '✅', bg: 'rgba(16, 185, 129, 0.95)', sound: 523.25 },
+  error:        { icon: '❌', bg: 'rgba(239, 68, 68, 0.95)', sound: 349.23 },
+  warning:      { icon: '⚠️', bg: 'rgba(245, 158, 11, 0.95)', sound: 523.25 },
+  info:         { icon: 'ℹ️', bg: 'rgba(14, 165, 233, 0.95)', sound: 659.25 },
+  xp:           { icon: '⭐', bg: 'rgba(251, 191, 36, 0.95)', sound: 784.0  },
+  streak:       { icon: '🔥', bg: 'rgba(251, 146, 60, 0.95)', sound: 880.0  },
+  achievement:  { icon: '🏆', bg: 'rgba(168, 85, 247, 0.95)', sound: 1046.5 },
+  update:       { icon: '⬆️', bg: 'rgba(14, 165, 233, 0.98)', sound: 659.25 }
 };
 
-// Guard so turning feature flag off makes VMQToast a no-op without breaking callers.
+// Feature-flag: if explicitly disabled, API remains but becomes no-op.
 const TOASTS_ENABLED =
   !FEATURES ||
   !FEATURES.toastNotifications ||
   FEATURES.toastNotifications.enabled !== false;
 
+function safeString(x) {
+  if (x == null) return '';
+  return typeof x === 'string' ? x : String(x);
+}
+
+function safeDuration(ms, fallback = 4000) {
+  const n = Number(ms);
+  const v = Number.isFinite(n) ? n : fallback;
+  return Math.max(800, v); // never shorter than 800ms
+}
+
+function normalizeToastData(data) {
+  // Supports either:
+  // 1) addToast(..., dataObj)
+  // 2) addToast(..., { data: dataObj })  <-- the syntax-error case you referenced
+  if (data && typeof data === 'object') {
+    const inner = data.data;
+    if (inner && typeof inner === 'object') return inner;
+    return data;
+  }
+  return {};
+}
+
+function numOrNull(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 export default function ToastSystem() {
   const [toasts, setToasts] = useState([]);
   const [now, setNow] = useState(Date.now());
+
   const timeoutRefs = useRef(new Map());
   const userSegmentRef = useRef('unknown');
 
-  // Precompute whether analytics events should be emitted.
+  // Optional shared AudioContext (lighter than creating a new one per toast)
+  const audioCtxRef = useRef(null);
+
   const analyticsEnabled =
     !!FEATURES &&
     !!FEATURES.analytics &&
     FEATURES.analytics.events === true;
 
-  // Resolve user segment once; used for analytics enrichment.
+  // Resolve user segment once (best-effort)
   useEffect(() => {
     try {
       if (window.VMQ && typeof window.VMQ.getUserSegment === 'function') {
         userSegmentRef.current = window.VMQ.getUserSegment() || 'unknown';
       }
-    } catch (e) {
-      // Soft-fail; analytics enrichment is best-effort only.
-    }
+    } catch {}
   }, []);
 
-  // ML/analytics hook for toast lifecycle.
   const logToastEvent = useCallback((phase, toast, extra = {}) => {
     if (!analyticsEnabled || !toast) return;
 
@@ -73,16 +109,12 @@ export default function ToastSystem() {
 
     try {
       if (typeof trackEvent === 'function') {
-        // Channel = "toast", phase = "show" | "auto-dismiss" | "interaction"
         trackEvent('toast', phase, basePayload);
       }
-    } catch (e) {
-      // Never block UI on analytics errors.
-    }
+    } catch {}
 
     try {
       if (sessionTracker && typeof sessionTracker.trackActivity === 'function') {
-        // Lightweight mirror into session tracker for cross-engine analytics.
         sessionTracker.trackActivity('toast', phase, {
           type: toast.type,
           source: basePayload.source,
@@ -90,12 +122,9 @@ export default function ToastSystem() {
           ts: Date.now()
         });
       }
-    } catch (e) {
-      // Also best-effort.
-    }
+    } catch {}
   }, [analyticsEnabled]);
 
-  // 🎵 AUDIO FEEDBACK (honors feature flag but not per-user mute – app audio engine handles that globally)
   const playToastSound = useCallback((frequency) => {
     if (!TOASTS_ENABLED) return;
 
@@ -103,119 +132,100 @@ export default function ToastSystem() {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
 
-      const audioCtx = new AudioCtx();
-      const now = audioCtx.currentTime;
+      // Lazily create (or reuse) a context.
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioCtx();
+
+      const audioCtx = audioCtxRef.current;
+      const t0 = audioCtx.currentTime;
+
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
 
       osc.type = 'sine';
-      osc.frequency.value = frequency;
-      gain.gain.setValueAtTime(0.1, now);
-      gain.gain.linearRampToValueAtTime(0, now + 0.3);
+      osc.frequency.value = Number(frequency) || 659.25;
+
+      gain.gain.setValueAtTime(0.10, t0);
+      gain.gain.linearRampToValueAtTime(0, t0 + 0.30);
 
       osc.connect(gain);
       gain.connect(audioCtx.destination);
-      osc.start(now);
-      osc.stop(now + 0.4);
-    } catch (e) {
-      // Ignore audio errors; visual toast still shows.
+
+      osc.start(t0);
+      osc.stop(t0 + 0.40);
+    } catch {
+      // Ignore audio errors
     }
   }, []);
 
-  // Lightweight timer to keep progress bars and animation-dependant UI in sync.
+  // Tick for progress bars (only while toasts exist)
   useEffect(() => {
     if (!toasts.length) return;
 
-    const interval = setInterval(() => {
-      setNow(Date.now());
-    }, 100); // 10 fps is enough for smooth progress without being heavy
-
+    const interval = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(interval);
   }, [toasts.length]);
 
-  // 🎯 ADD TOAST (Global API)
-  const addToast = useCallback(
-    (message, type = 'info', duration = 4000, data = {}) => {
-      if (!TOASTS_ENABLED) {
-        // Still return an id-like string so callers can store something if they wish.
-        return `toast-disabled-${Date.now()}`;
-      }
+  // Global API: addToast(message, type, duration, data)
+  const addToast = useCallback((message, type = 'info', duration = 4000, data = {}) => {
+    if (!TOASTS_ENABLED) return `toast-disabled-${Date.now()}`;
 
-      const safeType = TOAST_TYPES[type] ? type : 'info';
-      const id =
-        'toast-' +
-        Date.now() +
-        '-' +
-        Math.random().toString(36).substr(2, 9);
+    const safeType = TOAST_TYPES[type] ? type : 'info';
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    const createdAt = Date.now();
 
-      const createdAt = Date.now();
-      const toast = {
-        id,
-        message,
-        type: safeType,
-        duration: Math.max(800, duration || 4000), // never shorter than 800ms
-         data || {},
-        createdAt
-      };
+    const toast = {
+      id,
+      message: safeString(message),
+      type: safeType,
+      duration: safeDuration(duration, 4000),
+      // ✅ Fix + compatibility: supports data.data OR data directly
+      data: normalizeToastData(data) || {},
+      createdAt
+    };
 
-      // Limit stack to last 5 toasts (preserve newest).
-      setToasts((prev) => {
-        const next = [...prev.slice(-4), toast];
-        return next;
-      });
+    // Keep newest 5
+    setToasts((prev) => [...prev.slice(-4), toast]);
 
-      // Schedule auto-dismiss with analytics hook.
-      const timeoutId = setTimeout(() => {
-        setToasts((prev) => {
-          const existing = prev.find((t) => t.id === id);
-          if (existing) {
-            logToastEvent('auto-dismiss', existing, { reason: 'timeout' });
-          }
-          return prev.filter((t) => t.id !== id);
-        });
-        timeoutRefs.current.delete(id);
-      }, toast.duration);
-
-      timeoutRefs.current.set(id, timeoutId);
-
-      // Fire-and-forget analytics for show.
-      logToastEvent('show', toast);
-
-      // Sound is small and non-blocking.
-      playToastSound(TOAST_TYPES[safeType]?.sound || 659.25);
-
-      return id;
-    },
-    [logToastEvent, playToastSound]
-  );
-
-  const dismissToast = useCallback(
-    (id, reason = 'manual') => {
-      const timeoutId = timeoutRefs.current.get(id);
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-        timeoutRefs.current.delete(id);
-      }
-
+    const timeoutId = setTimeout(() => {
       setToasts((prev) => {
         const existing = prev.find((t) => t.id === id);
-        if (existing) {
-          logToastEvent('interaction', existing, {
-            interactionType: 'dismiss',
-            reason
-          });
-        }
+        if (existing) logToastEvent('auto-dismiss', existing, { reason: 'timeout' });
         return prev.filter((t) => t.id !== id);
       });
-    },
-    [logToastEvent]
-  );
+      timeoutRefs.current.delete(id);
+    }, toast.duration);
+
+    timeoutRefs.current.set(id, timeoutId);
+
+    logToastEvent('show', toast);
+    playToastSound(TOAST_TYPES[safeType]?.sound || 659.25);
+
+    return id;
+  }, [logToastEvent, playToastSound]);
+
+  const dismissToast = useCallback((id, reason = 'manual') => {
+    const timeoutId = timeoutRefs.current.get(id);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutRefs.current.delete(id);
+    }
+
+    setToasts((prev) => {
+      const existing = prev.find((t) => t.id === id);
+      if (existing) {
+        logToastEvent('interaction', existing, {
+          interactionType: 'dismiss',
+          reason
+        });
+      }
+      return prev.filter((t) => t.id !== id);
+    });
+  }, [logToastEvent]);
 
   const dismissAll = useCallback(() => {
     timeoutRefs.current.forEach(clearTimeout);
     timeoutRefs.current.clear();
 
-    // For analytics, capture what was visible before clearing.
     setToasts((prev) => {
       prev.forEach((t) =>
         logToastEvent('interaction', t, {
@@ -227,26 +237,18 @@ export default function ToastSystem() {
     });
   }, [logToastEvent]);
 
-  const handleToastActivate = useCallback(
-    (toast, interactionType = 'click') => {
-      if (!toast) return;
+  const handleToastActivate = useCallback((toast, interactionType = 'click') => {
+    if (!toast) return;
 
-      // Optional per-toast action hook supplied by callers (e.g., update reload).
-      if (toast.data && typeof toast.data.onClick === 'function') {
-        try {
-          toast.data.onClick(toast);
-        } catch (e) {
-          // Ignore handler errors; user still gets dismissal.
-        }
-      }
+    if (toast.data && typeof toast.data.onClick === 'function') {
+      try { toast.data.onClick(toast); } catch {}
+    }
 
-      logToastEvent('interaction', toast, { interactionType });
-      dismissToast(toast.id, interactionType);
-    },
-    [dismissToast, logToastEvent]
-  );
+    logToastEvent('interaction', toast, { interactionType });
+    dismissToast(toast.id, interactionType);
+  }, [dismissToast, logToastEvent]);
 
-  // ⌨️ ESCAPE KEY clears all toasts
+  // ESC clears all
   useEffect(() => {
     const handleEscape = (e) => {
       if (e.key === 'Escape' && toasts.length > 0) {
@@ -258,7 +260,7 @@ export default function ToastSystem() {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [toasts.length, dismissAll]);
 
-  // 🔁 PWA UPDATE TOAST: listen for vmq-update-available from service worker registration.
+  // PWA update toast
   useEffect(() => {
     const handleUpdateAvailable = (event) => {
       if (!TOASTS_ENABLED) return;
@@ -274,26 +276,20 @@ export default function ToastSystem() {
         kind: 'update',
         onClick: () => {
           try {
-            // Ask SW to skip waiting if wired; then reload.
             if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-              navigator.serviceWorker.controller.postMessage?.({
-                type: 'SKIPWAITING'
-              });
+              navigator.serviceWorker.controller.postMessage?.({ type: 'SKIPWAITING' });
             }
-          } catch (e) {
-            // Reload anyway; worst case user gets fresh shell.
-          }
+          } catch {}
           window.location.reload();
         }
       });
     };
 
     window.addEventListener('vmq-update-available', handleUpdateAvailable);
-    return () =>
-      window.removeEventListener('vmq-update-available', handleUpdateAvailable);
+    return () => window.removeEventListener('vmq-update-available', handleUpdateAvailable);
   }, [addToast]);
 
-  // 🌐 GLOBAL API (window.VMQToast)
+  // Expose window.VMQToast API
   useEffect(() => {
     const api = {
       addToast,
@@ -303,7 +299,7 @@ export default function ToastSystem() {
         quizResult: (correct, streak = 0, xp = 0, meta = {}) =>
           correct
             ? addToast(
-                `Correct! ${streak > 0 ? `🔥 ${streak} streak` : ''}`,
+                `Correct! ${Number(streak) > 0 ? `🔥 ${streak} streak` : ''}`,
                 'success',
                 3000,
                 { streak, xp, source: meta.source || 'quiz', ...meta }
@@ -314,78 +310,61 @@ export default function ToastSystem() {
               }),
 
         xpGain: (amount, source = 'practice', meta = {}) =>
-          addToast(
-            `⭐ +${amount} XP (${source})`,
-            'xp',
-            3500,
-            { xp: amount, source, ...meta }
-          ),
+          addToast(`⭐ +${amount} XP (${source})`, 'xp', 3500, { xp: amount, source, ...meta }),
 
         achievement: (name, xp = 0, meta = {}) =>
-          addToast(
-            `🏆 Achievement Unlocked: ${name}`,
-            'achievement',
-            5000,
-            { xp, source: meta.source || 'achievement', ...meta }
-          ),
+          addToast(`🏆 Achievement Unlocked: ${name}`, 'achievement', 5000, {
+            xp,
+            source: meta.source || 'achievement',
+            ...meta
+          }),
 
         coachTip: (tip, meta = {}) =>
-          addToast(
-            tip,
-            'info',
-            6000,
-            { source: meta.source || 'coach', ...meta }
-          ),
+          addToast(tip, 'info', 6000, { source: meta.source || 'coach', ...meta }),
 
         error: (message, recoverable = true, meta = {}) =>
-          addToast(
-            message,
-            'error',
-            recoverable ? 5000 : 8000,
-            { recoverable, source: meta.source || 'system', ...meta }
-          ),
+          addToast(message, 'error', recoverable ? 5000 : 8000, {
+            recoverable,
+            source: meta.source || 'system',
+            ...meta
+          }),
 
         streakUpdate: (streak, bonus = 0, meta = {}) =>
           addToast(
-            `🔥 ${streak} day streak! ${
-              bonus > 0 ? `+${bonus} bonus XP` : ''
-            }`,
+            `🔥 ${streak} day streak! ${Number(bonus) > 0 ? `+${bonus} bonus XP` : ''}`,
             'streak',
             4000,
             { streak, bonus, source: meta.source || 'streak', ...meta }
           ),
 
-        // New helper for explicit system / update messages from other modules if needed.
         systemUpdate: (message, meta = {}) =>
-          addToast(
-            message,
-            'update',
-            8000,
-            { source: 'system', ...meta }
-          )
+          addToast(message, 'update', 8000, { source: 'system', ...meta })
       }
     };
 
-    // Even if disabled, expose API so callers do not crash; implementation handles the flag.
     window.VMQToast = api;
 
     return () => {
-      if (window.VMQToast === api) {
-        delete window.VMQToast;
-      }
+      if (window.VMQToast === api) delete window.VMQToast;
       timeoutRefs.current.forEach(clearTimeout);
       timeoutRefs.current.clear();
+      try {
+        // Optional: release audio context
+        audioCtxRef.current?.close?.();
+      } catch {}
+      audioCtxRef.current = null;
     };
   }, [addToast, dismissAll, dismissToast]);
 
-  // 🎨 RENDER TOAST
   const renderToast = (toast, index) => {
     const typeConfig = TOAST_TYPES[toast.type] || TOAST_TYPES.info;
     const elapsed = Math.max(0, now - toast.createdAt);
-    const progress =
-      toast.duration > 0
-        ? Math.max(0, 100 - (elapsed / toast.duration) * 100)
-        : 0;
+    const progress = toast.duration > 0
+      ? Math.max(0, 100 - (elapsed / toast.duration) * 100)
+      : 0;
+
+    const xp = numOrNull(toast.data?.xp);
+    const streak = numOrNull(toast.data?.streak);
 
     const onKeyDown = (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
@@ -416,24 +395,15 @@ export default function ToastSystem() {
         'div',
         { className: 'toast-content' },
         h('div', { className: 'toast-message' }, toast.message),
-        toast.data?.xp &&
-          h(
-            'div',
-            { className: 'toast-xp' },
-            `+${toast.data.xp} XP`
-          ),
-        toast.data?.streak &&
-          h(
-            'div',
-            { className: 'toast-streak' },
-            `🔥 ${toast.data.streak} streak!`
-          ),
+
+        (xp != null && xp !== 0) &&
+          h('div', { className: 'toast-xp' }, `+${xp} XP`),
+
+        (streak != null && streak !== 0) &&
+          h('div', { className: 'toast-streak' }, `🔥 ${streak} streak!`),
+
         toast.data?.skillTag &&
-          h(
-            'div',
-            { className: 'toast-meta' },
-            toast.data.skillTag
-          )
+          h('div', { className: 'toast-meta' }, toast.data.skillTag)
       ),
       h(
         'div',
@@ -446,7 +416,6 @@ export default function ToastSystem() {
     );
   };
 
-  // Container is always present so layout / print CSS rules that hide it still work cleanly.
   return h(
     'div',
     {
