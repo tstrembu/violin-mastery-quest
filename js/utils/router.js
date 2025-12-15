@@ -1,3 +1,4 @@
+// js/utils/router.js
 // ======================================
 // VMQ ROUTER v3.0 - ML-Enhanced Navigation
 // 50+ Module Navigation + Predictive Prefetching
