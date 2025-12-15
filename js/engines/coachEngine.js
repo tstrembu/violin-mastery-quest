@@ -1,80 +1,221 @@
 // js/engines/coachEngine.js
 // ======================================
-// VMQ COACH ENGINE v2.1.1 - Advanced AI Practice Intelligence
+// VMQ COACH ENGINE v2.1.2 - Compatibility + Stability Pass
 // 7-Day Adaptive Plans + Learning Pattern Recognition + Bieler Pedagogy
+//
+// Goals:
+// ✅ Keep all intended features of v2.1.1
+// ✅ Provide missing/alias exports used by components (getRecommendations, etc.)
+// ✅ Avoid Promise bugs (SRS functions may be async elsewhere)
+// ✅ Robust to partial/messy stats & practice logs
 // ======================================
 
 import { loadJSON, saveJSON, STORAGE_KEYS } from '../config/storage.js';
 import { loadXP, loadStreak, getLevel } from './gamification.js';
-import { analyzePerformance, getModuleProgress } from './analytics.js';
-import { INTERVALS, KEY_SIGNATURES, RHYTHM_PATTERNS, BIELER_TAXONOMY } from '../config/constants.js';
-import { getDueItems } from './spacedRepetition.js';
+import { analyzePerformance as _analyzePerformance, getModuleProgress as _getModuleProgress } from './analytics.js';
+import { BIELER_TAXONOMY } from '../config/constants.js';
+import { getDueItems as _getDueItemsFromSRS } from './spacedRepetition.js';
 
-// ======================================
-// CORE COACH INSIGHTS (Enhanced)
-// ======================================
+// --------------------------------------
+// Utilities (safe, no-throw)
+// --------------------------------------
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+
+function safeNumber(n, fallback = 0) {
+  const x = Number(n);
+  return Number.isFinite(x) ? x : fallback;
+}
+
+function safeArray(v) {
+  return Array.isArray(v) ? v : [];
+}
+
+function safeTrack(category, action, payload) {
+  try {
+    // sessionTracker is imported by other engines; coachEngine uses analytics + storage only.
+    // If you later add sessionTracker here, keep this safe wrapper.
+    // no-op for now
+    void category; void action; void payload;
+  } catch {
+    // no-op
+  }
+}
 
 /**
- * Complete coach dashboard with AI-powered analysis
- * @param {Object} profile - User profile with preferences
- * @returns {Object} Comprehensive coaching insights
+ * Some builds of spacedRepetition export async getDueItems().
+ * Coach engine must remain sync-safe (components often call it without await).
+ * So we compute due count directly from persisted deck in STORAGE_KEYS.SPACED_REPETITION.
+ */
+function getSrsDueSummarySync() {
+  const deckObj = loadJSON(STORAGE_KEYS.SPACED_REPETITION, {});
+  const obj = isObj(deckObj) ? deckObj : {};
+  const now = Date.now();
+  const GRACE_MS = Math.round(DAY_MS * 0.2); // ~4.8h grace
+
+  let dueCount = 0;
+  let duePriorityCount = 0;
+
+  for (const item of Object.values(obj)) {
+    if (!item || item.type === 'meta') continue;
+    const due = safeNumber(item.due, Infinity);
+    if (due <= now + GRACE_MS) {
+      dueCount += 1;
+      const interval = safeNumber(item.interval, 9999);
+      if (interval < 7) duePriorityCount += 1;
+    }
+  }
+
+  return { dueCount, duePriorityCount };
+}
+
+/**
+ * Best-effort wrapper around analytics.analyzePerformance(period)
+ * If analytics is missing/changed, fall back to storage-derived stats.
+ */
+function analyzePerformanceSafe(period = 'week') {
+  try {
+    if (typeof _analyzePerformance === 'function') {
+      const res = _analyzePerformance(period);
+      if (isObj(res)) return res;
+    }
+  } catch {
+    // fall through
+  }
+
+  // Fallback from STATS
+  const stats = loadJSON(STORAGE_KEYS.STATS, { byModule: {} });
+  const practiceLog = loadJSON(STORAGE_KEYS.PRACTICE_LOG, []);
+  const recent = safeArray(practiceLog).slice(-20);
+
+  const totalQuestions = safeNumber(
+    Object.values(stats?.byModule || {}).reduce((sum, m) => sum + safeNumber(m?.total, 0), 0),
+    0
+  );
+
+  const totalCorrect = safeNumber(
+    Object.values(stats?.byModule || {}).reduce((sum, m) => sum + safeNumber(m?.correct, 0), 0),
+    0
+  );
+
+  const overallAccuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
+
+  const avgResponseTime =
+    safeNumber(
+      Object.values(stats?.byModule || {}).reduce((sum, m) => sum + safeNumber(m?.avgTime, 0), 0),
+      0
+    ) / Math.max(1, Object.keys(stats?.byModule || {}).length);
+
+  const totalTime = safeNumber(recent.reduce((s, r) => s + safeNumber(r?.duration, 0), 0), 0);
+  const xpGained = safeNumber(recent.reduce((s, r) => s + safeNumber(r?.xpGained, 0), 0), 0);
+
+  return {
+    overallAccuracy,
+    consistencyScore: calculateWeeklyConsistency(recent),
+    avgResponseTime: Math.round(avgResponseTime || 0),
+    xpGained,
+    totalQuestions,
+    totalTime,
+    period
+  };
+}
+
+/**
+ * Some builds/components might call getModuleProgress().
+ * Keep a safe pass-through if analytics provides it.
+ */
+function getModuleProgressSafe(moduleKey) {
+  try {
+    if (typeof _getModuleProgress === 'function') return _getModuleProgress(moduleKey);
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+// --------------------------------------
+// Public API
+// --------------------------------------
+
+/**
+ * Complete coach dashboard with practice intelligence.
+ * SYNC SAFE.
  */
 export function getCoachInsights(profile = {}) {
-  const stats = loadJSON(STORAGE_KEYS.STATS, {});
+  const stats = loadJSON(STORAGE_KEYS.STATS, { byModule: {} });
   const xp = loadXP();
   const streak = loadStreak();
-  const level = getLevel(xp);
-  const practiceLog = loadJSON(STORAGE_KEYS.PRACTICE_LOG, []);
-  const coachState = loadJSON(STORAGE_KEYS.COACH_DATA, { 
+  const levelObj = getLevel(xp) || { level: 1, title: 'Beginner' };
+
+  const practiceLog = safeArray(loadJSON(STORAGE_KEYS.PRACTICE_LOG, []));
+  const coachState = loadJSON(STORAGE_KEYS.COACH_DATA, {
     learningStyle: 'balanced',
     preferredTime: null,
-    goals: []
+    goals: [],
+    completedSections: [],
+    lastPlanDate: null,
+    totalPlanTime: 0
   });
 
-  // Deep performance analysis
-  const perf = analyzePerformance('week');
-  const longTermPerf = analyzePerformance('month');
+  // Performance analysis
+  const perf = analyzePerformanceSafe('week');
+  const longTermPerf = analyzePerformanceSafe('month');
   const learningVelocity = calculateLearningVelocity(practiceLog);
   const moduleInsights = analyzeModulePerformance(stats.byModule || {});
-  
+
   // Pattern recognition
   const patterns = detectLearningPatterns(practiceLog, stats);
   const plateaus = detectPlateaus(moduleInsights, practiceLog);
   const breakthroughs = detectBreakthroughs(practiceLog);
 
   // Bieler Method integration
-  const bielerProgress = analyzeBielerProgress(stats, level.level);
-  const techniqueGaps = identifyTechniqueGaps(stats, level.level);
+  const bielerProgress = analyzeBielerProgress(stats, levelObj.level);
+  const techniqueGaps = identifyTechniqueGaps(stats, levelObj.level);
 
-  // Spaced repetition integration
-  const dueReviews = getDueItems ? getDueItems() : [];
-  const reviewPriority = dueReviews.filter(item => item.interval < 7).length;
+  // Spaced repetition integration (SYNC-safe)
+  const srs = getSrsDueSummarySync();
+  const reviewPriority = srs.duePriorityCount;
+
+  // Recommendations
+  const recommendations = generateSmartRecommendations({
+    moduleInsights,
+    patterns,
+    plateaus,
+    techniqueGaps,
+    reviewPriority,
+    streak,
+    level: levelObj.level,
+    goals: safeArray(coachState.goals)
+  });
+
+  // Plans
+  const todaysPlan = generateTodaysPlan(profile, moduleInsights, patterns, levelObj.level, reviewPriority);
+  const weekPreview = generateWeekPreview(moduleInsights, patterns, levelObj.level, safeArray(coachState.goals));
 
   return {
-    // Personalized greeting
-    greeting: generateGreeting(profile.name, streak, perf.overallAccuracy, new Date().getHours()),
+    greeting: generateGreeting(profile?.name, streak, perf.overallAccuracy, new Date().getHours()),
     motivationalMessage: generateMotivation(streak, xp, perf.overallAccuracy, patterns),
-    
-    // Core metrics
+
     keyMetrics: {
-      overallAccuracy: perf.overallAccuracy,
-      consistency: perf.consistencyScore,
-      avgResponseTime: perf.avgResponseTime,
+      overallAccuracy: safeNumber(perf.overallAccuracy, 0),
+      consistency: safeNumber(perf.consistencyScore, 0),
+      avgResponseTime: safeNumber(perf.avgResponseTime, 0),
       learningVelocity,
       streak,
-      level: level.title,
-      xpThisWeek: perf.xpGained || 0,
-      questionsThisWeek: perf.totalQuestions || 0,
-      timeThisWeek: perf.totalTime || 0
+      level: levelObj.title || `Level ${levelObj.level || 1}`,
+      xpThisWeek: safeNumber(perf.xpGained, 0),
+      questionsThisWeek: safeNumber(perf.totalQuestions, 0),
+      timeThisWeek: safeNumber(perf.totalTime, 0)
     },
 
-    // Performance analysis
-    strengths: moduleInsights.strengths.slice(0, 3),
-    weaknesses: moduleInsights.weaknesses.slice(0, 3),
-    mastered: moduleInsights.mastered,
-    needsAttention: moduleInsights.needsAttention,
+    strengths: safeArray(moduleInsights.strengths).slice(0, 3),
+    weaknesses: safeArray(moduleInsights.weaknesses).slice(0, 3),
+    mastered: safeArray(moduleInsights.mastered),
+    needsAttention: safeArray(moduleInsights.needsAttention),
 
-    // AI-powered insights
     patterns: {
       learningStyle: patterns.dominantStyle,
       bestTimeOfDay: patterns.bestTimeOfDay,
@@ -83,11 +224,9 @@ export function getCoachInsights(profile = {}) {
       challengesPattern: patterns.challengesPattern
     },
 
-    // Advanced feedback
     plateaus,
-    breakthroughs: breakthroughs.slice(0, 2),
-    
-    // Bieler pedagogy
+    breakthroughs: safeArray(breakthroughs).slice(0, 2),
+
     bielerInsights: {
       currentFocus: bielerProgress.currentFocus,
       progress: bielerProgress.progress,
@@ -95,142 +234,170 @@ export function getCoachInsights(profile = {}) {
       techniqueGaps
     },
 
-    // Actionable recommendations (priority-sorted)
-    recommendations: generateSmartRecommendations({
-      moduleInsights,
-      patterns,
-      plateaus,
-      techniqueGaps,
-      reviewPriority,
-      streak,
-      level: level.level,
-      goals: coachState.goals
-    }),
+    recommendations,
 
-    // Daily practice plan
-    todaysPlan: generateTodaysPlan(profile, moduleInsights, patterns, level.level, reviewPriority),
-    
-    // 7-day strategic preview
-    weekPreview: generateWeekPreview(moduleInsights, patterns, level.level, coachState.goals),
+    todaysPlan,
+    weekPreview,
 
-    // Study reminders
-    reviewAlerts: reviewPriority > 5 ? {
-      count: reviewPriority,
-      message: `${reviewPriority} flashcards need review (spaced repetition)`,
-      action: 'flashcards'
-    } : null,
+    reviewAlerts: reviewPriority > 5
+      ? {
+          count: reviewPriority,
+          message: `${reviewPriority} flashcards need review (spaced repetition)`,
+          action: 'flashcards'
+        }
+      : null,
 
-    // Repertoire connections
-    repertoireReadiness: assessRepertoireReadiness(stats, level.level)
+    repertoireReadiness: assessRepertoireReadiness(stats, levelObj.level),
+
+    // Extra: expose a couple helpers for dashboards that already expect them
+    longTermPerf,
+    coachState,
+    srsSummary: srs
   };
 }
 
-// ======================================
-// ADVANCED PERFORMANCE ANALYSIS
-// ======================================
+// --------------------------------------
+// Export/alias names often used by components
+// --------------------------------------
 
-/**
- * Analyze each module's performance with ML-style insights
- */
+/** Alias used by some components */
+export const getCoachDashboard = getCoachInsights;
+
+/** Alias: some components expect getRecommendations() */
+export function getRecommendations(context = {}) {
+  // If passed a full context, use it; otherwise compute minimal context from storage.
+  if (context && isObj(context) && context.moduleInsights) {
+    return generateSmartRecommendations(context);
+  }
+
+  const stats = loadJSON(STORAGE_KEYS.STATS, { byModule: {} });
+  const practiceLog = safeArray(loadJSON(STORAGE_KEYS.PRACTICE_LOG, []));
+  const xp = loadXP();
+  const streak = loadStreak();
+  const levelObj = getLevel(xp) || { level: 1, title: 'Beginner' };
+
+  const moduleInsights = analyzeModulePerformance(stats.byModule || {});
+  const patterns = detectLearningPatterns(practiceLog, stats);
+  const plateaus = detectPlateaus(moduleInsights, practiceLog);
+  const techniqueGaps = identifyTechniqueGaps(stats, levelObj.level);
+  const srs = getSrsDueSummarySync();
+
+  return generateSmartRecommendations({
+    moduleInsights,
+    patterns,
+    plateaus,
+    techniqueGaps,
+    reviewPriority: srs.duePriorityCount,
+    streak,
+    level: levelObj.level,
+    goals: safeArray(loadJSON(STORAGE_KEYS.COACH_DATA, {})?.goals)
+  });
+}
+
+/** Aliases for plan generators */
+export const getDailyPlan = generateTodaysPlan;
+export const getWeeklyPlan = generateWeekPreview;
+export const getCoachPlan = generateTodaysPlan;
+
+/** If any component calls module progress from coach engine */
+export const getModuleProgress = getModuleProgressSafe;
+
+// --------------------------------------
+// Advanced Performance Analysis
+// --------------------------------------
+
 function analyzeModulePerformance(byModule) {
-  const modules = Object.entries(byModule).map(([module, data]) => {
-    const accuracy = data.total > 0 ? (data.correct / data.total) * 100 : 0;
+  const byMod = isObj(byModule) ? byModule : {};
+
+  const modules = Object.entries(byMod).map(([moduleKey, dataRaw]) => {
+    const data = isObj(dataRaw) ? dataRaw : {};
+    const total = safeNumber(data.total, 0);
+    const correct = safeNumber(data.correct, 0);
+
+    const accuracy = total > 0 ? (correct / total) * 100 : 0;
     const recentAccuracy = calculateRecentAccuracy(data.history);
-    const trend = recentAccuracy - accuracy; // Positive = improving
-    
+    const trend = recentAccuracy - accuracy;
+
     return {
-      module: formatModuleName(module),
-      moduleKey: module,
+      module: formatModuleName(moduleKey),
+      moduleKey,
       accuracy: Math.round(accuracy),
       recentAccuracy: Math.round(recentAccuracy),
       trend: Math.round(trend),
-      attempts: data.total || 0,
-      correct: data.correct || 0,
-      avgResponseTime: data.avgTime || 0,
-      lastPracticed: data.lastPracticed || 0,
+      attempts: total,
+      correct,
+      avgResponseTime: safeNumber(data.avgTime, 0),
+      lastPracticed: safeNumber(data.lastPracticed, 0),
       difficulty: data.difficulty || 'medium',
       consistency: calculateConsistency(data.history),
-      mastery: calculateMastery(accuracy, data.total, recentAccuracy)
+      mastery: calculateMastery(accuracy, total, recentAccuracy)
     };
   });
 
-  // Categorize modules
-  const strengths = modules.filter(m => 
-    m.accuracy >= 80 && m.attempts >= 10 && m.consistency > 60
-  ).sort((a, b) => b.mastery - a.mastery);
+  const strengths = modules
+    .filter(m => m.accuracy >= 80 && m.attempts >= 10 && m.consistency > 60)
+    .sort((a, b) => b.mastery - a.mastery);
 
-  const weaknesses = modules.filter(m => 
-    m.accuracy < 70 && m.attempts >= 5
-  ).sort((a, b) => a.accuracy - b.accuracy);
+  const weaknesses = modules
+    .filter(m => m.accuracy < 70 && m.attempts >= 5)
+    .sort((a, b) => a.accuracy - b.accuracy);
 
-  const mastered = modules.filter(m => 
-    m.mastery >= 90 && m.attempts >= 20
-  );
+  const mastered = modules.filter(m => m.mastery >= 90 && m.attempts >= 20);
 
-  const needsAttention = modules.filter(m => 
-    m.attempts >= 10 && m.trend < -5 // Declining performance
-  ).sort((a, b) => a.trend - b.trend);
+  const needsAttention = modules
+    .filter(m => m.attempts >= 10 && m.trend < -5)
+    .sort((a, b) => a.trend - b.trend);
 
-  const stagnant = modules.filter(m =>
-    m.attempts >= 15 && Math.abs(m.trend) < 2 && m.accuracy < 85
-  );
+  const stagnant = modules.filter(m => m.attempts >= 15 && Math.abs(m.trend) < 2 && m.accuracy < 85);
 
   return { modules, strengths, weaknesses, mastered, needsAttention, stagnant };
 }
 
-/**
- * Calculate learning velocity (XP per hour)
- */
 function calculateLearningVelocity(practiceLog) {
-  const recentSessions = practiceLog.slice(-14); // Last 2 weeks
+  const recentSessions = safeArray(practiceLog).slice(-14);
   if (recentSessions.length === 0) return 0;
 
-  const totalXP = recentSessions.reduce((sum, s) => sum + (s.xpGained || 0), 0);
-  const totalMinutes = recentSessions.reduce((sum, s) => sum + (s.duration || 0), 0);
-  
+  const totalXP = recentSessions.reduce((sum, s) => sum + safeNumber(s?.xpGained, 0), 0);
+  const totalMinutes = recentSessions.reduce((sum, s) => sum + safeNumber(s?.duration, 0), 0);
+
   return totalMinutes > 0 ? Math.round((totalXP / totalMinutes) * 60) : 0;
 }
 
-/**
- * Detect learning patterns using heuristics
- */
 function detectLearningPatterns(practiceLog, stats) {
-  const recentSessions = practiceLog.slice(-30);
-  
-  // Time of day analysis
+  const recentSessions = safeArray(practiceLog).slice(-30);
+
   const timeDistribution = recentSessions.reduce((acc, s) => {
-    const hour = new Date(s.timestamp).getHours();
+    const ts = safeNumber(s?.timestamp, Date.now());
+    const hour = new Date(ts).getHours();
     const period = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
     acc[period] = (acc[period] || 0) + 1;
     return acc;
   }, {});
-  
-  const bestTimeOfDay = Object.entries(timeDistribution)
-    .sort(([, a], [, b]) => b - a)[0]?.[0] || 'morning';
 
-  // Session length analysis
-  const avgSessionLength = recentSessions.length > 0
-    ? Math.round(recentSessions.reduce((sum, s) => sum + (s.duration || 0), 0) / recentSessions.length)
-    : 20;
+  const bestTimeOfDay =
+    Object.entries(timeDistribution).sort(([, a], [, b]) => b - a)[0]?.[0] || 'morning';
 
-  // Learning style detection (visual, auditory, kinesthetic)
-  const modulePreferences = Object.entries(stats.byModule || {})
-    .map(([mod, data]) => ({
-      module: mod,
-      score: (data.correct / data.total) * 100,
-      attempts: data.total
-    }))
+  const avgSessionLength =
+    recentSessions.length > 0
+      ? Math.round(recentSessions.reduce((sum, s) => sum + safeNumber(s?.duration, 0), 0) / recentSessions.length)
+      : 20;
+
+  const modulePreferences = Object.entries(stats?.byModule || {})
+    .map(([mod, dataRaw]) => {
+      const data = isObj(dataRaw) ? dataRaw : {};
+      const total = safeNumber(data.total, 0);
+      const correct = safeNumber(data.correct, 0);
+      const score = total > 0 ? (correct / total) * 100 : 0;
+      return { module: mod, score, attempts: total };
+    })
     .filter(m => m.attempts >= 5)
     .sort((a, b) => b.score - a.score);
 
   let dominantStyle = 'balanced';
-  if (modulePreferences[0]?.module === 'intervals' || modulePreferences[0]?.module === 'eartraining') {
-    dominantStyle = 'auditory';
-  } else if (modulePreferences[0]?.module === 'fingerboard' || modulePreferences[0]?.module === 'keys') {
-    dominantStyle = 'visual';
-  } else if (modulePreferences[0]?.module === 'bieler' || modulePreferences[0]?.module === 'rhythm') {
-    dominantStyle = 'kinesthetic';
-  }
+  const top = modulePreferences[0]?.module?.toLowerCase?.() || '';
+  if (top === 'intervals' || top === 'eartraining') dominantStyle = 'auditory';
+  else if (top === 'fingerboard' || top === 'keys' || top === 'keysignatures') dominantStyle = 'visual';
+  else if (top === 'bieler' || top === 'rhythm') dominantStyle = 'kinesthetic';
 
   return {
     bestTimeOfDay,
@@ -242,11 +409,9 @@ function detectLearningPatterns(practiceLog, stats) {
   };
 }
 
-/**
- * Detect performance plateaus
- */
 function detectPlateaus(moduleInsights, practiceLog) {
-  const plateaus = moduleInsights.stagnant.map(module => ({
+  const stagnants = safeArray(moduleInsights?.stagnant);
+  const plateaus = stagnants.map(module => ({
     module: module.module,
     accuracy: module.accuracy,
     sessionsStuck: calculateStuckSessions(module.moduleKey, practiceLog),
@@ -257,46 +422,38 @@ function detectPlateaus(moduleInsights, practiceLog) {
   return plateaus.filter(p => p.sessionsStuck >= 5);
 }
 
-/**
- * Detect recent breakthroughs
- */
 function detectBreakthroughs(practiceLog) {
-  const recentSessions = practiceLog.slice(-10);
+  const recentSessions = safeArray(practiceLog).slice(-10);
   const breakthroughs = [];
 
-  recentSessions.forEach((session, i) => {
-    if (i === 0) return;
-    
-    const prev = recentSessions[i - 1];
-    const improvement = session.accuracy - prev.accuracy;
-    
-    if (improvement >= 15 && session.accuracy >= 80) {
+  for (let i = 1; i < recentSessions.length; i++) {
+    const session = recentSessions[i] || {};
+    const prev = recentSessions[i - 1] || {};
+
+    const improvement = safeNumber(session.accuracy, 0) - safeNumber(prev.accuracy, 0);
+    if (improvement >= 15 && safeNumber(session.accuracy, 0) >= 80) {
       breakthroughs.push({
-        module: session.module,
-        achievement: `${session.accuracy}% accuracy (up ${improvement}%)`,
-        date: new Date(session.timestamp).toLocaleDateString(),
-        message: generateBreakthroughMessage(session.module, improvement)
+        module: session.module || 'unknown',
+        achievement: `${safeNumber(session.accuracy, 0)}% accuracy (up ${Math.round(improvement)}%)`,
+        date: new Date(safeNumber(session.timestamp, Date.now())).toLocaleDateString(),
+        message: generateBreakthroughMessage(session.module || 'unknown', Math.round(improvement))
       });
     }
-  });
+  }
 
   return breakthroughs;
 }
 
-// ======================================
-// BIELER METHOD INTEGRATION (Enhanced)
-// ======================================
+// --------------------------------------
+// Bieler Method Integration
+// --------------------------------------
 
-/**
- * Analyze progress through Bieler Taxonomy
- */
 function analyzeBielerProgress(stats, level) {
-  const bielerStats = stats.byModule?.bieler || { total: 0, correct: 0 };
-  const accuracy = bielerStats.total > 0 
-    ? (bielerStats.correct / bielerStats.total) * 100 
-    : 0;
+  const bielerStats = stats?.byModule?.bieler || { total: 0, correct: 0 };
+  const total = safeNumber(bielerStats.total, 0);
+  const correct = safeNumber(bielerStats.correct, 0);
+  const accuracy = total > 0 ? (correct / total) * 100 : 0;
 
-  // Map level to Bieler functions
   const progressionMap = {
     1: { focus: 'First Trained Function', skill: 'Hand Frame (Perfect 4th)' },
     2: { focus: 'String Crossing', skill: 'Stable hand, arm adjustment' },
@@ -305,8 +462,8 @@ function analyzeBielerProgress(stats, level) {
     5: { focus: 'Advanced Bowing', skill: 'Spiccato, martelé' }
   };
 
-  const current = progressionMap[Math.min(level, 5)] || progressionMap[1];
-  const next = progressionMap[Math.min(level + 1, 5)] || progressionMap[5];
+  const current = progressionMap[Math.min(Math.max(1, level), 5)] || progressionMap[1];
+  const next = progressionMap[Math.min(Math.max(1, level + 1), 5)] || progressionMap[5];
 
   return {
     currentFocus: current.focus,
@@ -321,14 +478,11 @@ function analyzeBielerProgress(stats, level) {
   };
 }
 
-/**
- * Identify specific technique gaps
- */
 function identifyTechniqueGaps(stats, level) {
   const gaps = [];
-  const bielerData = stats.byModule?.bieler || {};
+  const bielerModule = stats?.byModule?.bieler || {};
+  const byTechnique = isObj(bielerModule.byTechnique) ? bielerModule.byTechnique : {};
 
-  // Check essential techniques
   const essentialTechniques = [
     { name: 'Hand Frame', threshold: 80, level: 1 },
     { name: 'Bow Hold', threshold: 85, level: 1 },
@@ -339,10 +493,15 @@ function identifyTechniqueGaps(stats, level) {
   ];
 
   essentialTechniques.forEach(tech => {
-    if (level >= tech.level && (!bielerData[tech.name] || bielerData[tech.name] < tech.threshold)) {
+    if (level < tech.level) return;
+
+    const raw = byTechnique[tech.name];
+    const currentLevel = safeNumber(raw?.accuracy ?? raw, 0);
+
+    if (currentLevel < tech.threshold) {
       gaps.push({
         technique: tech.name,
-        currentLevel: bielerData[tech.name] || 0,
+        currentLevel,
         targetLevel: tech.threshold,
         priority: level > tech.level ? 'high' : 'medium',
         drill: getBielerDrill(tech.name)
@@ -350,33 +509,30 @@ function identifyTechniqueGaps(stats, level) {
     }
   });
 
-  return gaps.sort((a, b) => 
-    (b.priority === 'high' ? 1 : 0) - (a.priority === 'high' ? 1 : 0)
-  );
+  return gaps.sort((a, b) => (a.priority === 'high' ? -1 : 1) - (b.priority === 'high' ? -1 : 1));
 }
 
-// ======================================
-// SMART RECOMMENDATIONS ENGINE (Enhanced)
-// ======================================
+// --------------------------------------
+// Recommendations Engine
+// --------------------------------------
 
-/**
- * Generate priority-sorted, actionable recommendations
- */
-function generateSmartRecommendations({ 
-  moduleInsights, 
-  patterns, 
-  plateaus, 
-  techniqueGaps, 
+function generateSmartRecommendations({
+  moduleInsights,
+  patterns,
+  plateaus,
+  techniqueGaps,
   reviewPriority,
   streak,
   level,
-  goals 
+  goals
 }) {
   const recs = [];
-  const now = Date.now();
+
+  const weaknesses = safeArray(moduleInsights?.weaknesses);
+  const needsAttention = safeArray(moduleInsights?.needsAttention);
 
   // URGENT: Critical weaknesses
-  moduleInsights.weaknesses.slice(0, 2).forEach(weak => {
+  weaknesses.slice(0, 2).forEach(weak => {
     recs.push({
       type: 'urgent',
       priority: 1,
@@ -392,7 +548,7 @@ function generateSmartRecommendations({
   });
 
   // HIGH: Spaced repetition reviews
-  if (reviewPriority > 5) {
+  if (safeNumber(reviewPriority, 0) > 5) {
     recs.push({
       type: 'review',
       priority: 2,
@@ -408,7 +564,7 @@ function generateSmartRecommendations({
   }
 
   // HIGH: Technique gaps
-  if (techniqueGaps.length > 0) {
+  if (safeArray(techniqueGaps).length > 0) {
     const topGap = techniqueGaps[0];
     recs.push({
       type: 'technique',
@@ -426,7 +582,7 @@ function generateSmartRecommendations({
   }
 
   // MEDIUM: Plateau breakers
-  if (plateaus.length > 0) {
+  if (safeArray(plateaus).length > 0) {
     const topPlateau = plateaus[0];
     recs.push({
       type: 'plateau',
@@ -434,7 +590,7 @@ function generateSmartRecommendations({
       icon: '📈',
       title: `Break Through: ${topPlateau.module}`,
       message: topPlateau.recommendation,
-      action: topPlateau.module.toLowerCase(),
+      action: String(topPlateau.module || '').toLowerCase(),
       actionText: 'Try New Approach',
       reasoning: `Stuck at ${topPlateau.accuracy}% for ${topPlateau.sessionsStuck} sessions`,
       estimatedTime: 20,
@@ -443,8 +599,8 @@ function generateSmartRecommendations({
   }
 
   // MEDIUM: Declining modules
-  if (moduleInsights.needsAttention.length > 0) {
-    const declining = moduleInsights.needsAttention[0];
+  if (needsAttention.length > 0) {
+    const declining = needsAttention[0];
     recs.push({
       type: 'maintenance',
       priority: 3,
@@ -460,7 +616,7 @@ function generateSmartRecommendations({
   }
 
   // LOW: Consistency building
-  if (streak < 3) {
+  if (safeNumber(streak, 0) < 3) {
     recs.push({
       type: 'habit',
       priority: 4,
@@ -477,10 +633,10 @@ function generateSmartRecommendations({
 
   // LOW: Explore new modules
   const allModules = ['intervals', 'keys', 'rhythm', 'bieler', 'fingerboard', 'scales'];
-  const practiced = Object.keys(moduleInsights.modules);
-  const unpracticed = allModules.filter(m => !practiced.includes(m));
-  
-  if (unpracticed.length > 0 && level >= 2) {
+  const practicedKeys = safeArray(moduleInsights?.modules).map(m => m.moduleKey);
+  const unpracticed = allModules.filter(m => !practicedKeys.includes(m));
+
+  if (unpracticed.length > 0 && safeNumber(level, 1) >= 2) {
     recs.push({
       type: 'explore',
       priority: 5,
@@ -509,25 +665,21 @@ function generateSmartRecommendations({
     difficulty: 'medium'
   });
 
-  // Sort by priority and return top 5
   return recs.sort((a, b) => a.priority - b.priority).slice(0, 5);
 }
 
-// ======================================
-// ADAPTIVE DAILY PLANNING (Enhanced)
-// ======================================
+// --------------------------------------
+// Planning
+// --------------------------------------
 
-/**
- * Generate personalized daily practice plan
- */
 export function generateTodaysPlan(profile, moduleInsights, patterns, level, reviewPriority) {
-  const totalDuration = profile?.dailyGoal || 30;
+  const totalDuration = safeNumber(profile?.dailyGoal, 30);
   const learningStyle = patterns?.dominantStyle || 'balanced';
-  const weaknesses = moduleInsights?.weaknesses || [];
-  const strengths = moduleInsights?.strengths || [];
+  const weaknesses = safeArray(moduleInsights?.weaknesses);
+  const strengths = safeArray(moduleInsights?.strengths);
 
   const plan = {
-    title: `${getDayName()}'s Practice - Level ${level}`,
+    title: `${getDayName()}'s Practice - Level ${safeNumber(level, 1)}`,
     subtitle: `Optimized for ${learningStyle} learners`,
     totalDuration,
     sections: [],
@@ -537,7 +689,6 @@ export function generateTodaysPlan(profile, moduleInsights, patterns, level, rev
 
   let remainingTime = totalDuration;
 
-  // 1. WARM-UP (always 5-7 min, ~20% of session)
   const warmupTime = Math.min(7, Math.max(5, Math.round(totalDuration * 0.2)));
   plan.sections.push({
     id: 'warmup',
@@ -552,8 +703,7 @@ export function generateTodaysPlan(profile, moduleInsights, patterns, level, rev
   });
   remainingTime -= warmupTime;
 
-  // 2. SPACED REPETITION REVIEW (if due, ~15 min)
-  if (reviewPriority > 3 && remainingTime >= 10) {
+  if (safeNumber(reviewPriority, 0) > 3 && remainingTime >= 10) {
     const reviewTime = Math.min(15, Math.max(10, remainingTime * 0.4));
     plan.sections.push({
       id: 'review',
@@ -569,11 +719,10 @@ export function generateTodaysPlan(profile, moduleInsights, patterns, level, rev
     remainingTime -= reviewTime;
   }
 
-  // 3. PRIMARY FOCUS - Biggest weakness (30-40% of remaining time)
   if (weaknesses[0] && remainingTime >= 10) {
     const focusTime = Math.round(remainingTime * 0.35);
     const weakness = weaknesses[0];
-    
+
     plan.sections.push({
       id: 'primary',
       order: 3,
@@ -590,11 +739,9 @@ export function generateTodaysPlan(profile, moduleInsights, patterns, level, rev
     remainingTime -= focusTime;
   }
 
-  // 4. SECONDARY PRACTICE - Strength maintenance or second weakness (20-30%)
   if (remainingTime >= 7) {
     const secondaryTime = Math.round(remainingTime * 0.4);
     const target = strengths[0] || weaknesses[1];
-    
     if (target) {
       plan.sections.push({
         id: 'secondary',
@@ -602,9 +749,7 @@ export function generateTodaysPlan(profile, moduleInsights, patterns, level, rev
         activity: strengths[0] ? `Maintain: ${target.module}` : `Develop: ${target.module}`,
         duration: secondaryTime,
         module: target.moduleKey,
-        goal: strengths[0] 
-          ? `Keep mastery at ${target.accuracy}%+` 
-          : `Improve from ${target.accuracy}%`,
+        goal: strengths[0] ? `Keep mastery at ${target.accuracy}%+` : `Improve from ${target.accuracy}%`,
         priority: 'medium',
         icon: '📚'
       });
@@ -612,23 +757,21 @@ export function generateTodaysPlan(profile, moduleInsights, patterns, level, rev
     }
   }
 
-  // 5. INTEGRATION/CHALLENGE (remaining time if > 5 min)
   if (remainingTime >= 5) {
     plan.sections.push({
       id: 'integration',
       order: 5,
       activity: 'Integration Challenge',
-      duration: remainingTime - 3, // Leave 3 for reflection
+      duration: Math.max(2, remainingTime - 3),
       module: selectIntegrationModule(weaknesses, strengths),
       goal: 'Combine skills in realistic context',
       priority: 'medium',
       icon: '⚡',
       isChallenge: true
     });
-    remainingTime -= (remainingTime - 3);
+    remainingTime = 3;
   }
 
-  // 6. REFLECTION (always last 3 min)
   plan.sections.push({
     id: 'reflection',
     order: 6,
@@ -636,11 +779,7 @@ export function generateTodaysPlan(profile, moduleInsights, patterns, level, rev
     duration: Math.max(2, remainingTime),
     type: 'reflection',
     prompt: getReflectionPrompt(weaknesses[0]),
-    questions: [
-      'What felt strongest today?',
-      'What needs more attention?',
-      'How was your tone quality?'
-    ],
+    questions: ['What felt strongest today?', 'What needs more attention?', 'How was your tone quality?'],
     priority: 'essential',
     icon: '📝'
   });
@@ -648,127 +787,52 @@ export function generateTodaysPlan(profile, moduleInsights, patterns, level, rev
   return plan;
 }
 
-/**
- * Generate 7-day strategic preview with progressive difficulty
- */
 export function generateWeekPreview(moduleInsights, patterns, level, goals = []) {
-  const theme = determinePlanTheme(moduleInsights.weaknesses, moduleInsights.strengths);
-  const weaknesses = moduleInsights.weaknesses.slice(0, 3);
-  const strengths = moduleInsights.strengths.slice(0, 2);
+  const weaknesses = safeArray(moduleInsights?.weaknesses).slice(0, 3);
+  const strengths = safeArray(moduleInsights?.strengths).slice(0, 2);
+
+  const theme = determinePlanTheme(weaknesses, strengths);
 
   return {
     theme,
     subtitle: `Progressive ${theme} plan`,
-    totalWeeklyGoal: goals.find(g => g.type === 'weekly')?.target || 150,
+    totalWeeklyGoal: safeArray(goals).find(g => g?.type === 'weekly')?.target || 150,
     days: [
-      {
-        day: 'Mon',
-        dayName: 'Monday',
-        focus: 'Foundation',
-        duration: 25,
-        primary: weaknesses[0]?.moduleKey || 'intervals',
-        secondary: 'bieler',
-        intensity: 'medium',
-        description: 'Start week with fundamental review',
-        icon: '📖'
-      },
-      {
-        day: 'Tue',
-        dayName: 'Tuesday',
-        focus: 'Speed Building',
-        duration: 28,
-        primary: weaknesses[0]?.moduleKey || 'intervals',
-        secondary: 'rhythm',
-        intensity: 'high',
-        description: 'Increase tempo while maintaining accuracy',
-        icon: '⚡'
-      },
-      {
-        day: 'Wed',
-        dayName: 'Wednesday',
-        focus: 'Accuracy Refinement',
-        duration: 30,
-        primary: weaknesses[1]?.moduleKey || 'keys',
-        secondary: 'flashcards',
-        intensity: 'high',
-        description: 'Precision practice + spaced repetition',
-        icon: '🎯'
-      },
-      {
-        day: 'Thu',
-        dayName: 'Thursday',
-        focus: 'Integration',
-        duration: 32,
-        primary: 'rhythm',
-        secondary: strengths[0]?.moduleKey || 'intervals',
-        intensity: 'medium',
-        description: 'Combine multiple skills',
-        icon: '🎼'
-      },
-      {
-        day: 'Fri',
-        dayName: 'Friday',
-        focus: 'Technique Deep Dive',
-        duration: 25,
-        primary: 'bieler',
-        secondary: weaknesses[2]?.moduleKey || 'fingerboard',
-        intensity: 'high',
-        description: 'Focus on Bieler Method fundamentals',
-        icon: '🎻'
-      },
-      {
-        day: 'Sat',
-        dayName: 'Saturday',
-        focus: 'Challenge Day',
-        duration: 35,
-        primary: strengths[0]?.moduleKey || 'intervals',
-        secondary: weaknesses[0]?.moduleKey || 'keys',
-        intensity: 'very high',
-        description: 'Push limits with harder material',
-        icon: '🚀'
-      },
-      {
-        day: 'Sun',
-        dayName: 'Sunday',
-        focus: 'Light Review & Reflection',
-        duration: 15,
-        primary: 'flashcards',
-        secondary: 'analytics',
-        intensity: 'light',
-        description: 'Active rest + week review',
-        icon: '📊'
-      }
+      { day: 'Mon', dayName: 'Monday', focus: 'Foundation', duration: 25, primary: weaknesses[0]?.moduleKey || 'intervals', secondary: 'bieler', intensity: 'medium', description: 'Start week with fundamental review', icon: '📖' },
+      { day: 'Tue', dayName: 'Tuesday', focus: 'Speed Building', duration: 28, primary: weaknesses[0]?.moduleKey || 'intervals', secondary: 'rhythm', intensity: 'high', description: 'Increase tempo while maintaining accuracy', icon: '⚡' },
+      { day: 'Wed', dayName: 'Wednesday', focus: 'Accuracy Refinement', duration: 30, primary: weaknesses[1]?.moduleKey || 'keys', secondary: 'flashcards', intensity: 'high', description: 'Precision practice + spaced repetition', icon: '🎯' },
+      { day: 'Thu', dayName: 'Thursday', focus: 'Integration', duration: 32, primary: 'rhythm', secondary: strengths[0]?.moduleKey || 'intervals', intensity: 'medium', description: 'Combine multiple skills', icon: '🎼' },
+      { day: 'Fri', dayName: 'Friday', focus: 'Technique Deep Dive', duration: 25, primary: 'bieler', secondary: weaknesses[2]?.moduleKey || 'fingerboard', intensity: 'high', description: 'Focus on Bieler Method fundamentals', icon: '🎻' },
+      { day: 'Sat', dayName: 'Saturday', focus: 'Challenge Day', duration: 35, primary: strengths[0]?.moduleKey || 'intervals', secondary: weaknesses[0]?.moduleKey || 'keys', intensity: 'very high', description: 'Push limits with harder material', icon: '🚀' },
+      { day: 'Sun', dayName: 'Sunday', focus: 'Light Review & Reflection', duration: 15, primary: 'flashcards', secondary: 'analytics', intensity: 'light', description: 'Active rest + week review', icon: '📊' }
     ]
   };
 }
 
-// ======================================
-// REPERTOIRE READINESS ASSESSMENT
-// ======================================
+// --------------------------------------
+// Repertoire readiness
+// --------------------------------------
 
-/**
- * Assess readiness for specific repertoire pieces
- */
 function assessRepertoireReadiness(stats, level) {
   const readiness = [];
-  
-  // Beginner repertoire
-  if (level >= 1) {
+
+  if (safeNumber(level, 1) >= 1) {
+    const score = calculatePieceReadiness(stats, ['intervals', 'rhythm'], 70);
     readiness.push({
       piece: 'Twinkle Variations (Suzuki Book 1)',
-      readiness: calculatePieceReadiness(stats, ['intervals', 'rhythm'], 70),
+      readiness: score,
       requiredSkills: ['Major 2nd intervals', 'Quarter/half note rhythm', 'Open string bow'],
-      recommendation: 'Ready to start with teacher guidance'
+      recommendation: score >= 75 ? 'Ready to start with teacher guidance' : 'Build fundamentals a bit more'
     });
   }
 
-  // Intermediate repertoire
-  if (level >= 3) {
+  if (safeNumber(level, 1) >= 3) {
+    const score = calculatePieceReadiness(stats, ['intervals', 'keys', 'bieler'], 75);
     readiness.push({
       piece: 'Vivaldi A-minor Concerto',
-      readiness: calculatePieceReadiness(stats, ['intervals', 'keys', 'bieler'], 75),
+      readiness: score,
       requiredSkills: ['All intervals', 'A minor scale', '1st-3rd positions', 'String crossing'],
-      recommendation: readiness >= 75 ? 'Ready to begin' : 'Practice fundamentals first'
+      recommendation: score >= 75 ? 'Ready to begin' : 'Practice fundamentals first'
     });
   }
 
@@ -776,19 +840,64 @@ function assessRepertoireReadiness(stats, level) {
 }
 
 function calculatePieceReadiness(stats, requiredModules, threshold) {
-  const scores = requiredModules.map(mod => {
-    const data = stats.byModule?.[mod];
-    if (!data || data.total < 10) return 0;
-    return (data.correct / data.total) * 100;
+  const scores = safeArray(requiredModules).map(mod => {
+    const data = stats?.byModule?.[mod];
+    const total = safeNumber(data?.total, 0);
+    const correct = safeNumber(data?.correct, 0);
+    if (total < 10) return 0;
+    return (correct / total) * 100;
   });
 
-  const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const avgScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
   return Math.round(Math.min(100, (avgScore / threshold) * 100));
 }
 
-// ======================================
-// HELPER FUNCTIONS
-// ======================================
+// --------------------------------------
+// State management
+// --------------------------------------
+
+export function completePlanSection(sectionId, timeSpent, accuracy) {
+  const coachState = loadJSON(STORAGE_KEYS.COACH_DATA, {
+    completedSections: [],
+    lastPlanDate: null,
+    totalPlanTime: 0,
+    learningStyle: 'balanced',
+    preferredTime: null,
+    goals: []
+  });
+
+  coachState.completedSections = safeArray(coachState.completedSections);
+  coachState.completedSections.push({
+    sectionId,
+    completedAt: Date.now(),
+    timeSpent: safeNumber(timeSpent, 0),
+    accuracy: safeNumber(accuracy, 0)
+  });
+
+  coachState.totalPlanTime = safeNumber(coachState.totalPlanTime, 0) + safeNumber(timeSpent, 0);
+  coachState.lastPlanDate = new Date().toDateString();
+
+  saveJSON(STORAGE_KEYS.COACH_DATA, coachState);
+  return coachState;
+}
+
+export function saveUserGoals(goals) {
+  const coachState = loadJSON(STORAGE_KEYS.COACH_DATA, {});
+  coachState.goals = safeArray(goals);
+  saveJSON(STORAGE_KEYS.COACH_DATA, coachState);
+  return coachState.goals;
+}
+
+export function updateLearningStyle(style) {
+  const coachState = loadJSON(STORAGE_KEYS.COACH_DATA, {});
+  coachState.learningStyle = style || 'balanced';
+  saveJSON(STORAGE_KEYS.COACH_DATA, coachState);
+  return coachState.learningStyle;
+}
+
+// --------------------------------------
+// Helpers
+// --------------------------------------
 
 function formatModuleName(module) {
   const map = {
@@ -802,7 +911,8 @@ function formatModuleName(module) {
     flashcards: 'Flashcards',
     eartraining: 'Ear Training'
   };
-  return map[module.toLowerCase()] || module.charAt(0).toUpperCase() + module.slice(1);
+  const key = String(module || '').toLowerCase();
+  return map[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Unknown');
 }
 
 function getDayName() {
@@ -817,13 +927,13 @@ function getDailyBielerFocus(level) {
     { term: 'Vibrato Development', goal: 'Wrist flexibility and oscillation', exercises: ['Slow vibrato', 'Speed variations'] },
     { term: 'Advanced Bow Techniques', goal: 'Spiccato, martelé, collé', exercises: ['Bow division', 'Stroke variations'] }
   ];
-  return focuses[Math.min(level - 1, 4)] || focuses[0];
+  return focuses[Math.min(Math.max(1, safeNumber(level, 1)) - 1, 4)] || focuses[0];
 }
 
 function generateGreeting(name, streak, accuracy, hour) {
   const timePrefix = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const userName = name || 'Violinist';
-  
+
   if (streak >= 30) return `${timePrefix}, ${userName}! 🏆 30+ day legend!`;
   if (streak >= 14) return `${timePrefix}, ${userName}! 🔥 ${streak}-day streak!`;
   if (accuracy >= 90) return `${timePrefix}, ${userName}! 🎯 Precision master!`;
@@ -841,10 +951,8 @@ function generateMotivation(streak, xp, accuracy, patterns) {
   return "Every session builds your foundation. Let's make today count! 💪";
 }
 
-function determinePlanTheme(weaknesses, strengths) {
-  if (!weaknesses || weaknesses.length === 0) return 'Maintenance & Exploration';
-  
-  const primary = weaknesses[0].moduleKey;
+function determinePlanTheme(weaknesses) {
+  const primary = weaknesses?.[0]?.moduleKey;
   const themes = {
     intervals: 'Intonation Foundation',
     keys: 'Key Signature Mastery',
@@ -863,46 +971,33 @@ function getMotivationalQuote(level) {
     "Music is the strongest form of magic. - Marilyn Manson",
     "Without music, life would be a mistake. - Friedrich Nietzsche"
   ];
-  return quotes[level % quotes.length];
+  return quotes[safeNumber(level, 1) % quotes.length];
 }
 
-function getImprovementStrategy(weakness, learningStyle) {
+function getImprovementStrategy(_weakness, learningStyle) {
   const strategies = {
-    auditory: `Listen to perfect examples, then sing before playing`,
-    visual: `Study notation patterns, use color coding for recognition`,
-    kinesthetic: `Slow practice with muscle memory focus, repetition`,
-    balanced: `Multi-sensory approach: see, hear, feel the patterns`
+    auditory: 'Listen to perfect examples, then sing before playing',
+    visual: 'Study notation patterns; use color coding for recognition',
+    kinesthetic: 'Slow practice with muscle-memory focus; repetition',
+    balanced: 'Multi-sensory approach: see, hear, feel the patterns'
   };
   return strategies[learningStyle] || strategies.balanced;
 }
 
 function selectIntegrationModule(weaknesses, strengths) {
-  // Mix weak and strong skills
-  if (weaknesses.length > 0 && strengths.length > 0) {
-    return Math.random() > 0.5 ? weaknesses[0].moduleKey : strengths[0].moduleKey;
-  }
-  return 'rhythm'; // Safe default
+  if (weaknesses?.length && strengths?.length) return Math.random() > 0.5 ? weaknesses[0].moduleKey : strengths[0].moduleKey;
+  if (weaknesses?.length) return weaknesses[0].moduleKey;
+  if (strengths?.length) return strengths[0].moduleKey;
+  return 'rhythm';
 }
 
 function getReflectionPrompt(primaryWeakness) {
-  if (!primaryWeakness) {
-    return {
-      question: 'What felt strongest in today\'s practice?',
-      followUp: 'How can you build on that tomorrow?'
-    };
-  }
+  if (!primaryWeakness) return { question: "What felt strongest in today's practice?", followUp: 'How can you build on that tomorrow?' };
 
-  if (primaryWeakness.accuracy < 60) {
-    return {
-      question: `What made ${primaryWeakness.module} challenging today?`,
-      followUp: 'Try breaking it into smaller steps tomorrow.'
-    };
+  if (safeNumber(primaryWeakness.accuracy, 0) < 60) {
+    return { question: `What made ${primaryWeakness.module} challenging today?`, followUp: 'Try breaking it into smaller steps tomorrow.' };
   }
-
-  return {
-    question: 'What progress did you notice today?',
-    followUp: 'Celebrate small wins - they compound!'
-  };
+  return { question: 'What progress did you notice today?', followUp: 'Celebrate small wins - they compound!' };
 }
 
 function getBielerDrill(techniqueName) {
@@ -917,56 +1012,59 @@ function getBielerDrill(techniqueName) {
   return drills[techniqueName] || 'Foundational technique practice';
 }
 
-// Calculation helpers
 function calculateRecentAccuracy(history = []) {
-  if (!history || history.length < 5) return 0;
-  const recent = history.slice(-10);
-  const correct = recent.filter(h => h.correct).length;
+  const h = safeArray(history);
+  if (h.length < 5) return 0;
+  const recent = h.slice(-10);
+
+  // Support multiple shapes:
+  // - { correct: true/false }
+  // - { accuracy: number }
+  // - { isCorrect: true/false }
+  const hasAccuracy = recent.some(x => Number.isFinite(Number(x?.accuracy)));
+  if (hasAccuracy) {
+    const avg = recent.reduce((s, x) => s + safeNumber(x?.accuracy, 0), 0) / recent.length;
+    return avg;
+  }
+
+  const correct = recent.filter(x => x?.correct === true || x?.isCorrect === true).length;
   return (correct / recent.length) * 100;
 }
 
 function calculateConsistency(history = []) {
-  if (!history || history.length < 5) return 0;
-  // Check how many of last 7 days had practice
-  const recentDays = history.slice(-7).map(h => new Date(h.timestamp).toDateString());
+  const h = safeArray(history);
+  if (h.length < 5) return 0;
+  const recentDays = h.slice(-7).map(x => new Date(safeNumber(x?.timestamp, Date.now())).toDateString());
   const uniqueDays = [...new Set(recentDays)].length;
   return Math.round((uniqueDays / 7) * 100);
 }
 
 function calculateMastery(accuracy, attempts, recentAccuracy) {
-  // Weighted mastery: accuracy (50%) + volume (30%) + recent performance (20%)
-  const accuracyScore = accuracy;
-  const volumeScore = Math.min(100, (attempts / 50) * 100);
-  const recencyScore = recentAccuracy || accuracy;
-  
-  return Math.round(
-    accuracyScore * 0.5 +
-    volumeScore * 0.3 +
-    recencyScore * 0.2
-  );
+  const accuracyScore = safeNumber(accuracy, 0);
+  const volumeScore = Math.min(100, (safeNumber(attempts, 0) / 50) * 100);
+  const recencyScore = Number.isFinite(Number(recentAccuracy)) ? safeNumber(recentAccuracy, accuracyScore) : accuracyScore;
+
+  return Math.round(accuracyScore * 0.5 + volumeScore * 0.3 + recencyScore * 0.2);
 }
 
 function calculateWeeklyConsistency(sessions) {
-  const days = [...new Set(sessions.map(s => new Date(s.timestamp).toDateString()))];
+  const s = safeArray(sessions);
+  const days = [...new Set(s.map(x => new Date(safeNumber(x?.timestamp, Date.now())).toDateString()))];
   return Math.round((days.length / 7) * 100);
 }
 
 function calculateStuckSessions(moduleKey, practiceLog) {
-  const moduleSessions = practiceLog
-    .filter(s => s.module === moduleKey)
-    .slice(-10);
-  
+  const moduleSessions = safeArray(practiceLog).filter(s => s?.module === moduleKey).slice(-10);
   if (moduleSessions.length < 5) return 0;
-  
-  const avgAccuracy = moduleSessions.reduce((sum, s) => sum + s.accuracy, 0) / moduleSessions.length;
-  const variance = moduleSessions.reduce((sum, s) => 
-    sum + Math.abs(s.accuracy - avgAccuracy), 0
-  ) / moduleSessions.length;
-  
+
+  const avgAccuracy = moduleSessions.reduce((sum, s) => sum + safeNumber(s?.accuracy, 0), 0) / moduleSessions.length;
+  const variance =
+    moduleSessions.reduce((sum, s) => sum + Math.abs(safeNumber(s?.accuracy, 0) - avgAccuracy), 0) / moduleSessions.length;
+
   return variance < 5 ? moduleSessions.length : 0;
 }
 
-function generatePlateauBreaker(module) {
+function generatePlateauBreaker() {
   const breakers = [
     'Try 50% slower tempo with 100% accuracy',
     'Switch to different difficulty level',
@@ -981,64 +1079,23 @@ function generateBreakthroughMessage(module, improvement) {
   return `Amazing ${improvement}% jump in ${formatModuleName(module)}! This is what consistent practice looks like. 🚀`;
 }
 
-function calculateDaysOnFocus(stats, focusName) {
-  // Simplified - would need practice log analysis
-  return 7; // Placeholder
+function calculateDaysOnFocus(_stats, _focusName) {
+  // Placeholder: can be made real later by analyzing practiceLog vs focusName.
+  return 7;
 }
 
-// ======================================
-// STATE MANAGEMENT
-// ======================================
-
-/**
- * Track completion of practice plan sections
- */
-export function completePlanSection(sectionId, timeSpent, accuracy) {
-  const coachState = loadJSON(STORAGE_KEYS.COACH_DATA, {
-    completedSections: [],
-    lastPlanDate: null,
-    totalPlanTime: 0
-  });
-
-  coachState.completedSections.push({
-    sectionId,
-    completedAt: Date.now(),
-    timeSpent,
-    accuracy
-  });
-
-  coachState.totalPlanTime += timeSpent;
-  coachState.lastPlanDate = new Date().toDateString();
-
-  saveJSON(STORAGE_KEYS.COACH_DATA, coachState);
-  return coachState;
-}
-
-/**
- * Save user goals
- */
-export function saveUserGoals(goals) {
-  const coachState = loadJSON(STORAGE_KEYS.COACH_DATA, {});
-  coachState.goals = goals;
-  saveJSON(STORAGE_KEYS.COACH_DATA, coachState);
-}
-
-/**
- * Update learning style preference
- */
-export function updateLearningStyle(style) {
-  const coachState = loadJSON(STORAGE_KEYS.COACH_DATA, {});
-  coachState.learningStyle = style;
-  saveJSON(STORAGE_KEYS.COACH_DATA, coachState);
-}
-
-console.log('[Coach Engine] VMQ AI Coach v2.1.1 loaded ✅');
+console.log('[Coach Engine] VMQ AI Coach v2.1.2 loaded ✅');
 
 export default {
   getCoachInsights,
+  getCoachDashboard,
+  getRecommendations,
   generateTodaysPlan,
   generateWeekPreview,
+  getDailyPlan,
+  getWeeklyPlan,
   completePlanSection,
   saveUserGoals,
-  updateLearningStyle
+  updateLearningStyle,
+  getModuleProgress
 };
