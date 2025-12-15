@@ -1,4 +1,4 @@
-// js/util/
+// js/utils/keyboard.js
 // ======================================
 // VMQ KEYBOARD + ACCESSIBILITY v2.0
 // Powers 50+ modules + Screen Readers
