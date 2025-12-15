@@ -308,7 +308,7 @@ export function updateStreak() {
   if (bonusXP > 0) {
     addXP(bonusXP, 'streak_bonus', {
       source: 'streak',
-      metadata: { streak: current }
+      metadata: { streak: current }   // ✅ FIX
     });
 
     sessionTracker?.trackActivity?.('streak', 'milestone', {
@@ -358,7 +358,7 @@ export function unlockAchievement(id, meta = {}) {
 
   addXP(25, `achievement_${id}`, {
     source: 'achievement',
-    metadata: { id }
+    metadata: { id }                // ✅ FIX
   });
 
   sessionTracker?.trackActivity?.('achievement', 'unlock', { id, meta });
