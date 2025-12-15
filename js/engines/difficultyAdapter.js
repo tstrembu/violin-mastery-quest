@@ -1,3 +1,4 @@
+// js
 // ======================================
 // VMQ DIFFICULTY ADAPTER v2.0 - Production AI
 // Real-time difficulty adjustment for 50+ modules
