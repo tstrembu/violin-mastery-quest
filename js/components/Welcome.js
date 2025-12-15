@@ -1,44 +1,33 @@
 // js/components/Welcome.js
 // ======================================
-// VMQ ONBOARDING v3.0.5 - Smart Start (Drop-in replacement)
-// - No dependency on missing named exports (e.g., updateSettings)
-// - Uses loadJSON/saveJSON directly and seeds keys safely
+// VMQ ONBOARDING 3.0.5 - Smart Start (compatible with your STORAGE_KEYS)
+// Seeds: Coach, Analytics, Difficulty, Gamification
 // ======================================
+
+const { createElement: h, useState, useEffect } = React;
 
 import { saveJSON, loadJSON, STORAGE_KEYS } from '../config/storage.js';
 import { addXP, unlockAchievement } from '../engines/gamification.js';
 import { setDifficulty, DIFFICULTY_SETTINGS } from '../engines/difficultyAdapter.js';
 
-// React (global in index.html)
-const { createElement: h, useState, useEffect, useMemo } = React;
-
-const KEY = (name, fallback) => (STORAGE_KEYS && STORAGE_KEYS[name]) ? STORAGE_KEYS[name] : fallback;
-
-const KEY_PROFILE    = KEY('PROFILE',    'vmq_profile');
-const KEY_COACHDATA  = KEY('COACHDATA',  'vmq_coachdata');
-const KEY_STATS      = KEY('STATS',      'vmq_stats');
-const KEY_ANALYTICS  = KEY('ANALYTICS',  'vmq_analytics');
-const KEY_DIFFICULTY = KEY('DIFFICULTY', 'vmq_difficulty');
-
 export default function Welcome({ onComplete }) {
   const [step, setStep] = useState(0);
-
   const [profile, setProfile] = useState({
     name: '',
-    level: 'beginner',          // beginner, intermediate, advanced
+    level: 'beginner', // beginner, intermediate, advanced
     goals: [],
-    preferredTime: 'flexible',  // morning, afternoon, evening, flexible
-    practiceMinutes: 20,        // daily target
-    repertoire: 'suzuki1'       // suzuki1-6, kreutzer, etc.
+    preferredTime: 'flexible', // morning, afternoon, evening, flexible
+    practiceMinutes: 20, // daily target
+    repertoire: 'suzuki1' // suzuki1-6, kreutzer, etc.
   });
-
   const [smartSuggestions, setSmartSuggestions] = useState([]);
 
-  const STEPS = useMemo(() => ([
+  const STEPS = [
     {
       title: 'Welcome to Violin Mastery Quest! 🎻',
-      subtitle: 'Smart Practice',
-      content: "Based on Professor Ida Bieler’s method. Combines spaced repetition, adaptive difficulty, and intelligent coaching.",
+      subtitle: 'ML-Powered Practice',
+      content:
+        "Based on Professor Ida Bieler’s teaching method. Combines spaced repetition, adaptive difficulty, and intelligent coaching.",
       action: 'Begin →',
       icon: '🎻'
     },
@@ -52,14 +41,14 @@ export default function Welcome({ onComplete }) {
     {
       title: 'Your current level?',
       subtitle: 'Adaptive Difficulty',
-      content: 'This calibrates practice challenge to your level.',
+      content: 'This calibrates our ML algorithm to your skill level.',
       input: 'level',
       icon: '📊'
     },
     {
       title: 'Practice preferences',
       subtitle: 'Smart Scheduling',
-      content: 'Help optimize your practice schedule.',
+      content: 'Help our AI coach optimize your practice schedule.',
       input: 'preferences',
       icon: '⏰'
     },
@@ -71,69 +60,62 @@ export default function Welcome({ onComplete }) {
       icon: '🎯'
     },
     {
-      title: "You’re all set! 🎉",
+      title: "You're all set! 🎉",
       subtitle: 'Ready to Practice',
       content: 'Your personalized training environment is ready.',
       action: 'Start Training →',
       icon: '🚀'
     }
-  ]), []);
+  ];
 
-  // Smart goal recommendations based on level
   useEffect(() => {
     setSmartSuggestions(generateGoalRecommendations(profile.level));
   }, [profile.level]);
 
-  const currentStep = STEPS[step];
-  const canProceed = validateStep(currentStep, profile);
+  const handleNext = () => {
+    if (step < STEPS.length - 1) setStep(step + 1);
+    else completeOnboarding(false);
+  };
 
-  function handleNext() {
-    setStep((prev) => {
-      if (prev < STEPS.length - 1) return prev + 1;
-      completeOnboarding(profile, { skipped: false });
-      return prev;
-    });
-  }
-
-  function handleBack() {
-    setStep((prev) => Math.max(0, prev - 1));
-  }
-
-  function completeOnboarding(p, { skipped }) {
+  const completeOnboarding = (skipped = false) => {
     const enrichedProfile = {
-      ...p,
+      ...profile,
       onboardingComplete: true,
-      onboardedAt: Date.now(),
       skipped: !!skipped,
+      onboardedAt: Date.now(),
       version: '3.0.5'
     };
+    saveJSON(STORAGE_KEYS.PROFILE, enrichedProfile);
 
-    // Save profile
-    saveJSON(KEY_PROFILE, enrichedProfile);
-
-    // Seed difficulty:
-    // 1) Store per-mode difficulty levels (easy/medium/hard)
-    // 2) Also prime difficulty engine immediately
-    const levelToDifficulty = {
-      beginner: 'easy',
-      intermediate: 'medium',
-      advanced: 'hard'
+    // Seed difficulty: per-mode easy/medium/hard, plus store global tuning hints
+    const difficultyMapping = {
+      beginner: { label: 'easy', baseDifficulty: 0.7 },
+      intermediate: { label: 'medium', baseDifficulty: 1.0 },
+      advanced: { label: 'hard', baseDifficulty: 1.3 }
     };
-    const seedLevel = levelToDifficulty[enrichedProfile.level] || 'easy';
+    const seed = difficultyMapping[enrichedProfile.level] || difficultyMapping.beginner;
+
+    const existing = loadJSON(STORAGE_KEYS.DIFFICULTY, {});
+    const next = (existing && typeof existing === 'object') ? { ...existing } : {};
 
     const modes = Object.keys(DIFFICULTY_SETTINGS || {});
-    const diffState = loadJSON(KEY_DIFFICULTY, {});
-    const nextDiff = { ...(diffState && typeof diffState === 'object' ? diffState : {}) };
-
     modes.forEach((mode) => {
-      nextDiff[mode] = nextDiff[mode] || seedLevel;
-      try { setDifficulty?.(mode, nextDiff[mode]); } catch {}
+      next[mode] = next[mode] || seed.label;
+      try { setDifficulty?.(mode, next[mode]); } catch {}
     });
 
-    saveJSON(KEY_DIFFICULTY, nextDiff);
+    // Store global knobs without polluting the mode list
+    // (kept under a reserved key unlikely to be treated as a "mode")
+    next.__global = {
+      baseDifficulty: seed.baseDifficulty,
+      adaptiveEnabled: true,
+      updatedAt: Date.now()
+    };
 
-    // Seed coach data
-    saveJSON(KEY_COACHDATA, {
+    saveJSON(STORAGE_KEYS.DIFFICULTY, next);
+
+    // Initialize coach with goals (NOTE: your key is COACH_DATA)
+    saveJSON(STORAGE_KEYS.COACH_DATA, {
       goals: enrichedProfile.goals,
       preferredTime: enrichedProfile.preferredTime,
       targetMinutes: enrichedProfile.practiceMinutes,
@@ -141,13 +123,11 @@ export default function Welcome({ onComplete }) {
       initialized: Date.now()
     });
 
-    // Award onboarding XP + achievement (fail-soft)
+    // Award onboarding XP + achievement
     try { addXP?.(50, 'onboarding_complete', { source: 'system' }); } catch {}
     try { unlockAchievement?.('welcome_aboard', { level: enrichedProfile.level }); } catch {}
 
-    // Seed stats in BOTH keys to avoid breaking any older components:
-    // - Some builds read STORAGE_KEYS.STATS
-    // - Your analytics engine often reads STORAGE_KEYS.ANALYTICS
+    // Seed first practice plan in STATS
     const initialStats = {
       total: 0,
       correct: 0,
@@ -158,26 +138,24 @@ export default function Welcome({ onComplete }) {
         startDate: Date.now()
       }
     };
-    saveJSON(KEY_STATS, initialStats);
+    saveJSON(STORAGE_KEYS.STATS, initialStats);
 
-    // Merge into analytics object safely (don’t overwrite if analytics stats already exist)
-    const analytics = loadJSON(KEY_ANALYTICS, {});
+    // Log onboarding analytics event (preserve any existing analytics structure)
+    const analytics = loadJSON(STORAGE_KEYS.ANALYTICS, {});
     const aObj = (analytics && typeof analytics === 'object') ? analytics : {};
-    // Ensure stats fields exist (preserve existing if present)
-    if (!('total' in aObj)) aObj.total = initialStats.total;
-    if (!('correct' in aObj)) aObj.correct = initialStats.correct;
-    if (!('byModule' in aObj)) aObj.byModule = initialStats.byModule;
-    // Keep an event log without breaking stats consumers
     if (!Array.isArray(aObj.events)) aObj.events = [];
     aObj.events.unshift({
       type: 'onboarding_complete',
       timestamp: Date.now(),
       profile: enrichedProfile
     });
-    saveJSON(KEY_ANALYTICS, aObj);
+    saveJSON(STORAGE_KEYS.ANALYTICS, aObj);
 
     onComplete?.();
-  }
+  };
+
+  const currentStep = STEPS[step];
+  const canProceed = validateStep(currentStep, profile);
 
   return h(
     'div',
@@ -189,42 +167,60 @@ export default function Welcome({ onComplete }) {
         style: { textAlign: 'center', maxWidth: '600px', margin: '0 auto' }
       },
 
-      // Icon
-      h('div', {
-        className: 'welcome-icon',
-        style: {
-          fontSize: 'clamp(3rem, 10vw, 5rem)',
-          marginBottom: 'var(--space-lg)',
-          animation: 'fadeInScale 0.5s ease-out'
-        }
-      }, currentStep.icon),
+      h(
+        'div',
+        {
+          className: 'welcome-icon',
+          style: {
+            fontSize: 'clamp(3rem, 10vw, 5rem)',
+            marginBottom: 'var(--space-lg)',
+            animation: 'fadeInScale 0.5s ease-out'
+          }
+        },
+        currentStep.icon
+      ),
 
-      // Title & subtitle
       h('h1', { style: { marginBottom: 'var(--space-xs)' } }, currentStep.title),
-      h('p', {
-        className: 'text-muted',
-        style: { fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-md)' }
-      }, currentStep.subtitle),
+      h(
+        'p',
+        {
+          className: 'text-muted',
+          style: { fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-md)' }
+        },
+        currentStep.subtitle
+      ),
 
-      h('p', {
-        style: { fontSize: 'var(--font-size-lg)', marginBottom: 'var(--space-xl)', lineHeight: 1.6 }
-      }, currentStep.content),
+      h(
+        'p',
+        {
+          style: {
+            fontSize: 'var(--font-size-lg)',
+            marginBottom: 'var(--space-xl)',
+            lineHeight: 1.6
+          }
+        },
+        currentStep.content
+      ),
 
-      // Inputs
       currentStep.input === 'name' && renderNameInput(profile, setProfile, canProceed, handleNext),
       currentStep.input === 'level' && renderLevelInput(profile, setProfile),
       currentStep.input === 'preferences' && renderPreferencesInput(profile, setProfile),
       currentStep.input === 'goals' && renderGoalsInput(profile, setProfile, smartSuggestions),
 
-      // Progress
-      h('div', {
-        style: { margin: 'var(--space-xl) 0 var(--space-lg)' },
-        'aria-label': `Step ${step + 1} of ${STEPS.length}`
-      },
-        h('div', {
-          className: 'progress-dots',
-          style: { display: 'flex', justifyContent: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }
-        },
+      h(
+        'div',
+        { style: { margin: 'var(--space-xl) 0 var(--space-lg)' } },
+        h(
+          'div',
+          {
+            className: 'progress-dots',
+            style: {
+              display: 'flex',
+              justifyContent: 'center',
+              gap: 'var(--space-sm)',
+              marginBottom: 'var(--space-md)'
+            }
+          },
           STEPS.map((_, i) =>
             h('div', {
               key: i,
@@ -233,66 +229,59 @@ export default function Welcome({ onComplete }) {
                 width: '10px',
                 height: '10px',
                 borderRadius: '50%',
-                background: i <= step ? 'var(--primary)' : 'var(--border)',
-                transition: 'all 0.3s ease'
-              },
-              'aria-label': `Step ${i + 1}${i === step ? ' (current)' : i < step ? ' (complete)' : ''}`
+                background: i <= step ? 'var(--primary)' : 'var(--border)'
+              }
             })
           )
         ),
         h('div', { className: 'progress-bar' },
-          h('div', {
-            className: 'progress-fill',
-            style: { width: `${((step + 1) / STEPS.length) * 100}%` }
-          })
+          h('div', { className: 'progress-fill', style: { width: `${((step + 1) / STEPS.length) * 100}%` } })
         )
       ),
 
-      // Navigation
-      h('div', { className: 'welcome-nav', style: { display: 'flex', gap: 'var(--space-sm)' } },
-        step > 0 && step < STEPS.length - 1 && h('button', {
-          className: 'btn btn-outline',
-          onClick: handleBack,
-          'aria-label': 'Go back'
-        }, '← Back'),
+      h(
+        'div',
+        { className: 'welcome-nav', style: { display: 'flex', gap: 'var(--space-sm)' } },
+        step > 0 && step < STEPS.length - 1 &&
+          h('button', { className: 'btn btn-outline', onClick: () => setStep(step - 1) }, '← Back'),
 
-        h('button', {
-          className: 'btn btn-primary btn-lg',
-          onClick: () => {
-            if (step === STEPS.length - 1) completeOnboarding(profile, { skipped: false });
-            else handleNext();
+        h(
+          'button',
+          {
+            className: 'btn btn-primary btn-lg',
+            onClick: handleNext,
+            disabled: !canProceed,
+            style: { flex: 1 }
           },
-          disabled: !canProceed,
-          style: { flex: 1 },
-          'aria-label': step === STEPS.length - 1 ? 'Complete onboarding' : 'Continue to next step'
-        },
           step === STEPS.length - 1 ? '🎻 Start Training' : (currentStep.action || 'Next →')
         )
       ),
 
-      // Skip option
-      step === 0 && h('button', {
-        className: 'btn-text',
-        onClick: () => {
-          const quick = {
-            name: 'Student',
-            level: 'beginner',
-            goals: [],
-            preferredTime: 'flexible',
-            practiceMinutes: 20,
-            repertoire: 'suzuki1'
-          };
-          completeOnboarding(quick, { skipped: true });
-        },
-        style: { marginTop: 'var(--space-md)', fontSize: 'var(--font-size-sm)' }
-      }, 'Skip setup →')
+      step === 0 &&
+        h(
+          'button',
+          {
+            className: 'btn-text',
+            onClick: () => {
+              setProfile({
+                name: 'Student',
+                level: 'beginner',
+                goals: [],
+                preferredTime: 'flexible',
+                practiceMinutes: 20,
+                repertoire: 'suzuki1'
+              });
+              completeOnboarding(true);
+            },
+            style: { marginTop: 'var(--space-md)', fontSize: 'var(--font-size-sm)' }
+          },
+          'Skip setup →'
+        )
     )
   );
 }
 
-// ======================================
 // INPUT RENDERERS
-// ======================================
 
 function renderNameInput(profile, setProfile, canProceed, onNext) {
   return h('div', { style: { marginBottom: 'var(--space-lg)' } },
@@ -309,7 +298,6 @@ function renderNameInput(profile, setProfile, canProceed, onNext) {
       placeholder: 'Enter your name',
       autoFocus: true,
       className: 'input-large',
-      'aria-label': 'Your name',
       style: {
         width: '100%',
         maxWidth: '400px',
@@ -330,13 +318,12 @@ function renderLevelInput(profile, setProfile) {
     { id: 'advanced', label: 'Advanced', desc: 'Kreutzer, Concerti', icon: '🎻' }
   ];
 
-  return h('div', { className: 'level-selector', style: { marginBottom: 'var(--space-lg)' } },
+  return h('div', { style: { marginBottom: 'var(--space-lg)' } },
     levels.map(lvl =>
       h('button', {
         key: lvl.id,
         className: `level-card ${profile.level === lvl.id ? 'active' : ''}`,
         onClick: () => setProfile({ ...profile, level: lvl.id }),
-        'aria-pressed': profile.level === lvl.id,
         style: {
           display: 'flex',
           flexDirection: 'column',
@@ -345,9 +332,7 @@ function renderLevelInput(profile, setProfile) {
           marginBottom: 'var(--space-md)',
           border: `2px solid ${profile.level === lvl.id ? 'var(--primary)' : 'var(--border)'}`,
           borderRadius: 'var(--radius-md)',
-          background: profile.level === lvl.id ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-          cursor: 'pointer',
-          transition: 'all 0.2s ease'
+          background: profile.level === lvl.id ? 'rgba(59, 130, 246, 0.1)' : 'transparent'
         }
       },
         h('div', { style: { fontSize: '2rem', marginBottom: 'var(--space-sm)' } }, lvl.icon),
@@ -393,22 +378,8 @@ function renderPreferencesInput(profile, setProfile) {
         step: 5,
         value: profile.practiceMinutes,
         onChange: (e) => setProfile({ ...profile, practiceMinutes: parseInt(e.target.value, 10) || 20 }),
-        style: { width: '100%' },
-        'aria-label': 'Daily practice minutes'
-      }),
-      h('div', {
-        style: {
-          display: 'flex',
-          justifyContent: 'space-between',
-          fontSize: 'var(--font-size-sm)',
-          color: 'var(--ink-light)',
-          marginTop: 'var(--space-sm)'
-        }
-      },
-        h('span', null, '10 min'),
-        h('span', null, '30 min'),
-        h('span', null, '60 min')
-      )
+        style: { width: '100%' }
+      })
     )
   );
 }
@@ -428,7 +399,6 @@ function renderGoalsInput(profile, setProfile, smartSuggestions) {
   return h('div', { style: { marginBottom: 'var(--space-lg)', textAlign: 'left' } },
 
     smartSuggestions.length > 0 && h('div', {
-      className: 'smart-suggestion-banner',
       style: {
         background: 'rgba(59, 130, 246, 0.1)',
         border: '1px solid var(--primary)',
@@ -437,10 +407,7 @@ function renderGoalsInput(profile, setProfile, smartSuggestions) {
         marginBottom: 'var(--space-lg)'
       }
     },
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' } },
-        h('span', null, '💡'),
-        h('strong', null, 'Recommended for your level')
-      ),
+      h('strong', null, '💡 Recommended for your level'),
       h('div', { style: { marginTop: 'var(--space-sm)' } },
         smartSuggestions.map(goalId =>
           h('button', {
@@ -452,9 +419,7 @@ function renderGoalsInput(profile, setProfile, smartSuggestions) {
                 setProfile({ ...profile, goals: [...profile.goals, goalId] });
               }
             }
-          },
-            `+ ${allGoals.find(g => g.id === goalId)?.label || goalId}`
-          )
+          }, `+ ${allGoals.find(g => g.id === goalId)?.label || goalId}`)
         )
       )
     ),
@@ -462,7 +427,6 @@ function renderGoalsInput(profile, setProfile, smartSuggestions) {
     allGoals.map(goal =>
       h('label', {
         key: goal.id,
-        className: 'goal-checkbox',
         style: {
           display: 'flex',
           alignItems: 'center',
@@ -492,14 +456,12 @@ function renderGoalsInput(profile, setProfile, smartSuggestions) {
   );
 }
 
-// ======================================
 // HELPERS
-// ======================================
 
 function validateStep(step, profile) {
   if (step.input === 'name') return profile.name.trim().length > 0;
-  if (step.input === 'level') return !!profile.level;
-  if (step.input === 'goals') return Array.isArray(profile.goals) && profile.goals.length >= 1;
+  if (step.input === 'level') return profile.level !== '';
+  if (step.input === 'goals') return profile.goals.length >= 1;
   return true;
 }
 
@@ -513,10 +475,9 @@ function generateGoalRecommendations(level) {
 }
 
 function inferLearningStyle(profile) {
-  const goals = Array.isArray(profile.goals) ? profile.goals : [];
-  const hasAural = goals.includes('eartraining');
-  const hasTechnique = goals.includes('bieler') || goals.includes('intonation');
-  const hasTheory = goals.includes('keys') || goals.includes('sightreading');
+  const hasAural = profile.goals.includes('eartraining');
+  const hasTechnique = profile.goals.includes('bieler') || profile.goals.includes('intonation');
+  const hasTheory = profile.goals.includes('keys') || profile.goals.includes('sightreading');
 
   if (hasAural && hasTechnique) return 'kinesthetic-auditory';
   if (hasTheory && hasAural) return 'visual-auditory';
