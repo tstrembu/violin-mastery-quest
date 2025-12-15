@@ -1,49 +1,96 @@
 // js/engines/pedagogyEngine.js
 // ======================================
-// VMQ PEDAGOGY ENGINE v3.0 - ML-Enhanced
+// VMQ PEDAGOGY ENGINE v3.0.5 - Compatibility + Stability Pass
 // Progression ladders + passage analysis + predictive repertoire
+//
+// Goals:
+// ✅ Keep all intended v3.0.0 features
+// ✅ Export/alias names used by components (analyzeFeedback, getRecommendations, etc.)
+// ✅ Avoid Promise misuse (sm2GetStats may be async in spacedRepetition v2.1+)
+// ✅ Defensive for partial stats shapes
 // ======================================
 
 import { loadJSON, saveJSON, STORAGE_KEYS } from '../config/storage.js';
 import { INTERVALS, BIELER_TAXONOMY } from '../config/constants.js';
-import { analyzePerformance } from './analytics.js';
+import { analyzePerformance as _analyzePerformance } from './analytics.js';
 import { getStats as sm2GetStats } from './spacedRepetition.js';
-import { getDifficultyInfo } from './difficultyAdapter.js';
+import { getDifficultyInfo as _getDifficultyInfo } from './difficultyAdapter.js';
 import { addXP, unlockAchievement } from './gamification.js';
 import sessionTracker from './sessionTracker.js';
 
-// ======================================
-// PROGRESSION SYSTEM - Adaptive Thresholds
-// ======================================
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+const safeArray = (v) => (Array.isArray(v) ? v : []);
+const safeNumber = (n, fallback = 0) => (Number.isFinite(Number(n)) ? Number(n) : fallback);
 
 /**
- * User's current level in any module with ML-adjusted thresholds
+ * Sync-safe SRS stats derived from stored deck.
+ * Avoids calling sm2GetStats() which may be async in newer engine versions.
  */
+function getSrsStatsSync() {
+  const deckObj = loadJSON(STORAGE_KEYS.SPACED_REPETITION, {});
+  const obj = isObj(deckObj) ? deckObj : {};
+
+  const now = Date.now();
+  const GRACE_MS = Math.round(DAY_MS * 0.2);
+
+  const items = Object.values(obj).filter(it => it && it.type !== 'meta');
+  const dueToday = items.filter(it => safeNumber(it.due, Infinity) <= now + DAY_MS).length;
+  const dueNow = items.filter(it => safeNumber(it.due, Infinity) <= now + GRACE_MS).length;
+
+  const avgEF =
+    items.length > 0
+      ? items.reduce((s, it) => s + safeNumber(it.efactor, 0), 0) / items.length
+      : 0;
+
+  const retention =
+    items.length > 0
+      ? items.filter(it => {
+          const hist = it?.qualityHistory;
+          if (!Array.isArray(hist) || hist.length === 0) return false;
+          const last5 = hist.slice(-5);
+          return last5.length > 0 && last5.every(q => safeNumber(q, 0) >= 3);
+        }).length / items.length
+      : 0;
+
+  return {
+    total: items.length,
+    dueToday,
+    dueNow,
+    avgEF,
+    retention
+  };
+}
+
+// ======================================
+// PROGRESSION SYSTEM
+// ======================================
+
 export function getCurrentProgressionLevel(module) {
+  const modKey = String(module || 'intervals').toLowerCase();
   const stats = loadJSON(STORAGE_KEYS.STATS, { byModule: {} });
-  const moduleStats = stats.byModule[module] || { total: 0, correct: 0, avgResponseTime: 0, recentStreak: 0 };
+  const moduleStats = stats.byModule?.[modKey] || { total: 0, correct: 0, avgResponseTime: 0, recentStreak: 0 };
 
-  const accuracy = moduleStats.total > 0 ? Math.round((moduleStats.correct / moduleStats.total) * 100) : 0;
-  const avgTime = moduleStats.avgResponseTime || 5000;
-  const recentStreak = moduleStats.recentStreak || 0;
+  const total = safeNumber(moduleStats.total, 0);
+  const correct = safeNumber(moduleStats.correct, 0);
+  const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
 
-  // Fetch baseline ladder
-  const ladders = getProgressionLadders(module);
-  
-  // ML: Adjust rung thresholds based on recent velocity and cohort difficulty
-  const adjustedLadders = adjustLadderThresholds(ladders, moduleStats, module);
+  const avgTime = safeNumber(moduleStats.avgResponseTime, 5000);
+  const recentStreak = safeNumber(moduleStats.recentStreak, 0);
 
-  // Find highest achieved level
+  const ladders = getProgressionLadders(modKey);
+  const adjustedLadders = adjustLadderThresholds(ladders, moduleStats, modKey);
+
   for (let i = adjustedLadders.length - 1; i >= 0; i--) {
-    const level = adjustedLadders[i];
-    if (accuracy >= level.reqAccuracy && avgTime <= level.reqTime) {
-      // ML: Predict readiness for next level using retention + streak
-      const readiness = predictReadiness(moduleStats, level.nextLevelReq);
+    const lvl = adjustedLadders[i];
+    if (accuracy >= lvl.reqAccuracy && avgTime <= lvl.reqTime) {
+      const readiness = predictReadiness(moduleStats, lvl.nextLevelReq);
       return {
-        current: level.name,
+        current: lvl.name,
         progress: 100,
-        next: adjustedLadders[i-1] ? adjustedLadders[i-1].name : 'Mastered!',
-        repertoire: level.repertoire,
+        next: adjustedLadders[i - 1] ? adjustedLadders[i - 1].name : 'Mastered!',
+        repertoire: lvl.repertoire,
         unlocked: true,
         readinessScore: readiness.score,
         estimatedDaysToNext: readiness.days,
@@ -52,29 +99,27 @@ export function getCurrentProgressionLevel(module) {
     }
   }
 
-  // Find current level in progress
   for (let i = 0; i < adjustedLadders.length; i++) {
-    const level = adjustedLadders[i];
-    if (accuracy < level.reqAccuracy || avgTime > level.reqTime) {
-      const accProgress = Math.min(100, (accuracy / level.reqAccuracy) * 100);
-      const timeProgress = Math.min(100, (level.reqTime / avgTime) * 100);
+    const lvl = adjustedLadders[i];
+    if (accuracy < lvl.reqAccuracy || avgTime > lvl.reqTime) {
+      const accProgress = Math.min(100, (accuracy / Math.max(1, lvl.reqAccuracy)) * 100);
+      const timeProgress = Math.min(100, (lvl.reqTime / Math.max(1, avgTime)) * 100);
       const overall = Math.round((accProgress + timeProgress) / 2);
 
-      // ML: Detect plateau and suggest intervention
-      const plateau = detectPlateau(moduleStats, level, overall);
-      
+      const plateau = detectPlateau(moduleStats, lvl, overall);
+
       return {
-        current: level.name,
+        current: lvl.name,
         progress: overall,
-        next: adjustedLadders[i+1]?.name || 'Mastered!',
-        repertoire: level.repertoire,
+        next: adjustedLadders[i + 1]?.name || 'Mastered!',
+        repertoire: lvl.repertoire,
         gaps: {
-          accuracyGap: level.reqAccuracy - accuracy,
-          timeGap: avgTime - level.reqTime
+          accuracyGap: lvl.reqAccuracy - accuracy,
+          timeGap: avgTime - lvl.reqTime
         },
         plateauDetected: plateau.isPlateau,
         intervention: plateau.intervention,
-        streakBoost: recentStreak > 5 ? 1.1 : 1.0 // 10% boost for streaks
+        streakBoost: recentStreak > 5 ? 1.1 : 1.0
       };
     }
   }
@@ -82,11 +127,8 @@ export function getCurrentProgressionLevel(module) {
   return { current: 'Beginner', progress: 0, next: adjustedLadders[0]?.name || 'Intervals', repertoire: [] };
 }
 
-/**
- * Module progression ladders with ML-cohort adjustments
- */
 function getProgressionLadders(module) {
-  const baseLadders = {
+  const base = {
     intervals: [
       { name: 'Perfect Intervals', reqAccuracy: 90, reqTime: 2000, repertoire: ['Bach A-minor Concerto'], nextLevelReq: { accuracy: 95, time: 1500 } },
       { name: 'Major/Minor', reqAccuracy: 85, reqTime: 2500, repertoire: ['Suzuki Bk1'], nextLevelReq: { accuracy: 90, time: 2000 } },
@@ -106,29 +148,28 @@ function getProgressionLadders(module) {
       { name: 'Left Hand Basics', reqAccuracy: 90, reqTime: 3000, repertoire: ['Suzuki Bk1'], nextLevelReq: { accuracy: 95, time: 2500 } },
       { name: 'Bow Functions', reqAccuracy: 85, reqTime: 3500, repertoire: ['Kreutzer'], nextLevelReq: { accuracy: 90, time: 3000 } },
       { name: 'Advanced', reqAccuracy: 80, reqTime: 4000, repertoire: ['Ysaye Sonatas'], nextLevelReq: { accuracy: 85, time: 3500 } }
+    ],
+    fingerboard: [
+      { name: '1st Position Mapping', reqAccuracy: 85, reqTime: 3000, repertoire: ['Suzuki Bk2'], nextLevelReq: { accuracy: 90, time: 2500 } },
+      { name: '2nd/3rd Position', reqAccuracy: 80, reqTime: 3500, repertoire: ['Accolay Concerto'], nextLevelReq: { accuracy: 85, time: 3000 } },
+      { name: 'Full Neck Fluency', reqAccuracy: 75, reqTime: 4000, repertoire: ['Bruch Concerto'], nextLevelReq: { accuracy: 80, time: 3500 } }
     ]
   };
 
-  return baseLadders[module] || baseLadders.intervals;
+  return base[module] || base.intervals;
 }
 
-/**
- * ML: Adjust ladder thresholds based on performance velocity and cohort data
- */
 function adjustLadderThresholds(ladders, moduleStats, module) {
-  if (!moduleStats || moduleStats.total < 30) return ladders;
+  if (!moduleStats || safeNumber(moduleStats.total, 0) < 30) return ladders;
 
   const recentAccuracyTrend = getRecentTrend(moduleStats, 'accuracy', 10);
   const recentTimeTrend = getRecentTrend(moduleStats, 'time', 10);
   const velocity = calculateLearningVelocity(recentAccuracyTrend, recentTimeTrend);
 
-  return ladders.map((rung, idx) => {
-    // Adjust thresholds based on velocity: faster learners get slightly harder goals
+  return ladders.map((rung) => {
     const difficultyMultiplier = velocity > 1.2 ? 0.95 : velocity < 0.8 ? 1.05 : 1.0;
-    
-    // Cross-module transfer bonus: if related modules are strong, ease requirements
     const transferBonus = getCrossModuleTransferBonus(module);
-    
+
     return {
       ...rung,
       reqAccuracy: Math.min(98, Math.round(rung.reqAccuracy * difficultyMultiplier * transferBonus)),
@@ -140,45 +181,36 @@ function adjustLadderThresholds(ladders, moduleStats, module) {
   });
 }
 
-/**
- * ML: Predict readiness for next level using retention + streak
- */
 function predictReadiness(moduleStats, nextLevelReq) {
-  const sm2Stats = sm2GetStats();
-  const retention = sm2Stats?.retention || 0;
+  const srs = getSrsStatsSync();
+  const retentionPct = safeNumber(srs.retention, 0) * 100; // srs.retention is 0..1
   const recentAccuracy = getRecentAverage(moduleStats, 'accuracy', 5);
-  
-  // Simple linear model: 70% retention + 30% recent accuracy predicts readiness
-  const readinessScore = (retention * 0.7) + (recentAccuracy * 0.3);
-  const requiredScore = (nextLevelReq.accuracy * 0.7) + 10; // 10 point buffer
-  
+
+  const readinessScore = (retentionPct * 0.7) + (recentAccuracy * 0.3);
+  const requiredScore = (safeNumber(nextLevelReq?.accuracy, 90) * 0.7) + 10;
+
   const daysToReady = readinessScore >= requiredScore ? 0 : Math.ceil((requiredScore - readinessScore) / 5);
-  
+
   return {
     score: Math.min(100, readinessScore),
     days: daysToReady,
-    confidence: moduleStats.total > 50 ? 'high' : 'medium'
+    confidence: safeNumber(moduleStats.total, 0) > 50 ? 'high' : 'medium'
   };
 }
 
-/**
- * ML: Detect plateau and suggest intervention
- */
-function detectPlateau(moduleStats, currentLevel, progress) {
-  if (!moduleStats || moduleStats.total < 20) {
-    return { isPlateau: false };
-  }
+function detectPlateau(moduleStats, _currentLevel, progress) {
+  if (!moduleStats || safeNumber(moduleStats.total, 0) < 20) return { isPlateau: false };
 
   const recentTrend = getRecentTrend(moduleStats, 'accuracy', 7);
-  const isPlateau = recentTrend < 0.05 && progress < 60; // <5% improvement and <60% progress
-  
+  const isPlateau = recentTrend < 0.05 && safeNumber(progress, 0) < 60;
+
   const interventions = [
     'Review fundamentals with SM-2 flashcards',
     'Try different practice modes (ear training, fingerboard)',
     'Lower difficulty temporarily to rebuild confidence',
     'Focus on one technique at a time'
   ];
-  
+
   return {
     isPlateau,
     intervention: isPlateau ? interventions[Math.floor(Math.random() * interventions.length)] : null,
@@ -187,40 +219,30 @@ function detectPlateau(moduleStats, currentLevel, progress) {
 }
 
 // ======================================
-// REPERTOIRE MAPPING - ML-Enhanced
+// REPERTOIRE MAPPING
 // ======================================
 
-/**
- * Real music examples for intervals with ML difficulty prediction
- */
 export function getRepertoireForInterval(intervalId) {
-  const interval = INTERVALS.find(i => i.id === intervalId);
+  const interval = safeArray(INTERVALS).find(i => i?.id === intervalId);
   if (!interval) return null;
-  
-  // ML: Predict difficulty based on user history with this interval
+
   const stats = loadJSON(STORAGE_KEYS.STATS, { byModule: {} });
   const intervalStats = stats.byModule?.intervals?.byInterval?.[intervalId] || {};
-  const userAccuracy = intervalStats.accuracy || 50;
-  const attempts = intervalStats.attempts || 0;
-  
-  // Adjust repertoire suggestions based on performance
+  const userAccuracy = safeNumber(intervalStats.accuracy, 50);
+  const attempts = safeNumber(intervalStats.attempts, 0);
+
   const isMastered = userAccuracy > 85 && attempts > 10;
   const isStruggling = userAccuracy < 60 && attempts > 5;
-  
-  let recommendedPieces = interval.repertoire || [];
-  if (isStruggling) {
-    // Suggest easier pieces
-    recommendedPieces = interval.etudes?.slice(0, 2) || recommendedPieces;
-  } else if (isMastered) {
-    // Suggest challenging performance pieces
-    recommendedPieces = (interval.performancePieces || interval.repertoire || []).slice(0, 3);
-  }
-  
+
+  let recommendedPieces = safeArray(interval.repertoire);
+  if (isStruggling) recommendedPieces = safeArray(interval.etudes).slice(0, 2).length ? safeArray(interval.etudes).slice(0, 2) : recommendedPieces;
+  else if (isMastered) recommendedPieces = safeArray(interval.performancePieces || interval.repertoire).slice(0, 3);
+
   return {
     interval: interval.name,
     semitones: interval.semitones,
     examples: recommendedPieces,
-    etudes: interval.etudes || [],
+    etudes: safeArray(interval.etudes),
     suzuki: interval.suzukiLevel || 'N/A',
     bielerNote: interval.bielerNote || 'Core interval for hand frame',
     userAccuracy,
@@ -230,14 +252,9 @@ export function getRepertoireForInterval(intervalId) {
   };
 }
 
-/**
- * ML: Predict if a piece is appropriate for current skill level
- */
-function predictPieceDifficulty(intervalId, accuracy, attempts) {
-  // Simple logistic regression approximation
+function predictPieceDifficulty(_intervalId, accuracy, attempts) {
   const logOdds = (accuracy / 100) * 2 + (attempts / 20) - 1.5;
   const probability = 1 / (1 + Math.exp(-logOdds));
-  
   return {
     successProbability: Math.round(probability * 100),
     recommendation: probability > 0.7 ? 'recommended' : probability > 0.4 ? 'challenging' : 'too-difficult',
@@ -246,12 +263,9 @@ function predictPieceDifficulty(intervalId, accuracy, attempts) {
 }
 
 // ======================================
-// PASSAGE ANALYSIS - ML-Enhanced
+// PASSAGE ANALYSIS
 // ======================================
 
-/**
- * Analyze sheet music passage → recommended drills with ML context
- */
 export function analyzePassage(passageText = '') {
   const analysis = {
     intervals: [],
@@ -261,17 +275,18 @@ export function analyzePassage(passageText = '') {
     confidence: 0.7,
     mlEnriched: true
   };
-  
-  const text = passageText.toLowerCase();
-  
-  // Enhanced interval detection with context
-  INTERVALS.forEach(int => {
-    const hasInterval = text.includes(int.name.toLowerCase()) || text.includes(int.abbr.toLowerCase());
+
+  const text = String(passageText || '').toLowerCase();
+
+  safeArray(INTERVALS).forEach(int => {
+    const name = String(int?.name || '').toLowerCase();
+    const abbr = String(int?.abbr || '').toLowerCase();
+    const hasInterval = (name && text.includes(name)) || (abbr && text.includes(abbr));
+
     if (hasInterval) {
-      // ML: Check if this interval is weak for the user
       const intervalStats = getUserIntervalStats(int.id);
-      const isWeakArea = intervalStats.accuracy < 70 && intervalStats.attempts > 5;
-      
+      const isWeakArea = safeNumber(intervalStats.accuracy, 0) < 70 && safeNumber(intervalStats.attempts, 0) > 5;
+
       analysis.intervals.push({
         name: int.name,
         drill: 'intervals',
@@ -282,51 +297,54 @@ export function analyzePassage(passageText = '') {
       });
     }
   });
-  
-  // Enhanced technique detection with Bieler taxonomy
-  Object.entries(BIELER_TAXONOMY.leftHand || {}).forEach(([key, func]) => {
-    const hasTechnique = text.includes(func.name.toLowerCase());
-    if (hasTechnique) {
-      // ML: Check technique mastery
+
+  const leftHand = isObj(BIELER_TAXONOMY?.leftHand) ? BIELER_TAXONOMY.leftHand : {};
+  Object.entries(leftHand).forEach(([key, func]) => {
+    const fname = String(func?.name || '').toLowerCase();
+    if (fname && text.includes(fname)) {
       const techStats = getUserTechniqueStats(key);
-      const needsWork = techStats.seen > 0 && techStats.accuracy < 75;
-      
+      const needsWork = safeNumber(techStats.seen, 0) > 0 && safeNumber(techStats.accuracy, 0) < 75;
+
       analysis.techniques.push({
         name: func.name,
         drill: 'bieler',
         module: '#bieler',
-        exercises: func.exercises.slice(0, needsWork ? 3 : 2),
+        exercises: safeArray(func.exercises).slice(0, needsWork ? 3 : 2),
         priority: needsWork ? 'high' : 'medium',
-        mastery: techStats.accuracy
+        mastery: safeNumber(techStats.accuracy, 0)
       });
     }
   });
-  
-  // ML: Semantic pattern detection
+
   const semanticPatterns = detectSemanticPatterns(text);
-  semanticPatterns.forEach(pattern => {
+  semanticPatterns.forEach(p => {
     analysis.drills.push({
-      module: pattern.module,
-      reason: pattern.reason,
-      route: pattern.route,
-      mlConfidence: pattern.confidence
+      module: p.module,
+      reason: p.reason,
+      route: p.route,
+      mlConfidence: p.confidence
     });
   });
-  
-  // ML: Difficulty estimation using ensemble approach
+
   analysis.difficulty = estimateDifficulty(text, analysis.intervals, analysis.techniques);
   analysis.confidence = calculateAnalysisConfidence(analysis);
-  
+
   return analysis;
 }
 
-/**
- * ML: Detect semantic patterns in passage text
- */
+// ---- Compatibility alias: some components import analyzeFeedback()
+export function analyzeFeedback(input = '') {
+  // If a component passes a structured object, try to do the “right thing”.
+  if (input && typeof input === 'object') {
+    const maybeText = input.passageText || input.text || input.notes || '';
+    return analyzePassage(String(maybeText));
+  }
+  return analyzePassage(String(input || ''));
+}
+
 function detectSemanticPatterns(text) {
   const patterns = [];
-  
-  // Pattern 1: Position work
+
   if (/3rd|5th|7th|position|shift/i.test(text)) {
     patterns.push({
       module: 'keys',
@@ -335,8 +353,7 @@ function detectSemanticPatterns(text) {
       confidence: 0.8
     });
   }
-  
-  // Pattern 2: Complex rhythms
+
   if (/triplet|duplet|syncopation|polyrhythm/i.test(text)) {
     patterns.push({
       module: 'rhythm',
@@ -345,8 +362,7 @@ function detectSemanticPatterns(text) {
       confidence: 0.75
     });
   }
-  
-  // Pattern 3: Expressive markings
+
   if (/dolce|martelé|sul ponticello|sul tasto/i.test(text)) {
     patterns.push({
       module: 'bieler',
@@ -355,45 +371,43 @@ function detectSemanticPatterns(text) {
       confidence: 0.7
     });
   }
-  
+
   return patterns;
 }
 
-/**
- * ML: Estimate difficulty using multiple signals
- */
 function estimateDifficulty(text, intervals, techniques) {
   const signals = {
-    intervalComplexity: intervals.filter(i => i.name.includes('7th') || i.name.includes('dim') || i.name.includes('aug')).length * 0.3,
-    techniqueComplexity: techniques.length * 0.25,
-    positionChanges: (text.match(/position|shift/g) || []).length * 0.2,
-    rhythmicComplexity: (text.match(/triplet|syncopation|irregular/g) || []).length * 0.25
+    intervalComplexity: safeArray(intervals).filter(i =>
+      String(i?.name || '').includes('7th') || String(i?.name || '').includes('dim') || String(i?.name || '').includes('aug')
+    ).length * 0.3,
+    techniqueComplexity: safeArray(techniques).length * 0.25,
+    positionChanges: (String(text).match(/position|shift/g) || []).length * 0.2,
+    rhythmicComplexity: (String(text).match(/triplet|syncopation|irregular/g) || []).length * 0.25
   };
-  
-  const score = Object.values(signals).reduce((sum, val) => sum + val, 0);
-  
+
+  const score = Object.values(signals).reduce((sum, val) => sum + safeNumber(val, 0), 0);
+
   if (score > 1.5) return 'advanced';
   if (score > 0.8) return 'intermediate';
   return 'beginner';
 }
 
-/**
- * ML: Calculate confidence in analysis
- */
 function calculateAnalysisConfidence(analysis) {
-  const intervalConfidence = analysis.intervals.reduce((sum, i) => sum + (i.confidence || 0.7), 0) / Math.max(1, analysis.intervals.length);
-  const patternConfidence = analysis.drills.reduce((sum, d) => sum + (d.mlConfidence || 0.5), 0) / Math.max(1, analysis.drills.length);
-  
+  const intervalConfidence =
+    safeArray(analysis?.intervals).reduce((sum, i) => sum + safeNumber(i?.confidence, 0.7), 0) /
+    Math.max(1, safeArray(analysis?.intervals).length);
+
+  const patternConfidence =
+    safeArray(analysis?.drills).reduce((sum, d) => sum + safeNumber(d?.mlConfidence, 0.5), 0) /
+    Math.max(1, safeArray(analysis?.drills).length);
+
   return Math.min(0.95, (intervalConfidence + patternConfidence) / 2);
 }
 
 // ======================================
-// REPERTOIRE WORKSHOP - ML-Powered
+// WORKSHOP / ROADMAP
 // ======================================
 
-/**
- * Drill sequence for specific piece challenge with ML personalization
- */
 export function generateRepertoireWorkshop(piece, measure, challenge, userLevel = 'intermediate') {
   const baseWorkshops = {
     intonation: [
@@ -413,365 +427,435 @@ export function generateRepertoireWorkshop(piece, measure, challenge, userLevel 
       { module: 'bieler', duration: 4, goal: 'Second Trained Function' }
     ]
   };
-  
-  const sequence = baseWorkshops[challenge.toLowerCase()] || baseWorkshops.bow;
-  
-  // ML: Adjust durations based on user level and previous practice efficiency
-  const adjustedSequence = sequence.map(drill => {
+
+  const seq = baseWorkshops[String(challenge || '').toLowerCase()] || baseWorkshops.bow;
+
+  const adjusted = seq.map(drill => {
     const efficiency = getPracticeEfficiency(drill.module);
     const levelMultiplier = userLevel === 'beginner' ? 1.5 : userLevel === 'advanced' ? 0.8 : 1.0;
-    
+
     return {
       ...drill,
-      duration: Math.max(2, Math.round(drill.duration * levelMultiplier / efficiency)),
+      duration: Math.max(2, Math.round(safeNumber(drill.duration, 5) * levelMultiplier / Math.max(0.25, efficiency))),
       route: `#${drill.module}`,
       mlOptimized: true
     };
   });
-  
+
+  const prepTime = adjusted.reduce((sum, s) => sum + safeNumber(s?.duration, 0), 0);
+
   return {
     piece,
     measure,
     challenge,
-    prepTime: adjustedSequence.reduce((sum, s) => sum + s.duration, 0),
-    drills: adjustedSequence,
-    estimatedSessions: Math.ceil(adjustedSequence.reduce((sum, s) => sum + s.duration, 0) / 15), // 15 min sessions
-    successProbability: predictWorkshopSuccess(adjustedSequence, userLevel)
+    prepTime,
+    drills: adjusted,
+    estimatedSessions: Math.ceil(prepTime / 15),
+    successProbability: predictWorkshopSuccess(adjusted, userLevel)
   };
 }
 
-/**
- * ML: Predict workshop success probability
- */
 function predictWorkshopSuccess(sequence, userLevel) {
-  const moduleStats = sequence.map(d => {
-    const stats = getModuleStats(d.module);
+  const moduleStats = safeArray(sequence).map(d => {
+    const st = getModuleStats(d.module);
     return {
       module: d.module,
-      userAccuracy: stats.accuracy || 50,
-      attempts: stats.attempts || 0,
-      confidence: Math.min(1, (stats.attempts || 0) / 20)
+      userAccuracy: safeNumber(st.accuracy, 50),
+      attempts: safeNumber(st.attempts, 0),
+      confidence: Math.min(1, safeNumber(st.attempts, 0) / 20)
     };
   });
-  
-  const weightedScore = moduleStats.reduce((sum, m) => {
-    return sum + (m.userAccuracy * m.confidence);
-  }, 0) / moduleStats.length;
-  
+
+  const weightedScore =
+    moduleStats.reduce((sum, m) => sum + (m.userAccuracy * m.confidence), 0) / Math.max(1, moduleStats.length);
+
   const levelMultiplier = { beginner: 0.8, intermediate: 1.0, advanced: 1.2 };
-  
-  return Math.min(0.95, (weightedScore / 100) * levelMultiplier[userLevel]);
+
+  return Math.min(0.95, (weightedScore / 100) * (levelMultiplier[userLevel] || 1.0));
 }
 
-// ======================================
-// ROADMAP & PROGRESS - ML-Enhanced
-// ======================================
-
-/**
- * Visual progress roadmap for module with ML predictions
- */
 export function getProgressRoadmap(module) {
-  const current = getCurrentProgressionLevel(module);
-  const ladders = getProgressionLadders(module);
-  
-  // ML: Add predictions for each future level
-  const roadmap = ladders.map((level, i) => {
-    const isComplete = i < ladders.findIndex(l => l.name === current.current);
-    const isCurrent = level.name === current.current;
-    
+  const modKey = String(module || 'intervals').toLowerCase();
+  const current = getCurrentProgressionLevel(modKey);
+  const ladders = getProgressionLadders(modKey);
+
+  const idxCurrent = ladders.findIndex(l => l.name === current.current);
+
+  const roadmap = ladders.map((lvl, i) => {
+    const isComplete = idxCurrent >= 0 ? i < idxCurrent : false;
+    const isCurrent = lvl.name === current.current;
+
     let prediction = null;
-    if (!isComplete && !isCurrent) {
-      prediction = predictLevelTimeline(module, level, i);
-    }
-    
+    if (!isComplete && !isCurrent) prediction = predictLevelTimeline(modKey, lvl, i);
+
     return {
-      name: level.name,
+      name: lvl.name,
       complete: isComplete,
       current: isCurrent,
-      req: `${level.reqAccuracy}% @ ${level.reqTime}ms`,
-      repertoire: level.repertoire.slice(0, 2).join(', '),
+      req: `${lvl.reqAccuracy}% @ ${lvl.reqTime}ms`,
+      repertoire: safeArray(lvl.repertoire).slice(0, 2).join(', '),
       mlPrediction: prediction
     };
   });
-  
+
   return {
     currentLevel: current.current,
     progressPercent: current.progress,
     roadmap,
-    crossModuleSynergies: detectCrossModuleSynergies(module), // ML addition
-    recommendedFocus: getRecommendedFocusAreas(module) // ML addition
+    crossModuleSynergies: detectCrossModuleSynergies(modKey),
+    recommendedFocus: getRecommendedFocusAreas(modKey)
   };
 }
 
-/**
- * ML: Predict timeline to complete a level
- */
-function predictLevelTimeline(module, targetLevel, levelIndex) {
+function predictLevelTimeline(module, targetLevel) {
   const currentStats = getModuleStats(module);
   const velocity = calculateLearningVelocity(
     getRecentTrend(currentStats, 'accuracy', 10),
     getRecentTrend(currentStats, 'time', 10)
   );
-  
-  const gap = targetLevel.reqAccuracy - (currentStats.accuracy || 0);
+
+  const gap = safeNumber(targetLevel.reqAccuracy, 0) - safeNumber(currentStats.accuracy, 0);
   const sessionsNeeded = Math.max(1, Math.ceil(gap / Math.max(0.5, velocity * 5)));
-  
+
   return {
     estimatedSessions: sessionsNeeded,
-    estimatedDays: Math.ceil(sessionsNeeded / 2), // Assume 2 sessions/day
-    confidence: currentStats.total > 50 ? 'high' : currentStats.total > 20 ? 'medium' : 'low',
+    estimatedDays: Math.ceil(sessionsNeeded / 2),
+    confidence: safeNumber(currentStats.total, 0) > 50 ? 'high' : safeNumber(currentStats.total, 0) > 20 ? 'medium' : 'low',
     ifContinueCurrentTrend: velocity > 1.0 ? 'on-track' : velocity < 0.5 ? 'falling-behind' : 'steady'
   };
 }
 
-/**
- * ML: Detect cross-module skill transfer opportunities
- */
 function detectCrossModuleSynergies(module) {
-  const modules = ['intervals', 'keys', 'bieler', 'rhythm'];
+  const modules = ['intervals', 'keys', 'bieler', 'rhythm', 'fingerboard'];
   const synergies = [];
-  
-  modules.forEach(otherModule => {
-    if (otherModule === module) return;
-    
-    const otherStats = getModuleStats(otherModule);
+
+  modules.forEach(other => {
+    if (other === module) return;
+
+    const otherStats = getModuleStats(other);
     const thisStats = getModuleStats(module);
-    
-    // If other module is strong and this is weak, suggest transfer
-    if (otherStats.accuracy > 80 && thisStats.accuracy < 70 && otherStats.attempts > 20) {
+
+    if (safeNumber(otherStats.accuracy, 0) > 80 && safeNumber(thisStats.accuracy, 0) < 70 && safeNumber(otherStats.attempts, 0) > 20) {
       synergies.push({
-        from: otherModule,
+        from: other,
         to: module,
         effect: 'positive-transfer',
-        strength: Math.min(0.3, (otherStats.accuracy - thisStats.accuracy) / 100),
-        recommendedDrill: `Practice ${otherModule} concepts that apply to ${module}`
+        strength: Math.min(0.3, (safeNumber(otherStats.accuracy, 0) - safeNumber(thisStats.accuracy, 0)) / 100),
+        recommendedDrill: `Practice ${other} concepts that apply to ${module}`
       });
     }
   });
-  
+
   return synergies;
 }
 
-/**
- * ML: Get recommended focus areas based on weaknesses
- */
 function getRecommendedFocusAreas(module) {
   const stats = getModuleStats(module);
-  const sm2Stats = sm2GetStats();
-  const dueItems = sm2Stats?.dueToday || 0;
-  
+  const srs = getSrsStatsSync();
+
   const focusAreas = [];
-  
-  if (stats.accuracy < 60) {
+
+  if (safeNumber(stats.accuracy, 0) < 60) {
     focusAreas.push({ area: 'fundamentals', priority: 'high', reason: 'Low accuracy indicates gaps' });
   }
-  
-  if (dueItems > 5) {
-    focusAreas.push({ area: 'spaced-repetition', priority: 'high', reason: `${dueItems} items due for review` });
+
+  if (safeNumber(srs.dueToday, 0) > 5) {
+    focusAreas.push({ area: 'spaced-repetition', priority: 'high', reason: `${srs.dueToday} items due for review` });
   }
-  
-  if (stats.avgTime > 3000) {
+
+  if (safeNumber(stats.avgTime, 0) > 3000) {
     focusAreas.push({ area: 'speed', priority: 'medium', reason: 'Slow response times' });
   }
-  
+
   return focusAreas;
 }
 
 // ======================================
-// PROGRESS TRACKING - ML-Enhanced
+// MILESTONES
 // ======================================
 
-/**
- * Log repertoire milestone with ML insights
- */
 export function logRepertoireMilestone(piece, measure, module) {
-  const milestones = loadJSON(STORAGE_KEYS.MILESTONES, []);
-  
-  // ML: Check if this is a breakthrough performance
-  const isBreakthrough = detectBreakthroughPerformance(module, piece);
-  
+  const modKey = String(module || 'intervals').toLowerCase();
+  const milestones = safeArray(loadJSON(STORAGE_KEYS.MILESTONES, []));
+
+  const isBreakthrough = detectBreakthroughPerformance(modKey, piece);
+
   const milestone = {
     piece,
     measure,
-    module,
+    module: modKey,
     date: new Date().toISOString(),
-    level: getCurrentProgressionLevel(module).current,
+    level: getCurrentProgressionLevel(modKey).current,
     isBreakthrough,
     mlInsights: {
-      retentionPredicted: predictRetentionForPiece(module, piece),
-      skillTransferDetected: detectCrossModuleSynergies(module).length > 0,
-      difficultyAlignment: getDifficultyAlignment(module, piece)
+      retentionPredicted: predictRetentionForPiece(modKey, piece),
+      skillTransferDetected: detectCrossModuleSynergies(modKey).length > 0,
+      difficultyAlignment: getDifficultyAlignment(modKey, piece)
     }
   };
-  
+
   milestones.push(milestone);
-  
-  // ML: Trigger gamification for breakthroughs
+
   if (isBreakthrough) {
-    addXP(100, 'breakthrough-performance');
-    unlockAchievement('repertoire-breakthrough', { piece, module });
+    try { addXP(100, 'breakthrough-performance'); } catch { /* ignore */ }
+    try { unlockAchievement('repertoire-breakthrough', { piece, module: modKey }); } catch { /* ignore */ }
   }
-  
+
   saveJSON(STORAGE_KEYS.MILESTONES, milestones.slice(-50));
-  
-  // ML: Log to analytics
-  if (sessionTracker?.trackActivity) {
-    sessionTracker.trackActivity('pedagogy', 'milestone', {
-      piece,
-      module,
-      isBreakthrough,
-      readiness: milestone.mlInsights.retentionPredicted
-    });
+
+  try {
+    if (sessionTracker?.trackActivity) {
+      sessionTracker.trackActivity('pedagogy', 'milestone', {
+        piece,
+        module: modKey,
+        isBreakthrough,
+        readiness: milestone.mlInsights.retentionPredicted
+      });
+    }
+  } catch {
+    // ignore
   }
-  
+
   return milestones;
 }
 
-/**
- * ML: Detect if performance represents a breakthrough
- */
-function detectBreakthroughPerformance(module, piece) {
+function detectBreakthroughPerformance(module, _piece) {
   const stats = getModuleStats(module);
   const recentImprovement = getRecentImprovementRate(stats, 5);
-  
-  // Breakthrough if rapid improvement AND above-average performance
-  return recentImprovement > 15 && stats.accuracy > 75;
+  return recentImprovement > 15 && safeNumber(stats.accuracy, 0) > 75;
 }
 
-/**
- * ML: Predict retention for a specific piece
- */
-function predictRetentionForPiece(module, piece) {
-  const sm2Stats = sm2GetStats();
-  const baseRetention = sm2Stats?.retention || 70;
-  
-  // Adjust based on piece difficulty and user performance
+function predictRetentionForPiece(_module, piece) {
+  const srs = getSrsStatsSync();
+  const baseRetention = safeNumber(srs.retention, 0) * 100; // 0..100
+
   const difficultyFactor = getPieceDifficulty(piece) * 0.1;
-  const performanceFactor = getModuleStats(module).accuracy / 100;
-  
+  const performanceFactor = safeNumber(getModuleStats(_module).accuracy, 0) / 100;
+
   return Math.min(95, baseRetention + (difficultyFactor * performanceFactor * 10));
 }
 
 // ======================================
-// QUICK EXPORTS & UTILITY
+// EXTRA COMPATIBILITY EXPORTS
 // ======================================
 
-export function getQuickRepertoire(module) {
-  const ladders = getProgressionLadders(module);
-  const currentLevel = getCurrentProgressionLevel(module);
-  
-  // ML: Filter to appropriate difficulty level
-  const appropriateRepertoire = ladders
-    .filter((_, i) => i <= ladders.findIndex(l => l.name === currentLevel.current) + 1)
-    .flatMap(level => level.repertoire)
-    .slice(0, 5);
-  
-  return appropriateRepertoire;
+/**
+ * Some components want a single "pedagogy insights" object.
+ */
+export function getPedagogyInsights(module = 'intervals') {
+  const modKey = String(module || 'intervals').toLowerCase();
+  const current = getCurrentProgressionLevel(modKey);
+  const roadmap = getProgressRoadmap(modKey);
+  const srs = getSrsStatsSync();
+
+  return {
+    module: modKey,
+    current,
+    roadmap,
+    srs
+  };
 }
 
 /**
- * Utility: Get recent trend for a metric
+ * Some components import analyzeFingerboardPerformance().
+ * We provide a stable implementation based on STATS.
  */
+export function analyzeFingerboardPerformance() {
+  const stats = loadJSON(STORAGE_KEYS.STATS, { byModule: {} });
+  const fb = stats.byModule?.fingerboard || {};
+  const total = safeNumber(fb.total, 0);
+  const correct = safeNumber(fb.correct, 0);
+  const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+  // Optional nested breakdowns if you store them later:
+  const byString = isObj(fb.byString) ? fb.byString : {};
+  const byPosition = isObj(fb.byPosition) ? fb.byPosition : {};
+
+  const weakestStrings = Object.entries(byString)
+    .map(([k, v]) => ({ key: k, accuracy: safeNumber(v?.accuracy ?? v, 0) }))
+    .sort((a, b) => a.accuracy - b.accuracy)
+    .slice(0, 2);
+
+  const weakestPositions = Object.entries(byPosition)
+    .map(([k, v]) => ({ key: k, accuracy: safeNumber(v?.accuracy ?? v, 0) }))
+    .sort((a, b) => a.accuracy - b.accuracy)
+    .slice(0, 2);
+
+  return {
+    module: 'fingerboard',
+    accuracy,
+    attempts: total,
+    avgTime: safeNumber(fb.avgResponseTime ?? fb.avgTime, 0),
+    weakestStrings,
+    weakestPositions,
+    recommendation:
+      accuracy < 65
+        ? 'Return to 1st-position mapping drills; slow down and name notes aloud.'
+        : accuracy < 80
+        ? 'Add mixed-string quizzes and position checks.'
+        : 'Maintain with quick daily review and repertoire mapping.'
+  };
+}
+
+/**
+ * Some components import getRecommendations() from pedagogyEngine.
+ * Provide pedagogy-flavored recommendations (module focus + SRS + difficulty adapter).
+ */
+export function getRecommendations(module = 'intervals') {
+  const modKey = String(module || 'intervals').toLowerCase();
+  const stats = getModuleStats(modKey);
+  const srs = getSrsStatsSync();
+
+  const difficultyInfo = (() => {
+    try {
+      if (typeof _getDifficultyInfo === 'function') return _getDifficultyInfo(modKey);
+    } catch { /* ignore */ }
+    return null;
+  })();
+
+  const recs = [];
+
+  if (safeNumber(stats.accuracy, 0) < 70) {
+    recs.push({ type: 'focus', priority: 1, module: modKey, message: 'Accuracy is low—practice fundamentals at lower difficulty.' });
+  }
+
+  if (safeNumber(srs.dueToday, 0) > 5) {
+    recs.push({ type: 'srs', priority: 2, module: 'flashcards', message: `${srs.dueToday} items due—do a spaced repetition review.` });
+  }
+
+  if (difficultyInfo?.recommendedDifficulty) {
+    recs.push({ type: 'difficulty', priority: 3, module: modKey, message: `Suggested difficulty: ${difficultyInfo.recommendedDifficulty}` });
+  }
+
+  // Fingerboard bonus suggestion
+  if (modKey !== 'fingerboard' && safeNumber(getModuleStats('fingerboard').accuracy, 0) < 70) {
+    recs.push({ type: 'transfer', priority: 4, module: 'fingerboard', message: 'Fingerboard mapping is a bottleneck—add 5 minutes of note-location drills.' });
+  }
+
+  return recs.sort((a, b) => a.priority - b.priority).slice(0, 5);
+}
+
+// ======================================
+// Utilities
+// ======================================
+
 function getRecentTrend(stats, metric, window) {
-  const recent = (stats.recentHistory || []).slice(-window);
+  const recent = safeArray(stats?.recentHistory).slice(-window);
   if (recent.length < 2) return 0;
-  
-  const first = recent[0]?.[metric] || 0;
-  const last = recent[recent.length - 1]?.[metric] || 0;
-  
+
+  const first = safeNumber(recent[0]?.[metric], 0);
+  const last = safeNumber(recent[recent.length - 1]?.[metric], 0);
+
   return (last - first) / Math.max(1, recent.length - 1);
 }
 
-/**
- * Utility: Get recent average for a metric
- */
 function getRecentAverage(stats, metric, window) {
-  const recent = (stats.recentHistory || []).slice(-window);
+  const recent = safeArray(stats?.recentHistory).slice(-window);
   if (!recent.length) return 0;
-  
-  const sum = recent.reduce((acc, item) => acc + (item?.[metric] || 0), 0);
+  const sum = recent.reduce((acc, item) => acc + safeNumber(item?.[metric], 0), 0);
   return sum / recent.length;
 }
 
-/**
- * Utility: Calculate learning velocity
- */
 function calculateLearningVelocity(accuracyTrend, timeTrend) {
-  // Normalize trends: positive accuracy + negative time = good velocity
-  const normalizedAccuracy = Math.max(0, Math.min(2, accuracyTrend + 1));
-  const normalizedTime = Math.max(0, Math.min(2, 1 - (timeTrend / 1000)));
-  
+  const normalizedAccuracy = Math.max(0, Math.min(2, safeNumber(accuracyTrend, 0) + 1));
+  const normalizedTime = Math.max(0, Math.min(2, 1 - (safeNumber(timeTrend, 0) / 1000)));
   return (normalizedAccuracy + normalizedTime) / 2;
 }
 
-/**
- * Utility: Get cross-module transfer bonus
- */
 function getCrossModuleTransferBonus(module) {
   const synergies = detectCrossModuleSynergies(module);
-  const positiveTransfers = synergies.filter(s => s.effect === 'positive-transfer');
-  
-  if (!positiveTransfers.length) return 1.0;
-  
-  const avgStrength = positiveTransfers.reduce((sum, s) => sum + s.strength, 0) / positiveTransfers.length;
-  return 1.0 + (avgStrength * 0.15); // Up to 15% bonus
+  const positive = synergies.filter(s => s.effect === 'positive-transfer');
+  if (!positive.length) return 1.0;
+
+  const avgStrength = positive.reduce((sum, s) => sum + safeNumber(s.strength, 0), 0) / positive.length;
+  return 1.0 + (avgStrength * 0.15);
 }
 
-/**
- * Utility: Get module statistics
- */
 function getModuleStats(module) {
   const stats = loadJSON(STORAGE_KEYS.STATS, { byModule: {} });
-  return stats.byModule?.[module] || { total: 0, correct: 0, accuracy: 0, attempts: 0 };
+  const m = stats.byModule?.[module] || {};
+  const total = safeNumber(m.total, safeNumber(m.attempts, 0));
+  const correct = safeNumber(m.correct, 0);
+  const accuracy = total > 0 ? Math.round((correct / total) * 100) : safeNumber(m.accuracy, 0);
+
+  return {
+    ...m,
+    total,
+    attempts: total,
+    correct,
+    accuracy,
+    avgTime: safeNumber(m.avgTime ?? m.avgResponseTime, 0)
+  };
 }
 
-/**
- * Utility: Get user interval statistics
- */
 function getUserIntervalStats(intervalId) {
   const stats = loadJSON(STORAGE_KEYS.STATS, { byModule: {} });
   return stats.byModule?.intervals?.byInterval?.[intervalId] || { accuracy: 0, attempts: 0 };
 }
 
-/**
- * Utility: Get user technique statistics
- */
 function getUserTechniqueStats(techniqueKey) {
   const stats = loadJSON(STORAGE_KEYS.STATS, { byModule: {} });
   return stats.byModule?.bieler?.byTechnique?.[techniqueKey] || { accuracy: 0, seen: 0 };
 }
 
-/**
- * Utility: Get piece difficulty rating
- */
 function getPieceDifficulty(piece) {
-  // Simple heuristic: count technical terms in piece name
-  const technicalTerms = (piece.match(/concerto|sonata|etude|caprice/gi) || []).length;
+  const technicalTerms = (String(piece || '').match(/concerto|sonata|etude|caprice/gi) || []).length;
   return Math.min(3, technicalTerms + 1);
 }
 
-/**
- * Utility: Get difficulty alignment
- */
 function getDifficultyAlignment(module, piece) {
   const pieceDiff = getPieceDifficulty(piece);
-  const userLevel = getModuleStats(module).level || 1;
-  
+  const userLevel = safeNumber(getModuleStats(module).level, 1);
+
   const alignment = pieceDiff - userLevel;
   if (alignment > 1) return 'too-difficult';
   if (alignment < -1) return 'too-easy';
   return 'well-aligned';
 }
 
-/**
- * Utility: Get recent improvement rate
- */
 function getRecentImprovementRate(stats, window) {
-  const recent = (stats.recentHistory || []).slice(-window);
+  const recent = safeArray(stats?.recentHistory).slice(-window);
   if (recent.length < 2) return 0;
-  
-  const first = recent[0]?.accuracy || 0;
-  const last = recent[recent.length - 1]?.accuracy || 0;
-  
+  const first = safeNumber(recent[0]?.accuracy, 0);
+  const last = safeNumber(recent[recent.length - 1]?.accuracy, 0);
   return last - first;
+}
+
+/**
+ * Placeholder: if you later compute “practice efficiency” from logs,
+ * you can upgrade this without changing callers.
+ */
+function getPracticeEfficiency(_module) {
+  return 1.0;
+}
+
+console.log('[Pedagogy Engine] VMQ Pedagogy v3.0.1 loaded ✅');
+
+export default {
+  getCurrentProgressionLevel,
+  getProgressRoadmap,
+  analyzePassage,
+  analyzeFeedback,
+  generateRepertoireWorkshop,
+  getRepertoireForInterval,
+  logRepertoireMilestone,
+  getQuickRepertoire,
+  getPedagogyInsights,
+  analyzeFingerboardPerformance,
+  getRecommendations
+};
+
+// Keep your quick export as-is (with minor guard)
+export function getQuickRepertoire(module) {
+  const modKey = String(module || 'intervals').toLowerCase();
+  const ladders = getProgressionLadders(modKey);
+  const currentLevel = getCurrentProgressionLevel(modKey);
+  const idx = ladders.findIndex(l => l.name === currentLevel.current);
+
+  const appropriate = ladders
+    .filter((_, i) => i <= (idx >= 0 ? idx + 1 : 1))
+    .flatMap(level => safeArray(level.repertoire))
+    .slice(0, 5);
+
+  return appropriate;
 }
