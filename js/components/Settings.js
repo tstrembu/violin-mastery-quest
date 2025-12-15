@@ -367,12 +367,15 @@ export function Settings({ navigate, audioEngine, showToast }) {
         '⚠️ Are you sure? This will erase ALL progress data including XP, achievements, and stats. This cannot be undone.'
       )
     ) {
-      try { clearAll?.(); }
-      catch {
+      try {
+        cleanupAllData?.();   // exported in your storage.js
+      } catch {
+        // last-resort fallback
         [KEY_PROFILE, KEY_SETTINGS, KEY_DIFFICULTY, KEY_STATS, KEY_ANALYTICS].forEach((k) => {
           try { saveJSON(k, null); } catch {}
         });
       }
+  
       showToast?.('All progress reset', 'info');
       setTimeout(() => window.location.reload(), 800);
     }
