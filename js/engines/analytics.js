@@ -1,24 +1,91 @@
 // js/engines/analytics.js
 // ======================================
-// VMQ ANALYTICS v3.0 - Advanced ML Intelligence
+// VMQ ANALYTICS v3.0 - Advanced ML Intelligence (drop-in replacement)
 // Predictive Learning • Adaptive Patterns • Deep Integration
 // SM-2 + Difficulty + Session + CoachEngine + 50+ modules
+//
+// Fixes / Guarantees:
+// ✅ Fixes fatal syntax error: `mlMeta: { ... }` (colon added)
+// ✅ Ensures *all referenced helper functions exist* (implemented below)
+// ✅ Hardens cross-engine integration (SM-2 + Difficulty) with async-safe wrappers
+// ✅ Keeps intended behavior: analyzePerformance(), updateStats(), getQuickStat(), exportAnalytics()
+// ✅ Avoids reliance on helper exports that may not exist in ../utils/helpers.js
+//    (If helpers.js already exports these, we safely fall back; otherwise we use local versions)
+//
+// Notes:
+// - sessions are read from STORAGE_KEYS.JOURNAL and are assumed to be an array of objects with:
+//   { timestamp, accuracy, engagedMs, activity, focusScore, qualityScore, consistencyScore, xpEarned, ... }
+// - stats are stored in STORAGE_KEYS.ANALYTICS
 // ======================================
 
 import { loadJSON, saveJSON, STORAGE_KEYS } from '../config/storage.js';
-import { MUSIC, accuracy, average, clamp } from '../utils/helpers.js';
 import { sessionTracker } from './sessionTracker.js';
-import { getDueItems, getStats as sm2Stats } from './spacedRepetition.js';
+import { getStats as sm2Stats } from './spacedRepetition.js';
 import { getGlobalStats as diffStats } from './difficultyAdapter.js';
 
+// Optional helper imports (some repos export these; others don't). We keep analytics robust either way.
+import * as Helpers from '../utils/helpers.js';
+
 // ======================================
-// 🎯 ADVANCED PERFORMANCE ANALYSIS
+// ✅ Local, guaranteed helper primitives
+// ======================================
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function clamp(n, lo, hi) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return lo;
+  return Math.max(lo, Math.min(hi, x));
+}
+
+function average(arr) {
+  const a = Array.isArray(arr) ? arr : [];
+  if (a.length === 0) return 0;
+  const sum = a.reduce((s, v) => s + (Number(v) || 0), 0);
+  return sum / a.length;
+}
+
+function accuracy(correct, total) {
+  const c = Number(correct) || 0;
+  const t = Number(total) || 0;
+  return t > 0 ? Math.round((c / t) * 100) : 0;
+}
+
+function safeGet(obj, path, fallback = undefined) {
+  try {
+    return path.split('.').reduce((o, k) => (o ? o[k] : undefined), obj) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function isObj(v) {
+  return v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function safeTrack(category, action, payload) {
+  try {
+    sessionTracker?.trackActivity?.(category, action, payload);
+  } catch {
+    // no-op
+  }
+}
+
+// If the repo’s helpers already exist, prefer them; otherwise use our locals.
+const H = {
+  clamp: Helpers?.clamp || clamp,
+  average: Helpers?.average || average,
+  accuracy: Helpers?.accuracy || accuracy
+};
+
+// ======================================
+// 🎯 ADVANCED PERFORMANCE ANALYSIS (Public API)
 // ======================================
 
 /**
  * Complete ML-enhanced performance analysis
- * @param {string} timeframe - Analysis window ('week', 'month', 'quarter', 'all')
- * @param {object} options - Advanced options for ML predictions
+ * @param {string} timeframe - 'week' | 'month' | 'quarter' | 'year' | 'all'
+ * @param {object} options - ML toggles
  * @returns {object} Comprehensive analytics with ML insights
  */
 export function analyzePerformance(timeframe = 'week', options = {}) {
@@ -32,61 +99,63 @@ export function analyzePerformance(timeframe = 'week', options = {}) {
   const stats = loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats());
   const sessions = loadJSON(STORAGE_KEYS.JOURNAL, []);
   const now = Date.now();
-  
-  // Timeframe filter with smart windowing
-  const cutoff = getTimeCutoff(timeframe);
-  const filteredSessions = sessions.filter(s => 
-    now - new Date(s.timestamp).getTime() < cutoff
-  );
 
-  // 🎯 CORE METRICS (Enhanced)
+  const cutoff = getTimeCutoff(timeframe);
+  const filteredSessions = (Array.isArray(sessions) ? sessions : []).filter(s => {
+    const ts = new Date(s?.timestamp ?? now).getTime();
+    return (now - ts) < cutoff;
+  });
+
+  // CORE METRICS
   const overall = calculateOverallStats(stats, filteredSessions);
   const modules = calculateModuleStats(stats, filteredSessions);
   const trends = calculateTrends(filteredSessions);
-  
-  // 🧠 MACHINE LEARNING INSIGHTS
-  const predictions = includePredictions 
-    ? generatePredictions(stats, filteredSessions, modules) 
+
+  // ML INSIGHTS (all helpers implemented below)
+  const predictions = includePredictions
+    ? generatePredictions(stats, filteredSessions, modules)
     : null;
-  
-  const patterns = includePatterns 
-    ? detectLearningPatterns(filteredSessions, stats) 
+
+  const patterns = includePatterns
+    ? detectLearningPatterns(filteredSessions, stats)
     : null;
-  
-  const optimization = includeOptimization 
-    ? calculateOptimalPracticeSchedule(filteredSessions, patterns) 
+
+  const optimization = includeOptimization
+    ? calculateOptimalPracticeSchedule(filteredSessions, patterns)
     : null;
-  
-  const breakthroughs = includeBreakthrough 
-    ? detectBreakthroughOpportunities(modules, patterns, overall) 
+
+  const breakthroughs = includeBreakthrough
+    ? detectBreakthroughOpportunities(modules, patterns, overall)
     : null;
-  
+
   return {
     timeframe,
     timestamp: Date.now(),
+
+    // Overall
     ...overall,
-    
+
     // Module Analysis
-    modules: modules.slice(0, 12), // Top 12 for deeper analysis
+    modules: modules.slice(0, 12),
     strengths: identifyStrengths(modules),
     weaknesses: identifyWeaknesses(modules),
     masteryZones: identifyMasteryZones(modules),
     growthOpportunities: identifyGrowthOpportunities(modules, patterns),
-    
+
     // Trends & Patterns
     trends,
     patterns,
-    
+
     // ML-Enhanced Features
     predictions,
     optimization,
     breakthroughs,
-    
-    // Cross-Engine Integration
+
+    // Cross-Engine Integration (safe wrappers)
     sm2Integration: integrateSM2Data(),
     difficultyAnalysis: integrateDifficultyData(),
     sessionQuality: analyzeSessionQuality(filteredSessions),
-    
+
     // Actionable Intelligence
     recommendations: generateSmartRecommendations(
       overall, modules, trends, patterns, predictions
@@ -94,7 +163,7 @@ export function analyzePerformance(timeframe = 'week', options = {}) {
     aiInsights: generateAdvancedAIInsights(
       overall, modules, patterns, predictions, breakthroughs
     ),
-    
+
     // Retention & Mastery Metrics
     retentionMetrics: calculateRetentionMetrics(stats, modules),
     transferLearning: detectTransferLearning(modules),
@@ -106,16 +175,14 @@ export function analyzePerformance(timeframe = 'week', options = {}) {
 // 🧠 MACHINE LEARNING PREDICTIONS
 // ======================================
 
-/**
- * Generate ML-based predictions for future performance
- * Uses regression analysis and pattern matching
- */
 function generatePredictions(stats, sessions, modules) {
-  if (sessions.length < 5) return null; // Need minimum data
-  
-  const recentSessions = sessions.slice(0, 20);
+  if (!Array.isArray(sessions) || sessions.length < 5) return null;
+
+  // Keep original intent: focus on recent sessions, but don’t assume ordering.
+  const sorted = [...sessions].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  const recentSessions = sorted.slice(-20);
   const timeSeriesData = buildTimeSeriesData(recentSessions);
-  
+
   return {
     nextWeekAccuracy: predictNextWeekAccuracy(timeSeriesData),
     breakthroughModules: predictBreakthroughModules(modules, timeSeriesData),
@@ -123,73 +190,64 @@ function generatePredictions(stats, sessions, modules) {
     optimalPracticeTime: predictOptimalPracticeTime(recentSessions),
     masteryTimeline: estimateMasteryTimeline(modules),
     retentionForecast: forecastRetention(stats, modules),
-    
-    // Confidence scores
+
     confidence: {
       accuracy: calculatePredictionConfidence(timeSeriesData),
-      stability: assessDataStability(sessions)
+      stability: assessDataStability(sorted)
     }
   };
 }
 
-/**
- * Predict next week's accuracy using weighted moving average
- * with exponential decay for recent performance
- */
 function predictNextWeekAccuracy(timeSeriesData) {
-  if (!timeSeriesData || timeSeriesData.length < 3) return null;
-  
-  // Exponential weighted moving average (EWMA)
-  const weights = timeSeriesData.map((_, i) => 
-    Math.exp(-0.15 * (timeSeriesData.length - 1 - i)) // Recent data weighted higher
+  if (!Array.isArray(timeSeriesData) || timeSeriesData.length < 3) return null;
+
+  // EWMA weights (recent higher). timeSeriesData already chronological.
+  const n = timeSeriesData.length;
+  const weights = timeSeriesData.map((_, i) =>
+    Math.exp(-0.15 * (n - 1 - i))
   );
-  
-  const weightSum = weights.reduce((sum, w) => sum + w, 0);
-  const weightedAvg = timeSeriesData.reduce((sum, point, i) => 
-    sum + (point.accuracy * weights[i]) / weightSum
-  , 0);
-  
-  // Calculate trend (linear regression slope)
-  const trend = calculateLinearTrend(
-    timeSeriesData.map((p, i) => ({ x: i, y: p.accuracy }))
-  );
-  
-  // Prediction: weighted average + trend projection
-  const prediction = clamp(weightedAvg + (trend * 7), 0, 100);
-  
+  const wSum = weights.reduce((s, w) => s + w, 0);
+
+  const wAvg = timeSeriesData.reduce((sum, p, i) => {
+    return sum + ((p.accuracy || 0) * weights[i]) / wSum;
+  }, 0);
+
+  const trend = calculateLinearTrend(timeSeriesData.map((p, i) => ({ x: i, y: p.accuracy || 0 })));
+
+  // 7 "days" projection is a heuristic—kept from original, clamped.
+  const predicted = H.clamp(wAvg + (trend * 7), 0, 100);
+
+  const current = timeSeriesData[n - 1]?.accuracy ?? 0;
+
   return {
-    predicted: Math.round(prediction),
-    current: Math.round(timeSeriesData[timeSeriesData.length - 1]?.accuracy || 0),
+    predicted: Math.round(predicted),
+    current: Math.round(current),
     trend: trend > 0 ? 'improving' : trend < 0 ? 'declining' : 'stable',
     trendStrength: Math.abs(trend),
     confidence: calculatePredictionConfidence(timeSeriesData)
   };
 }
 
-/**
- * Identify modules likely to breakthrough (>10% improvement)
- */
 function predictBreakthroughModules(modules, timeSeriesData) {
-  return modules
-    .filter(m => m.attempts >= 10 && m.accuracy >= 65 && m.accuracy < 90)
+  const list = Array.isArray(modules) ? modules : [];
+  return list
+    .filter(m => (m.attempts || 0) >= 10 && (m.accuracy || 0) >= 65 && (m.accuracy || 0) < 90)
     .map(m => {
-      const recentTrend = m.trend || 0;
-      const consistency = m.consistency || 50;
-      const momentum = calculateMomentum(m.moduleKey, timeSeriesData);
-      
-      // Breakthrough likelihood score
-      const score = (
-        (recentTrend * 0.4) +           // Recent improvement
-        (consistency * 0.3) +            // Consistency bonus
-        (momentum * 0.3)                 // Learning momentum
-      );
-      
+      const recentTrend = Number(m.trend) || 0;
+      const consistency = Number(m.consistency) || 50;
+      const momentum = calculateMomentum(m.moduleKey || '', timeSeriesData);
+
+      // Score is intentionally bounded 0..100
+      const score = (recentTrend * 0.4) + (consistency * 0.3) + (momentum * 0.3);
+
+      const bounded = Math.min(100, Math.max(0, score));
+
       return {
         module: m.module,
         moduleKey: m.moduleKey,
         currentAccuracy: m.accuracy,
-        breakthroughLikelihood: Math.round(Math.min(100, Math.max(0, score))),
-        estimatedDays: Math.max(3, Math.round(30 * (1 - score / 100))),
+        breakthroughLikelihood: Math.round(bounded),
+        estimatedDays: Math.max(3, Math.round(30 * (1 - bounded / 100))),
         confidence: consistency > 60 ? 'high' : consistency > 40 ? 'medium' : 'low'
       };
     })
@@ -198,112 +256,93 @@ function predictBreakthroughModules(modules, timeSeriesData) {
     .slice(0, 3);
 }
 
-/**
- * Assess risk of performance plateau
- */
 function assessPlateauRisk(timeSeriesData, modules) {
-  if (!timeSeriesData || timeSeriesData.length < 10) return null;
-  
-  const recentData = timeSeriesData.slice(-10);
-  const variance = calculateVariance(recentData.map(d => d.accuracy));
-  const trend = calculateLinearTrend(
-    recentData.map((d, i) => ({ x: i, y: d.accuracy }))
-  );
-  
-  // Plateau indicators
-  const lowVariance = variance < 25; // Stable but not improving
-  const flatTrend = Math.abs(trend) < 1; // No significant slope
-  const highAccuracyStuck = recentData[recentData.length - 1]?.accuracy > 75 && flatTrend;
-  
-  const plateauScore = (
+  if (!Array.isArray(timeSeriesData) || timeSeriesData.length < 10) return null;
+
+  const recent = timeSeriesData.slice(-10);
+  const variance = calculateVariance(recent.map(d => d.accuracy || 0));
+  const trend = calculateLinearTrend(recent.map((d, i) => ({ x: i, y: d.accuracy || 0 })));
+
+  const lowVariance = variance < 25;
+  const flatTrend = Math.abs(trend) < 1;
+  const highAccuracyStuck = (recent[recent.length - 1]?.accuracy || 0) > 75 && flatTrend;
+
+  const plateauScore =
     (lowVariance ? 40 : 0) +
     (flatTrend ? 40 : 0) +
-    (highAccuracyStuck ? 20 : 0)
-  );
-  
+    (highAccuracyStuck ? 20 : 0);
+
+  const stagnantModules = (Array.isArray(modules) ? modules : []).filter(m =>
+    (m.attempts || 0) >= 15 && Math.abs(Number(m.trend) || 0) < 2
+  ).length;
+
   return {
     risk: plateauScore >= 60 ? 'high' : plateauScore >= 40 ? 'medium' : 'low',
     score: plateauScore,
-    indicators: {
-      lowVariance,
-      flatTrend,
-      stagnantModules: modules.filter(m => 
-        m.attempts >= 15 && Math.abs(m.trend || 0) < 2
-      ).length
-    },
-    recommendation: plateauScore >= 60 
+    indicators: { lowVariance, flatTrend, stagnantModules },
+    recommendation: plateauScore >= 60
       ? 'Increase practice variety and introduce new challenges'
       : 'Maintain current practice routine'
   };
 }
 
-/**
- * Predict optimal practice time based on performance patterns
- */
 function predictOptimalPracticeTime(sessions) {
-  if (sessions.length < 5) return null;
-  
-  // Analyze performance by time of day
-  const performanceByHour = sessions.reduce((acc, s) => {
-    const hour = new Date(s.timestamp).getHours();
-    if (!acc[hour]) acc[hour] = { total: 0, sum: 0, count: 0 };
-    acc[hour].sum += s.accuracy || 0;
+  if (!Array.isArray(sessions) || sessions.length < 5) return null;
+
+  const byHour = sessions.reduce((acc, s) => {
+    const ts = new Date(s.timestamp).getTime();
+    const hour = new Date(Number.isFinite(ts) ? ts : Date.now()).getHours();
+    if (!acc[hour]) acc[hour] = { sum: 0, count: 0 };
+    acc[hour].sum += Number(s.accuracy) || 0;
     acc[hour].count += 1;
-    acc[hour].total = acc[hour].sum / acc[hour].count;
     return acc;
   }, {});
-  
-  // Find peak performance hours
-  const sortedHours = Object.entries(performanceByHour)
-    .sort((a, b) => b[1].total - a[1].total)
+
+  const sorted = Object.entries(byHour)
+    .map(([h, d]) => [h, { avg: d.count ? d.sum / d.count : 0, count: d.count }])
+    .sort((a, b) => b[1].avg - a[1].avg)
     .slice(0, 3);
-  
+
   return {
-    peakHours: sortedHours.map(([hour, data]) => ({
-      hour: parseInt(hour),
-      timeRange: formatTimeRange(parseInt(hour)),
-      avgAccuracy: Math.round(data.total),
+    peakHours: sorted.map(([hour, data]) => ({
+      hour: parseInt(hour, 10),
+      timeRange: formatTimeRange(parseInt(hour, 10)),
+      avgAccuracy: Math.round(data.avg),
       sessions: data.count
     })),
-    recommendation: sortedHours[0] 
-      ? `Best practice time: ${formatTimeRange(parseInt(sortedHours[0][0]))}`
+    recommendation: sorted[0]
+      ? `Best practice time: ${formatTimeRange(parseInt(sorted[0][0], 10))}`
       : null
   };
 }
 
-/**
- * Estimate timeline to mastery for each module
- */
 function estimateMasteryTimeline(modules) {
-  return modules
-    .filter(m => m.accuracy < 95 && m.attempts >= 5)
+  const list = Array.isArray(modules) ? modules : [];
+  return list
+    .filter(m => (m.accuracy || 0) < 95 && (m.attempts || 0) >= 5)
     .map(m => {
-      const accuracyGap = 95 - m.accuracy;
-      const recentTrend = m.trend || 0;
-      const avgImprovement = Math.max(0.5, recentTrend, 1); // Min 0.5% per session
-      
-      const estimatedSessions = Math.ceil(accuracyGap / avgImprovement);
-      const estimatedDays = Math.ceil(estimatedSessions / 3); // Assume 3 sessions/day avg
-      
+      const gap = 95 - (m.accuracy || 0);
+      const trend = Number(m.trend) || 0;
+      const avgImprovement = Math.max(0.5, trend, 1); // keep original intent
+
+      const sessionsNeeded = Math.ceil(gap / avgImprovement);
+      const daysNeeded = Math.ceil(sessionsNeeded / 3);
+
       return {
         module: m.module,
         currentAccuracy: m.accuracy,
-        toMastery: accuracyGap,
-        estimatedSessions,
-        estimatedDays: Math.min(180, estimatedDays), // Cap at 6 months
-        confidence: m.attempts >= 20 && m.consistency >= 60 ? 'high' : 'medium'
+        toMastery: gap,
+        estimatedSessions: sessionsNeeded,
+        estimatedDays: Math.min(180, daysNeeded),
+        confidence: (m.attempts || 0) >= 20 && (m.consistency || 0) >= 60 ? 'high' : 'medium'
       };
     })
     .sort((a, b) => a.estimatedDays - b.estimatedDays)
     .slice(0, 5);
 }
 
-/**
- * Forecast retention based on practice patterns
- */
 function forecastRetention(stats, modules) {
   const sm2Data = integrateSM2Data();
-  
   return {
     currentRetention: sm2Data?.retention || 0,
     projectedRetention30Days: calculateProjectedRetention(stats, modules, 30),
@@ -313,50 +352,61 @@ function forecastRetention(stats, modules) {
   };
 }
 
+function calculatePredictionConfidence(timeSeriesData) {
+  if (!Array.isArray(timeSeriesData) || timeSeriesData.length < 5) return 0.3;
+  if (timeSeriesData.length < 10) return 0.6;
+
+  const consistency = 100 - calculateVariance(timeSeriesData.map(d => d.accuracy || 0));
+  return Math.min(0.95, Math.max(0.1, consistency / 100));
+}
+
+function assessDataStability(sessions) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  const recent = list.slice(-10);
+  const v = calculateVariance(recent.map(s => Number(s.accuracy) || 0));
+  return v < 100 ? 'stable' : v < 200 ? 'moderate' : 'volatile';
+}
+
 // ======================================
 // 🎨 LEARNING PATTERNS DETECTION
 // ======================================
 
-/**
- * Detect complex learning patterns using behavioral analysis
- */
 function detectLearningPatterns(sessions, stats) {
-  if (sessions.length < 5) return null;
-  
-  const recentSessions = sessions.slice(0, 30);
-  
+  if (!Array.isArray(sessions) || sessions.length < 5) return null;
+
+  const sorted = [...sessions].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  const recent = sorted.slice(-30);
+
   return {
     learningStyle: identifyLearningStyle(stats),
-    practiceHabits: analyzePracticeHabits(recentSessions),
-    focusPatterns: analyzeFocusPatterns(recentSessions),
+    practiceHabits: analyzePracticeHabits(recent),
+    focusPatterns: analyzeFocusPatterns(recent),
     errorPatterns: analyzeErrorPatterns(stats),
-    recoveryRate: calculateRecoveryRate(recentSessions),
-    cognitiveLoad: assessCognitiveLoad(recentSessions, stats),
-    deliberatePractice: assessDeliberatePractice(recentSessions),
+    recoveryRate: calculateRecoveryRate(recent),
+    cognitiveLoad: assessCognitiveLoad(recent, stats),
+    deliberatePractice: assessDeliberatePractice(recent),
     transferEfficiency: measureTransferEfficiency(stats)
   };
 }
 
-/**
- * Identify dominant learning style (auditory/visual/kinesthetic/balanced)
- */
 function identifyLearningStyle(stats) {
-  const modulePrefs = Object.entries(stats.byModule || {})
-    .filter(([_, data]) => data.total >= 10)
+  const byModule = stats?.byModule || {};
+  const modulePrefs = Object.entries(byModule)
+    .filter(([_, data]) => (data?.total || 0) >= 10)
     .map(([module, data]) => ({
       module,
-      score: accuracy(data.correct, data.total),
+      score: H.accuracy(data.correct, data.total),
       category: classifyModuleType(module)
     }));
-  
+
   const categoryScores = modulePrefs.reduce((acc, m) => {
     acc[m.category] = (acc[m.category] || 0) + m.score;
     return acc;
   }, {});
-  
+
   const dominantStyle = Object.entries(categoryScores)
     .sort((a, b) => b[1] - a[1])[0]?.[0] || 'balanced';
-  
+
   return {
     primary: dominantStyle,
     scores: categoryScores,
@@ -365,46 +415,33 @@ function identifyLearningStyle(stats) {
   };
 }
 
-/**
- * Analyze practice habits for consistency and quality
- */
 function analyzePracticeHabits(sessions) {
-  const dailyPractice = groupSessionsByDay(sessions);
-  const daysActive = Object.keys(dailyPractice).length;
-  const totalDays = Math.ceil(
-    (Date.now() - new Date(sessions[sessions.length - 1]?.timestamp || Date.now()).getTime()) 
-    / (24 * 60 * 60 * 1000)
-  );
-  
+  const daily = groupSessionsByDay(sessions);
+  const daysActive = Object.keys(daily).length;
+
+  const oldest = sessions[0]?.timestamp || Date.now();
+  const totalDays = Math.ceil((Date.now() - new Date(oldest).getTime()) / DAY_MS);
+
   return {
     consistency: Math.round((daysActive / Math.max(1, totalDays)) * 100),
     avgSessionsPerDay: Math.round((sessions.length / Math.max(1, daysActive)) * 10) / 10,
-    avgDuration: average(sessions.map(s => s.engagedMs || 0)) / 60000, // minutes
+    avgDuration: (H.average(sessions.map(s => s.engagedMs || 0)) / 60000),
     preferredTime: identifyPreferredPracticeTime(sessions),
     sessionDistribution: calculateSessionDistribution(sessions)
   };
 }
 
-/**
- * Analyze focus and attention patterns
- */
 function analyzeFocusPatterns(sessions) {
   return {
-    avgFocusScore: average(sessions.map(s => s.focusScore || 50)),
-    focusTrend: calculateLinearTrend(
-      sessions.map((s, i) => ({ x: i, y: s.focusScore || 50 }))
-    ),
+    avgFocusScore: H.average(sessions.map(s => s.focusScore || 50)),
+    focusTrend: calculateLinearTrend(sessions.map((s, i) => ({ x: i, y: s.focusScore || 50 }))),
     bestFocusDuration: identifyOptimalSessionLength(sessions),
     distractionTriggers: identifyDistractionTriggers(sessions)
   };
 }
 
-/**
- * Analyze error patterns to identify systematic mistakes
- */
 function analyzeErrorPatterns(stats) {
-  const modules = Object.entries(stats.byModule || {});
-  
+  const modules = Object.entries(stats?.byModule || {});
   return {
     systematicErrors: identifySystematicErrors(modules),
     errorClusters: identifyErrorClusters(stats),
@@ -413,19 +450,16 @@ function analyzeErrorPatterns(stats) {
   };
 }
 
-/**
- * Calculate recovery rate from mistakes
- */
 function calculateRecoveryRate(sessions) {
   const recoveries = sessions.filter((s, i) => {
     if (i === 0) return false;
     const prev = sessions[i - 1];
-    return prev.accuracy < 70 && s.accuracy >= 80;
+    return (prev?.accuracy || 0) < 70 && (s?.accuracy || 0) >= 80;
   });
-  
+
   return {
     rate: sessions.length > 1 ? Math.round((recoveries.length / sessions.length) * 100) : 0,
-    avgRecoveryTime: average(recoveries.map(s => s.engagedMs || 0)) / 60000,
+    avgRecoveryTime: (H.average(recoveries.map(s => s.engagedMs || 0)) / 60000),
     resilience: recoveries.length >= 3 ? 'high' : recoveries.length >= 1 ? 'medium' : 'developing'
   };
 }
@@ -434,12 +468,9 @@ function calculateRecoveryRate(sessions) {
 // ⚡ OPTIMIZATION ENGINE
 // ======================================
 
-/**
- * Calculate optimal practice schedule based on ML analysis
- */
 function calculateOptimalPracticeSchedule(sessions, patterns) {
-  if (!patterns || sessions.length < 10) return null;
-  
+  if (!patterns || !Array.isArray(sessions) || sessions.length < 10) return null;
+
   return {
     idealDuration: calculateIdealSessionDuration(sessions),
     frequencyRecommendation: calculateIdealFrequency(sessions, patterns),
@@ -450,13 +481,11 @@ function calculateOptimalPracticeSchedule(sessions, patterns) {
   };
 }
 
-/**
- * Generate intelligent module rotation schedule
- */
 function generateModuleRotation(patterns) {
-  const sm2Data = integrateSM2Data();
-  const diffData = integrateDifficultyData();
-  
+  // keep intent: use SM-2 and difficulty as hints (even if not directly used here yet)
+  integrateSM2Data();
+  integrateDifficultyData();
+
   return {
     daily: [
       { priority: 1, category: 'weak-modules', duration: 15 },
@@ -473,15 +502,12 @@ function generateModuleRotation(patterns) {
 // 🎯 BREAKTHROUGH OPPORTUNITIES
 // ======================================
 
-/**
- * Detect opportunities for significant breakthroughs
- */
 function detectBreakthroughOpportunities(modules, patterns, overall) {
+  const list = Array.isArray(modules) ? modules : [];
   const opportunities = [];
-  
-  // Near-mastery modules (85-94% accuracy)
-  modules
-    .filter(m => m.accuracy >= 85 && m.accuracy < 95 && m.consistency >= 60)
+
+  list
+    .filter(m => (m.accuracy || 0) >= 85 && (m.accuracy || 0) < 95 && (m.consistency || 0) >= 60)
     .forEach(m => {
       opportunities.push({
         type: 'mastery-threshold',
@@ -493,10 +519,9 @@ function detectBreakthroughOpportunities(modules, patterns, overall) {
         recommendation: `Focus 15 min daily to reach mastery in ~${Math.ceil((95 - m.accuracy) / 2)} days`
       });
     });
-  
-  // Plateau breakers (stuck 70-80%)
-  modules
-    .filter(m => m.accuracy >= 70 && m.accuracy < 80 && m.attempts >= 20 && Math.abs(m.trend) < 1)
+
+  list
+    .filter(m => (m.accuracy || 0) >= 70 && (m.accuracy || 0) < 80 && (m.attempts || 0) >= 20 && Math.abs(Number(m.trend) || 0) < 1)
     .forEach(m => {
       opportunities.push({
         type: 'plateau-break',
@@ -507,69 +532,68 @@ function detectBreakthroughOpportunities(modules, patterns, overall) {
         impact: 'high'
       });
     });
-  
-  // Skill transfer opportunities
-  const transferOps = identifyTransferOpportunities(modules);
-  opportunities.push(...transferOps);
-  
-  return opportunities.sort((a, b) => {
-    const impactScore = { high: 3, medium: 2, low: 1 };
-    const effortScore = { low: 3, medium: 2, high: 1 };
-    return (impactScore[b.impact] * effortScore[b.effort]) - 
-           (impactScore[a.impact] * effortScore[a.effort]);
-  }).slice(0, 5);
+
+  opportunities.push(...identifyTransferOpportunities(list));
+
+  return opportunities
+    .sort((a, b) => {
+      const impact = { high: 3, medium: 2, low: 1 };
+      const effort = { low: 3, medium: 2, high: 1 };
+      return (impact[b.impact] * effort[b.effort]) - (impact[a.impact] * effort[a.effort]);
+    })
+    .slice(0, 5);
 }
 
 // ======================================
-// 🔄 CROSS-ENGINE INTEGRATION
+// 🔄 CROSS-ENGINE INTEGRATION (Async-safe)
 // ======================================
 
-/**
- * Integrate SM-2 spaced repetition data
- */
 function integrateSM2Data() {
   try {
-    const sm2 = sm2Stats ? sm2Stats() : null;
+    // sm2Stats may be async depending on your engine; support both.
+    const maybe = sm2Stats?.();
+    // If it’s a promise, we cannot await here (analyzePerformance is sync), so return null-ish.
+    // But we still keep shape for dashboards that call exportAnalytics/analyzePerformance.
+    if (maybe && typeof maybe.then === 'function') return null;
+
+    const sm2 = maybe;
     return sm2 ? {
       dueToday: sm2.dueToday || 0,
       mature: sm2.mature || 0,
       retention: sm2.retention || 0,
       avgEF: sm2.avgEF || 2.5
     } : null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
 
-/**
- * Integrate difficulty adapter data
- */
 function integrateDifficultyData() {
   try {
-    const diff = diffStats ? diffStats() : null;
+    const maybe = diffStats?.();
+    if (maybe && typeof maybe.then === 'function') return null;
+
+    const diff = maybe;
     return diff ? {
-      avgDifficulty: diff.avgDifficulty || 1.0,
+      avgDifficulty: diff.avgDifficulty || diff.avgLevel || 1.0,
       adaptationRate: diff.adaptationRate || 0,
       challengeLevel: diff.challengeLevel || 'balanced'
     } : null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
 
-/**
- * Analyze session quality metrics
- */
 function analyzeSessionQuality(sessions) {
-  if (sessions.length === 0) return null;
-  
+  if (!Array.isArray(sessions) || sessions.length === 0) return null;
+
   return {
-    avgQualityScore: average(sessions.map(s => s.qualityScore || 50)),
-    avgFocusScore: average(sessions.map(s => s.focusScore || 1.0)) * 100,
-    avgConsistencyScore: average(sessions.map(s => s.consistencyScore || 50)),
+    avgQualityScore: H.average(sessions.map(s => s.qualityScore || 50)),
+    avgFocusScore: H.average(sessions.map(s => s.focusScore || 1.0)) * 100,
+    avgConsistencyScore: H.average(sessions.map(s => s.consistencyScore || 50)),
     highQualitySessions: sessions.filter(s => (s.qualityScore || 0) >= 80).length,
     qualityTrend: calculateLinearTrend(
-      sessions.slice(0, 20).map((s, i) => ({ x: i, y: s.qualityScore || 50 }))
+      sessions.slice(-20).map((s, i) => ({ x: i, y: s.qualityScore || 50 }))
     )
   };
 }
@@ -578,36 +602,26 @@ function analyzeSessionQuality(sessions) {
 // 🎓 RETENTION & MASTERY METRICS
 // ======================================
 
-/**
- * Calculate comprehensive retention metrics
- */
 function calculateRetentionMetrics(stats, modules) {
   return {
-    shortTerm: calculateShortTermRetention(stats), // <7 days
-    mediumTerm: calculateMediumTermRetention(stats), // 7-30 days
-    longTerm: calculateLongTermRetention(stats), // >30 days
+    shortTerm: calculateShortTermRetention(stats),
+    mediumTerm: calculateMediumTermRetention(stats),
+    longTerm: calculateLongTermRetention(stats),
     forgettingCurve: estimateForgettingCurve(stats),
     consolidatedSkills: identifyConsolidatedSkills(modules),
     volatileSkills: identifyVolatileSkills(modules)
   };
 }
 
-/**
- * Detect transfer learning between modules
- */
 function detectTransferLearning(modules) {
-  const correlations = calculateModuleCorrelations(modules);
-  
+  const correlations = calculateModuleCorrelationsFromModules(modules);
   return {
-    positivetransfer: correlations.filter(c => c.correlation > 0.6),
+    positiveTransfer: correlations.filter(c => c.correlation > 0.6),
     negativeTransfer: correlations.filter(c => c.correlation < -0.3),
     recommendations: generateTransferRecommendations(correlations)
   };
 }
 
-/**
- * Assess metacognitive skills (learning to learn)
- */
 function assessMetacognitiveSkills(sessions, stats) {
   return {
     selfAwareness: calculateSelfAwareness(sessions),
@@ -619,19 +633,15 @@ function assessMetacognitiveSkills(sessions, stats) {
 }
 
 // ======================================
-// 🎯 ENHANCED RECOMMENDATIONS
+// 🎯 ENHANCED RECOMMENDATIONS (Public)
 // ======================================
 
-/**
- * Generate ML-powered smart recommendations
- */
 export function generateSmartRecommendations(overall, modules, trends, patterns, predictions) {
   const recs = [];
 
-  // URGENT: Critical weaknesses (ML-enhanced)
   const criticalWeaknesses = identifyWeaknesses(modules)
-    .filter(m => m.accuracy < 70 && m.attempts >= 10);
-  
+    .filter(m => (m.accuracy || 0) < 70 && (m.attempts || 0) >= 10);
+
   criticalWeaknesses.slice(0, 2).forEach(module => {
     recs.push({
       priority: 'urgent',
@@ -640,14 +650,13 @@ export function generateSmartRecommendations(overall, modules, trends, patterns,
       title: `${module.module} Critical`,
       message: `${module.accuracy}% accuracy (${module.attempts} attempts)`,
       action: `#${module.moduleKey}`,
-      reasoning: `Low accuracy with high attempts suggests systematic errors`,
+      reasoning: 'Low accuracy with high attempts suggests systematic errors',
       estimatedTime: 20,
       difficulty: 'medium',
       mlConfidence: 0.9
     });
   });
 
-  // HIGH: SM-2 Reviews
   const sm2Data = integrateSM2Data();
   if (sm2Data && sm2Data.dueToday >= 5) {
     recs.push({
@@ -664,7 +673,6 @@ export function generateSmartRecommendations(overall, modules, trends, patterns,
     });
   }
 
-  // HIGH: Breakthrough opportunities
   if (predictions?.breakthroughModules?.length > 0) {
     const top = predictions.breakthroughModules[0];
     recs.push({
@@ -674,14 +682,13 @@ export function generateSmartRecommendations(overall, modules, trends, patterns,
       title: `${top.module} Ready to Break Through`,
       message: `${top.breakthroughLikelihood}% breakthrough probability`,
       action: `#${top.moduleKey}`,
-      reasoning: `Momentum detected. Push to ${top.currentAccuracy + 10}% in ~${top.estimatedDays} days`,
+      reasoning: `Momentum detected. Push to ${Math.min(99, (top.currentAccuracy || 0) + 10)}% in ~${top.estimatedDays} days`,
       estimatedTime: 15,
       difficulty: 'medium',
-      mlConfidence: top.breakthroughLikelihood / 100
+      mlConfidence: (top.breakthroughLikelihood || 50) / 100
     });
   }
 
-  // MEDIUM: Plateau breakers
   if (predictions?.plateauRisk?.risk === 'high') {
     recs.push({
       priority: 'medium',
@@ -697,27 +704,23 @@ export function generateSmartRecommendations(overall, modules, trends, patterns,
     });
   }
 
-  // MEDIUM: Optimal practice time
-  if (predictions?.optimalPracticeTime) {
+  if (predictions?.optimalPracticeTime?.peakHours?.[0]) {
     const peak = predictions.optimalPracticeTime.peakHours[0];
-    if (peak) {
-      recs.push({
-        priority: 'medium',
-        type: 'optimization',
-        icon: '⏰',
-        title: 'Practice at Peak Performance Time',
-        message: `Best results at ${peak.timeRange} (${peak.avgAccuracy}% avg)`,
-        action: '#planner',
-        reasoning: 'ML analysis shows peak cognitive performance',
-        estimatedTime: 30,
-        difficulty: 'easy',
-        mlConfidence: 0.8
-      });
-    }
+    recs.push({
+      priority: 'medium',
+      type: 'optimization',
+      icon: '⏰',
+      title: 'Practice at Peak Performance Time',
+      message: `Best results at ${peak.timeRange} (${peak.avgAccuracy}% avg)`,
+      action: '#planner',
+      reasoning: 'Pattern analysis shows peak performance windows',
+      estimatedTime: 30,
+      difficulty: 'easy',
+      mlConfidence: 0.8
+    });
   }
 
-  // LOW: Consistency building
-  if (overall.consistencyScore < 60) {
+  if ((overall?.consistencyScore || 0) < 60) {
     recs.push({
       priority: 'low',
       type: 'habit',
@@ -732,50 +735,37 @@ export function generateSmartRecommendations(overall, modules, trends, patterns,
     });
   }
 
+  const priorityMap = { urgent: 4, high: 3, medium: 2, low: 1 };
   return recs
-    .sort((a, b) => {
-      const priorityMap = { urgent: 4, high: 3, medium: 2, low: 1 };
-      return (priorityMap[b.priority] * (b.mlConfidence || 0.5)) - 
-             (priorityMap[a.priority] * (a.mlConfidence || 0.5));
-    })
+    .sort((a, b) => (priorityMap[b.priority] * (b.mlConfidence || 0.5)) - (priorityMap[a.priority] * (a.mlConfidence || 0.5)))
     .slice(0, 6);
 }
 
-/**
- * Generate advanced AI insights with ML predictions
- */
 export function generateAdvancedAIInsights(overall, modules, patterns, predictions, breakthroughs) {
   const insights = [];
 
-  // Mastery insights
-  if (overall.overallAccuracy >= 90) {
+  if ((overall?.overallAccuracy || 0) >= 90) {
     insights.push({
       type: 'mastery',
       icon: '🎉',
       message: `Outstanding ${overall.overallAccuracy}% mastery!`,
-      detail: 'You\'re in the top 10% of learners',
+      detail: "You're operating at a high mastery level—keep raising difficulty gradually.",
       nextModule: 'bielerlab',
       mlScore: 0.95
     });
   }
 
-  // Learning velocity insight
   if (patterns?.cognitiveLoad) {
     const load = patterns.cognitiveLoad;
     insights.push({
       type: 'cognitive',
       icon: '🧠',
       message: `Cognitive load: ${load.level}`,
-      detail: load.level === 'optimal' 
-        ? 'Perfect challenge level - keep going!'
-        : load.level === 'high'
-        ? 'Consider shorter sessions or easier material'
-        : 'Ready for more challenge',
+      detail: load.recommendation,
       mlScore: 0.88
     });
   }
 
-  // Breakthrough prediction
   if (predictions?.breakthroughModules?.length > 0) {
     const top = predictions.breakthroughModules[0];
     insights.push({
@@ -784,32 +774,30 @@ export function generateAdvancedAIInsights(overall, modules, patterns, predictio
       message: `${top.module} breakthrough in ~${top.estimatedDays} days`,
       detail: `${top.breakthroughLikelihood}% probability at current pace`,
       module: top.module,
-      mlScore: top.breakthroughLikelihood / 100
+      mlScore: (top.breakthroughLikelihood || 50) / 100
     });
   }
 
-  // Retention insight
   if (predictions?.retentionForecast) {
-    const retention = predictions.retentionForecast;
+    const r = predictions.retentionForecast;
     insights.push({
       type: 'retention',
       icon: '💪',
-      message: `${Math.round(retention.currentRetention)}% retention rate`,
-      detail: retention.currentRetention >= 85 
-        ? 'Excellent long-term memory!'
-        : 'Review due items to strengthen retention',
+      message: `${Math.round(r.currentRetention || 0)}% retention rate`,
+      detail: (r.currentRetention || 0) >= 85
+        ? 'Excellent long-term memory—keep reviewing due items.'
+        : 'Review due items more consistently to strengthen retention.',
       mlScore: 0.82
     });
   }
 
-  // Transfer learning
-  const topModule = modules[0];
-  if (topModule && topModule.accuracy >= 95) {
+  const topModule = (Array.isArray(modules) ? modules : [])[0];
+  if (topModule && (topModule.accuracy || 0) >= 95) {
     insights.push({
       type: 'strength',
       icon: '⭐',
       message: `${topModule.module} → Expert level`,
-      detail: 'This skill transfers to related modules',
+      detail: 'This skill likely transfers to related modules—pair practice strategically.',
       module: topModule.module,
       mlScore: 0.9
     });
@@ -821,7 +809,7 @@ export function generateAdvancedAIInsights(overall, modules, patterns, predictio
 }
 
 // ======================================
-// 🔧 HELPER FUNCTIONS (Enhanced)
+// 🔧 INTERNAL: Stats structure + transforms
 // ======================================
 
 function initializeStats() {
@@ -833,345 +821,289 @@ function initializeStats() {
     streaks: { current: 0, max: 0 },
     recentSessions: [],
     lastAnalysis: Date.now(),
-    confusionMatrix: {}, // NEW: Track specific error patterns
-    learningVelocity: [], // NEW: Track learning rate over time
-    retentionHistory: []  // NEW: Track retention over time
+    confusionMatrix: {},
+    learningVelocity: [],
+    retentionHistory: []
   };
 }
 
 function getTimeCutoff(timeframe) {
-  const cutoffs = {
-    week: 7 * 24 * 60 * 60 * 1000,
-    month: 30 * 24 * 60 * 60 * 1000,
-    quarter: 90 * 24 * 60 * 60 * 1000,
-    year: 365 * 24 * 60 * 60 * 1000,
+  const map = {
+    week: 7 * DAY_MS,
+    month: 30 * DAY_MS,
+    quarter: 90 * DAY_MS,
+    year: 365 * DAY_MS,
     all: Infinity
   };
-  return cutoffs[timeframe] || cutoffs.week;
+  return map[timeframe] ?? map.week;
 }
 
 function calculateOverallStats(stats, sessions) {
-  const totalTime = sessions.reduce((sum, s) => sum + (s.engagedMs || 0), 0);
-  const uniqueDays = new Set(sessions.map(s => 
-    new Date(s.timestamp).toDateString()
-  )).size;
-  
-  const consistency = sessions.length > 0 
-    ? Math.round((uniqueDays / Math.max(1, Math.ceil(
-        (Date.now() - new Date(sessions[sessions.length - 1]?.timestamp || Date.now()).getTime()) 
-        / (24 * 60 * 60 * 1000)
-      ))) * 100) 
-    : 0;
+  const totalTime = (Array.isArray(sessions) ? sessions : []).reduce((sum, s) => sum + (s.engagedMs || 0), 0);
+  const uniqueDays = new Set((Array.isArray(sessions) ? sessions : []).map(s => new Date(s.timestamp).toDateString())).size;
+
+  const oldest = sessions?.[0]?.timestamp || Date.now();
+  const daysSpan = Math.max(1, Math.ceil((Date.now() - new Date(oldest).getTime()) / DAY_MS));
+
+  const consistency = Math.round((uniqueDays / daysSpan) * 100);
 
   return {
-    overallAccuracy: accuracy(stats.correct, stats.total),
+    overallAccuracy: H.accuracy(stats.correct, stats.total),
     totalPracticeTime: formatDuration(totalTime),
-    totalSessions: sessions.length,
+    totalSessions: (sessions || []).length,
     consistencyScore: Math.min(100, consistency),
-    avgSessionTime: formatDuration(totalTime / Math.max(1, sessions.length)),
-    currentStreak: calculateCurrentStreak(sessions),
-    avgAccuracy: average(sessions.map(s => s.accuracy || 0)),
-    totalQuestions: stats.total,
-    xpGained: sessions.reduce((sum, s) => sum + (s.xpEarned || 0), 0)
+    avgSessionTime: formatDuration(totalTime / Math.max(1, (sessions || []).length)),
+    currentStreak: calculateCurrentStreak(sessions || []),
+    avgAccuracy: H.average((sessions || []).map(s => s.accuracy || 0)),
+    totalQuestions: stats.total || 0,
+    xpGained: (sessions || []).reduce((sum, s) => sum + (s.xpEarned || 0), 0)
   };
 }
 
 function calculateModuleStats(stats, sessions) {
-  return Object.entries(stats.byModule || {}).map(([module, data]) => {
-    const moduleKey = module.toLowerCase().replace(/\s+/g, '');
-    const moduleSessions = sessions.filter(s => 
-      s.activity?.toLowerCase().includes(moduleKey)
+  const byModule = stats?.byModule || {};
+  return Object.entries(byModule).map(([module, data]) => {
+    const moduleKey = String(module).toLowerCase().replace(/\s+/g, '');
+    const moduleSessions = (sessions || []).filter(s =>
+      String(s.activity || '').toLowerCase().includes(moduleKey)
     );
-    
+
+    const acc = H.accuracy(data.correct, data.total);
+    const recentAcc = H.accuracy(data.recentCorrect || 0, data.recentTotal || 1);
+
     return {
       module: formatModuleName(module),
       moduleKey,
-      accuracy: accuracy(data.correct, data.total),
-      attempts: data.total,
+      accuracy: acc,
+      attempts: data.total || 0,
       avgResponseTime: data.avgResponseTime || 0,
-      recentAccuracy: accuracy(data.recentCorrect || 0, data.recentTotal || 1),
+      recentAccuracy: recentAcc,
       improvement: calculateImprovement(data),
       trend: calculateModuleTrend(moduleSessions),
       consistency: calculateConsistency(moduleSessions),
       lastPracticed: data.lastPracticed || 0,
       difficulty: data.difficulty || 'medium',
-      mastery: calculateMastery(
-        accuracy(data.correct, data.total), 
-        data.total, 
-        accuracy(data.recentCorrect || 0, data.recentTotal || 1)
-      )
+      mastery: calculateMastery(acc, data.total || 0, recentAcc)
     };
   }).sort((a, b) => b.mastery - a.mastery);
 }
 
 function calculateTrends(sessions) {
-  const sevenDays = sessions
-    .filter(s => Date.now() - new Date(s.timestamp).getTime() < 7 * 24 * 60 * 60 * 1000)
-    .sort((a, b) => b.timestamp - a.timestamp);
-  
+  const list = Array.isArray(sessions) ? sessions : [];
+  const cutoff = Date.now() - (7 * DAY_MS);
+  const last7 = list.filter(s => new Date(s.timestamp).getTime() >= cutoff);
+
   return {
-    currentStreak: calculateCurrentStreak(sevenDays),
-    sessionsPerDay: sevenDays.length > 0 ? Math.round((sevenDays.length / 7) * 10) / 10 : 0,
-    accuracyTrend: getAccuracyTrend(sevenDays),
-    practiceTrend: sevenDays.length >= 5 ? 'consistent' : 'building',
-    momentumScore: calculateMomentumScore(sevenDays)
+    currentStreak: calculateCurrentStreak(last7),
+    sessionsPerDay: last7.length > 0 ? Math.round((last7.length / 7) * 10) / 10 : 0,
+    accuracyTrend: getAccuracyTrend(last7),
+    practiceTrend: last7.length >= 5 ? 'consistent' : 'building',
+    momentumScore: calculateMomentumScore(last7.slice(-10))
   };
 }
 
-// Identity functions (strength/weakness detection)
+// Strength / weakness helpers
 function identifyStrengths(modules) {
-  return modules
-    .filter(m => m.accuracy >= 85 && m.attempts >= 10 && m.consistency >= 60)
+  return (Array.isArray(modules) ? modules : [])
+    .filter(m => (m.accuracy || 0) >= 85 && (m.attempts || 0) >= 10 && (m.consistency || 0) >= 60)
     .sort((a, b) => b.mastery - a.mastery)
     .slice(0, 3);
 }
 
 function identifyWeaknesses(modules) {
-  return modules
-    .filter(m => m.accuracy < 75 && m.attempts >= 5)
-    .sort((a, b) => a.accuracy - b.accuracy)
+  return (Array.isArray(modules) ? modules : [])
+    .filter(m => (m.accuracy || 0) < 75 && (m.attempts || 0) >= 5)
+    .sort((a, b) => (a.accuracy || 0) - (b.accuracy || 0))
     .slice(0, 3);
 }
 
 function identifyMasteryZones(modules) {
-  return modules.filter(m => m.mastery >= 90 && m.attempts >= 20);
+  return (Array.isArray(modules) ? modules : []).filter(m => (m.mastery || 0) >= 90 && (m.attempts || 0) >= 20);
 }
 
 function identifyGrowthOpportunities(modules, patterns) {
-  return modules
-    .filter(m => 
-      m.accuracy >= 75 && 
-      m.accuracy < 90 && 
-      m.consistency >= 50 &&
-      m.trend > 0
-    )
-    .sort((a, b) => (b.trend * b.consistency) - (a.trend * a.consistency))
+  return (Array.isArray(modules) ? modules : [])
+    .filter(m => (m.accuracy || 0) >= 75 && (m.accuracy || 0) < 90 && (m.consistency || 0) >= 50 && (Number(m.trend) || 0) > 0)
+    .sort((a, b) => ((Number(b.trend) || 0) * (b.consistency || 0)) - ((Number(a.trend) || 0) * (a.consistency || 0)))
     .slice(0, 5);
 }
 
-// Statistical helper functions
+// Stats math
 function calculateLinearTrend(data) {
-  if (data.length < 2) return 0;
-  
+  if (!Array.isArray(data) || data.length < 2) return 0;
+
   const n = data.length;
-  const sumX = data.reduce((sum, d) => sum + d.x, 0);
-  const sumY = data.reduce((sum, d) => sum + d.y, 0);
-  const sumXY = data.reduce((sum, d) => sum + d.x * d.y, 0);
-  const sumX2 = data.reduce((sum, d) => sum + d.x * d.x, 0);
-  
-  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-  return isNaN(slope) ? 0 : slope;
+  const sumX = data.reduce((s, d) => s + (Number(d.x) || 0), 0);
+  const sumY = data.reduce((s, d) => s + (Number(d.y) || 0), 0);
+  const sumXY = data.reduce((s, d) => s + (Number(d.x) || 0) * (Number(d.y) || 0), 0);
+  const sumX2 = data.reduce((s, d) => s + Math.pow((Number(d.x) || 0), 2), 0);
+
+  const denom = (n * sumX2 - sumX * sumX);
+  if (!denom) return 0;
+
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  return Number.isFinite(slope) ? slope : 0;
 }
 
-function calculateVariance(data) {
-  if (data.length === 0) return 0;
-  const mean = average(data);
-  const squaredDiffs = data.map(x => Math.pow(x - mean, 2));
-  return average(squaredDiffs);
+function calculateVariance(arr) {
+  const a = Array.isArray(arr) ? arr : [];
+  if (a.length === 0) return 0;
+  const mean = average(a);
+  const sq = a.map(x => Math.pow((Number(x) || 0) - mean, 2));
+  return average(sq);
 }
 
 function calculateMomentum(moduleKey, timeSeriesData) {
-  // Momentum = trend * consistency
-  const moduleData = timeSeriesData.filter(d => 
-    d.module?.toLowerCase() === moduleKey.toLowerCase()
-  );
-  
+  const key = String(moduleKey || '').toLowerCase();
+  const list = Array.isArray(timeSeriesData) ? timeSeriesData : [];
+  const moduleData = list.filter(d => String(d.module || '').toLowerCase().includes(key));
+
   if (moduleData.length < 3) return 0;
-  
-  const trend = calculateLinearTrend(
-    moduleData.map((d, i) => ({ x: i, y: d.accuracy }))
-  );
-  const consistency = 100 - calculateVariance(moduleData.map(d => d.accuracy));
-  
+
+  const trend = calculateLinearTrend(moduleData.map((d, i) => ({ x: i, y: d.accuracy || 0 })));
+  const consistency = 100 - calculateVariance(moduleData.map(d => d.accuracy || 0));
   return Math.max(0, (trend * consistency) / 100);
 }
 
-function calculateMastery(accuracy, attempts, recentAccuracy) {
-  // Mastery score considers: accuracy, volume, consistency
-  const accuracyScore = accuracy;
+function calculateMastery(acc, attempts, recentAcc) {
+  const accuracyScore = acc;
   const volumeScore = Math.min(100, (attempts / 50) * 100);
-  const consistencyScore = recentAccuracy >= accuracy - 5 ? 100 : 50;
-  
-  return Math.round(
-    accuracyScore * 0.5 + 
-    volumeScore * 0.25 + 
-    consistencyScore * 0.25
-  );
+  const consistencyScore = recentAcc >= (acc - 5) ? 100 : 50;
+  return Math.round(accuracyScore * 0.5 + volumeScore * 0.25 + consistencyScore * 0.25);
 }
 
 function calculateConsistency(sessions) {
-  if (sessions.length < 3) return 50;
-  const accuracies = sessions.map(s => s.accuracy || 0);
-  const variance = calculateVariance(accuracies);
-  return Math.max(0, Math.min(100, 100 - variance));
+  if (!Array.isArray(sessions) || sessions.length < 3) return 50;
+  const accs = sessions.map(s => Number(s.accuracy) || 0);
+  const v = calculateVariance(accs);
+  return Math.max(0, Math.min(100, 100 - v));
 }
 
 function calculateModuleTrend(sessions) {
-  if (sessions.length < 3) return 0;
-  return calculateLinearTrend(
-    sessions.slice(0, 10).map((s, i) => ({ x: i, y: s.accuracy || 0 }))
-  );
+  if (!Array.isArray(sessions) || sessions.length < 3) return 0;
+  const recent = sessions.slice(-10);
+  return calculateLinearTrend(recent.map((s, i) => ({ x: i, y: Number(s.accuracy) || 0 })));
 }
 
 function buildTimeSeriesData(sessions) {
-  return sessions.map((s, i) => ({
+  const list = Array.isArray(sessions) ? sessions : [];
+  return list.map((s, i) => ({
     timestamp: s.timestamp,
-    accuracy: s.accuracy || 0,
-    module: s.activity,
+    accuracy: Number(s.accuracy) || 0,
+    module: s.activity || '',
     index: i
   }));
 }
 
-function calculatePredictionConfidence(timeSeriesData) {
-  if (timeSeriesData.length < 5) return 0.3;
-  if (timeSeriesData.length < 10) return 0.6;
-  
-  const consistency = 100 - calculateVariance(timeSeriesData.map(d => d.accuracy));
-  return Math.min(0.95, consistency / 100);
+function calculateMomentumScore(sessions) {
+  if (!Array.isArray(sessions) || sessions.length < 3) return 0;
+  const trend = calculateLinearTrend(sessions.map((s, i) => ({ x: i, y: Number(s.accuracy) || 0 })));
+  const consistency = calculateConsistency(sessions);
+  return Math.round(Math.max(0, (trend * 10 + consistency) / 2));
 }
 
-function calculateDataStability(sessions) {
-  const recentVariance = calculateVariance(
-    sessions.slice(0, 10).map(s => s.accuracy || 0)
-  );
-  return recentVariance < 100 ? 'stable' : recentVariance < 200 ? 'moderate' : 'volatile';
-}
-
-// Formatting helpers
+// Formatting
 function formatModuleName(name) {
-  return name.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();
+  return String(name)
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, s => s.toUpperCase())
+    .trim();
 }
 
 function formatDuration(ms) {
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
+  const t = Number(ms) || 0;
+  const h = Math.floor(t / 3600000);
+  const m = Math.floor((t % 3600000) / 60000);
+  const s = Math.floor((t % 60000) / 1000);
   return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
 function formatTimeRange(hour) {
-  const start = hour % 12 || 12;
-  const end = (hour + 1) % 12 || 12;
-  const startPeriod = hour < 12 ? 'AM' : 'PM';
-  const endPeriod = (hour + 1) < 12 ? 'AM' : 'PM';
+  const h = Number(hour) || 0;
+  const start = h % 12 || 12;
+  const end = (h + 1) % 12 || 12;
+  const startPeriod = h < 12 ? 'AM' : 'PM';
+  const endPeriod = (h + 1) < 12 ? 'AM' : 'PM';
   return `${start}${startPeriod}-${end}${endPeriod}`;
 }
 
+// Streak / trend helpers
 function calculateCurrentStreak(sessions) {
-  let streak = 0;
+  const list = Array.isArray(sessions) ? sessions : [];
   const today = new Date().toDateString();
-  
-  const uniqueDays = [...new Set(sessions.map(s => 
-    new Date(s.timestamp).toDateString()
-  ))].sort((a, b) => new Date(b) - new Date(a));
-  
+
+  const uniqueDays = [...new Set(list.map(s => new Date(s.timestamp).toDateString()))]
+    .sort((a, b) => new Date(b) - new Date(a));
+
   if (uniqueDays.length === 0) return 0;
   if (uniqueDays[0] !== today) return 0;
-  
-  streak = 1;
+
+  let streak = 1;
   for (let i = 1; i < uniqueDays.length; i++) {
-    const current = new Date(uniqueDays[i]);
-    const previous = new Date(uniqueDays[i - 1]);
-    const dayDiff = Math.floor((previous - current) / (24 * 60 * 60 * 1000));
-    
-    if (dayDiff === 1) {
-      streak++;
-    } else {
-      break;
-    }
+    const cur = new Date(uniqueDays[i]);
+    const prev = new Date(uniqueDays[i - 1]);
+    const diff = Math.floor((prev - cur) / DAY_MS);
+    if (diff === 1) streak += 1;
+    else break;
   }
-  
-  return Math.max(1, streak);
+  return streak;
 }
 
 function getAccuracyTrend(sessions) {
-  if (sessions.length < 5) return 'stable';
-  
-  const recent = sessions.slice(0, 5).map(s => s.accuracy || 0);
-  const earlier = sessions.slice(5, 10).map(s => s.accuracy || 0);
-  
-  const recentAvg = average(recent);
-  const earlierAvg = average(earlier);
-  
-  if (recentAvg > earlierAvg + 5) return 'improving';
-  if (recentAvg < earlierAvg - 5) return 'declining';
+  const list = Array.isArray(sessions) ? sessions : [];
+  if (list.length < 5) return 'stable';
+
+  const recent = list.slice(-5).map(s => Number(s.accuracy) || 0);
+  const earlier = list.slice(-10, -5).map(s => Number(s.accuracy) || 0);
+
+  const rAvg = average(recent);
+  const eAvg = average(earlier);
+
+  if (rAvg > eAvg + 5) return 'improving';
+  if (rAvg < eAvg - 5) return 'declining';
   return 'stable';
 }
 
-function calculateMomentumScore(sessions) {
-  if (sessions.length < 3) return 0;
-  
-  const trend = calculateLinearTrend(
-    sessions.slice(0, 10).map((s, i) => ({ x: i, y: s.accuracy || 0 }))
-  );
-  const consistency = calculateConsistency(sessions);
-  
-  return Math.round(Math.max(0, (trend * 10 + consistency) / 2));
-}
-
 function calculateImprovement(data) {
-  const recent = accuracy(data.recentCorrect || 0, data.recentTotal || 1);
-  const overall = accuracy(data.correct, data.total);
+  const recent = H.accuracy(data.recentCorrect || 0, data.recentTotal || 1);
+  const overall = H.accuracy(data.correct || 0, data.total || 0);
   return Math.round(recent - overall);
 }
 
-// Classification helpers
+// Categorization / recommendations
 function classifyModuleType(module) {
-  const moduleLower = module.toLowerCase();
-  if (moduleLower.includes('ear') || moduleLower.includes('interval')) return 'auditory';
-  if (moduleLower.includes('fingerboard') || moduleLower.includes('note')) return 'visual';
-  if (moduleLower.includes('bieler') || moduleLower.includes('rhythm')) return 'kinesthetic';
+  const m = String(module || '').toLowerCase();
+  if (m.includes('ear') || m.includes('interval')) return 'auditory';
+  if (m.includes('fingerboard') || m.includes('note')) return 'visual';
+  if (m.includes('bieler') || m.includes('rhythm')) return 'kinesthetic';
   return 'balanced';
 }
 
 function getStyleRecommendation(style) {
-  const recommendations = {
+  const map = {
     auditory: 'Leverage ear training modules and singing practice',
-    visual: 'Use fingerboard diagrams and music notation extensively',
-    kinesthetic: 'Focus on Bieler technique and physical practice',
-    balanced: 'Continue multi-sensory approach for best results'
+    visual: 'Use fingerboard diagrams and notation-based drills',
+    kinesthetic: 'Emphasize Bieler technique and rhythm-in-motion practice',
+    balanced: 'Continue a multi-sensory mix for best results'
   };
-  return recommendations[style] || recommendations.balanced;
+  return map[style] || map.balanced;
 }
 
 function getAlternativePracticeMethod(moduleKey) {
+  const key = String(moduleKey || '').toLowerCase();
   const alternatives = {
-    'intervalear': 'melodic recognition with singing',
-    'rhythm': 'clapping exercises with metronome',
-    'fingerboard': 'position shifts and string crossing',
-    'bieler': 'slow practice with mirror feedback',
-    'keys': 'circle of fifths visualization'
+    intervalear: 'melodic recognition + singing back intervals',
+    rhythm: 'clap + count with metronome subdivisions',
+    fingerboard: 'position mapping drills + guided shifting',
+    bieler: 'slow-motion reps + mirror feedback',
+    keys: 'circle-of-fifths quick recall + tonic/dominant mapping'
   };
-  return alternatives[moduleKey] || 'varied tempo and context practice';
+  return alternatives[key] || 'vary tempo, context, and spacing';
 }
 
-// Stub functions for complex ML operations (implement as needed)
-function identifyPreferredPracticeTime(sessions) {
-  const hourCounts = sessions.reduce((acc, s) => {
-    const hour = new Date(s.timestamp).getHours();
-    acc[hour] = (acc[hour] || 0) + 1;
-    return acc;
-  }, {});
-  
-  const topHour = Object.entries(hourCounts)
-    .sort((a, b) => b[1] - a[1])[0];
-  
-  return topHour ? formatTimeRange(parseInt(topHour[0])) : 'Variable';
-}
-
-function calculateSessionDistribution(sessions) {
-  return {
-    morning: sessions.filter(s => new Date(s.timestamp).getHours() < 12).length,
-    afternoon: sessions.filter(s => {
-      const h = new Date(s.timestamp).getHours();
-      return h >= 12 && h < 17;
-    }).length,
-    evening: sessions.filter(s => new Date(s.timestamp).getHours() >= 17).length
-  };
-}
-
+// Session grouping / habit analysis
 function groupSessionsByDay(sessions) {
-  return sessions.reduce((acc, s) => {
+  return (Array.isArray(sessions) ? sessions : []).reduce((acc, s) => {
     const day = new Date(s.timestamp).toDateString();
     if (!acc[day]) acc[day] = [];
     acc[day].push(s);
@@ -1179,159 +1111,209 @@ function groupSessionsByDay(sessions) {
   }, {});
 }
 
+function identifyPreferredPracticeTime(sessions) {
+  const counts = (Array.isArray(sessions) ? sessions : []).reduce((acc, s) => {
+    const hour = new Date(s.timestamp).getHours();
+    acc[hour] = (acc[hour] || 0) + 1;
+    return acc;
+  }, {});
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  return top ? formatTimeRange(parseInt(top[0], 10)) : 'Variable';
+}
+
+function calculateSessionDistribution(sessions) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  return {
+    morning: list.filter(s => new Date(s.timestamp).getHours() < 12).length,
+    afternoon: list.filter(s => {
+      const h = new Date(s.timestamp).getHours();
+      return h >= 12 && h < 17;
+    }).length,
+    evening: list.filter(s => new Date(s.timestamp).getHours() >= 17).length
+  };
+}
+
 function identifyOptimalSessionLength(sessions) {
-  const sessionsByDuration = sessions
-    .filter(s => s.qualityScore >= 70)
+  const buckets = (Array.isArray(sessions) ? sessions : [])
+    .filter(s => (s.qualityScore || 0) >= 70)
     .reduce((acc, s) => {
-      const duration = Math.floor((s.engagedMs || 0) / 60000 / 5) * 5; // 5-min buckets
-      acc[duration] = (acc[duration] || 0) + 1;
+      const minutes = Math.floor((s.engagedMs || 0) / 60000);
+      const bucket = Math.floor(minutes / 5) * 5;
+      acc[bucket] = (acc[bucket] || 0) + 1;
       return acc;
     }, {});
-  
-  const optimal = Object.entries(sessionsByDuration)
-    .sort((a, b) => b[1] - a[1])[0];
-  
-  return optimal ? `${optimal[0]} minutes` : '20-25 minutes';
+  const best = Object.entries(buckets).sort((a, b) => b[1] - a[1])[0];
+  return best ? `${best[0]} minutes` : '20-25 minutes';
 }
 
 function identifyDistractionTriggers(sessions) {
-  const lowFocusSessions = sessions.filter(s => (s.focusScore || 1.0) < 0.7);
-  
+  const list = Array.isArray(sessions) ? sessions : [];
+  const lowFocus = list.filter(s => (s.focusScore || 1.0) < 0.7);
   return {
-    count: lowFocusSessions.length,
-    avgDuration: average(lowFocusSessions.map(s => (s.engagedMs || 0) / 60000)),
-    commonTimes: identifyCommonDistractionTimes(lowFocusSessions)
+    count: lowFocus.length,
+    avgDuration: H.average(lowFocus.map(s => (s.engagedMs || 0) / 60000)),
+    commonTimes: identifyCommonDistractionTimes(lowFocus)
   };
 }
 
 function identifyCommonDistractionTimes(sessions) {
-  const hours = sessions.map(s => new Date(s.timestamp).getHours());
-  const hourCounts = hours.reduce((acc, h) => {
+  const counts = (Array.isArray(sessions) ? sessions : []).reduce((acc, s) => {
+    const h = new Date(s.timestamp).getHours();
     acc[h] = (acc[h] || 0) + 1;
     return acc;
   }, {});
-  
-  return Object.entries(hourCounts)
-    .filter(([_, count]) => count >= 2)
-    .map(([hour, _]) => formatTimeRange(parseInt(hour)));
+  return Object.entries(counts)
+    .filter(([_, c]) => c >= 2)
+    .map(([h]) => formatTimeRange(parseInt(h, 10)));
 }
 
+// Error analysis stubs (implemented minimally)
 function identifySystematicErrors(modules) {
-  return modules
-    .filter(([_, data]) => data.total >= 10 && accuracy(data.correct, data.total) < 70)
-    .map(([module, _]) => formatModuleName(module))
+  return (Array.isArray(modules) ? modules : [])
+    .filter(([_, data]) => (data?.total || 0) >= 10 && H.accuracy(data.correct, data.total) < 70)
+    .map(([module]) => formatModuleName(module))
     .slice(0, 3);
 }
 
 function identifyErrorClusters(stats) {
-  // Implement error clustering logic
+  // Placeholder: could be expanded using confusionMatrix
   return [];
 }
 
 function identifyConceptualGaps(modules) {
-  return modules
-    .filter(([_, data]) => 
-      data.total >= 15 && 
-      accuracy(data.correct, data.total) < 65 &&
-      accuracy(data.recentCorrect || 0, data.recentTotal || 1) < 70
+  return (Array.isArray(modules) ? modules : [])
+    .filter(([_, data]) =>
+      (data?.total || 0) >= 15 &&
+      H.accuracy(data.correct, data.total) < 65 &&
+      H.accuracy(data.recentCorrect || 0, data.recentTotal || 1) < 70
     )
-    .map(([module, _]) => formatModuleName(module))
+    .map(([module]) => formatModuleName(module))
     .slice(0, 3);
 }
 
 function calculateCorrectionRate(stats) {
-  // Simplified: ratio of recent to overall accuracy
-  const modules = Object.values(stats.byModule || {});
-  const improving = modules.filter(m => 
-    accuracy(m.recentCorrect || 0, m.recentTotal || 1) > accuracy(m.correct, m.total)
+  const mods = Object.values(stats?.byModule || {});
+  const improving = mods.filter(m =>
+    H.accuracy(m.recentCorrect || 0, m.recentTotal || 1) > H.accuracy(m.correct || 0, m.total || 0)
   ).length;
-  
-  return modules.length > 0 ? Math.round((improving / modules.length) * 100) : 0;
+  return mods.length > 0 ? Math.round((improving / mods.length) * 100) : 0;
 }
 
+// Cognitive / deliberate practice
 function assessCognitiveLoad(sessions, stats) {
-  const recentSessions = sessions.slice(0, 10);
-  const avgAccuracy = average(recentSessions.map(s => s.accuracy || 0));
-  const avgFocus = average(recentSessions.map(s => s.focusScore || 0.5));
-  
+  const list = Array.isArray(sessions) ? sessions : [];
+  const recent = list.slice(-10);
+  const avgAcc = H.average(recent.map(s => s.accuracy || 0));
+  const avgFocus = H.average(recent.map(s => s.focusScore || 0.5));
+
   let level = 'optimal';
-  if (avgAccuracy < 60 && avgFocus < 0.6) level = 'high';
-  else if (avgAccuracy > 90 && avgFocus > 0.9) level = 'low';
-  
+  if (avgAcc < 60 && avgFocus < 0.6) level = 'high';
+  else if (avgAcc > 90 && avgFocus > 0.9) level = 'low';
+
   return {
     level,
-    score: Math.round((avgAccuracy + avgFocus * 100) / 2),
-    recommendation: level === 'high' 
-      ? 'Reduce difficulty or take breaks'
+    score: Math.round((avgAcc + avgFocus * 100) / 2),
+    recommendation: level === 'high'
+      ? 'Reduce difficulty or shorten sessions; prioritize accuracy first.'
       : level === 'low'
-      ? 'Increase challenge level'
-      : 'Perfect balance - maintain current approach'
+      ? 'Increase challenge slightly; add speed or complexity constraints.'
+      : 'Maintain current challenge level—this is a strong learning zone.'
   };
 }
 
 function assessDeliberatePractice(sessions) {
-  const deliberateIndicators = sessions.filter(s => 
-    (s.focusScore || 0) > 0.8 && 
+  const list = Array.isArray(sessions) ? sessions : [];
+  const deliberate = list.filter(s =>
+    (s.focusScore || 0) > 0.8 &&
     (s.qualityScore || 0) > 70 &&
     (s.engagedMs || 0) >= 15 * 60000
   );
-  
   return {
-    frequency: sessions.length > 0 ? Math.round((deliberateIndicators.length / sessions.length) * 100) : 0,
-    quality: average(deliberateIndicators.map(s => s.qualityScore || 50))
+    frequency: list.length > 0 ? Math.round((deliberate.length / list.length) * 100) : 0,
+    quality: H.average(deliberate.map(s => s.qualityScore || 50))
   };
 }
 
+// Transfer efficiency / correlations
 function measureTransferEfficiency(stats) {
-  // Measure how well skills transfer between modules
-  const correlations = calculateModuleCorrelations(Object.entries(stats.byModule || {}));
-  const positiveTransfers = correlations.filter(c => c.correlation > 0.5);
-  
+  const pairs = calculateModuleCorrelationsFromStats(stats);
+  const positive = pairs.filter(c => c.correlation > 0.5);
   return {
-    efficiency: positiveTransfers.length > 0 ? Math.round(average(positiveTransfers.map(c => c.correlation)) * 100) : 0,
-    connections: positiveTransfers.length
+    efficiency: positive.length > 0 ? Math.round(H.average(positive.map(c => c.correlation)) * 100) : 0,
+    connections: positive.length
   };
 }
 
-function calculateModuleCorrelations(modules) {
-  // Simplified correlation calculation
+function calculateModuleCorrelationsFromStats(stats) {
+  const by = stats?.byModule || {};
+  const entries = Object.entries(by);
   const correlations = [];
-  
-  for (let i = 0; i < modules.length; i++) {
-    for (let j = i + 1; j < modules.length; j++) {
-      const [mod1, data1] = modules[i];
-      const [mod2, data2] = modules[j];
-      
-      const acc1 = accuracy(data1.correct, data1.total);
-      const acc2 = accuracy(data2.correct, data2.total);
-      
-      // Simple correlation proxy
-      const correlation = 1 - Math.abs(acc1 - acc2) / 100;
-      
-      if (correlation > 0.4) {
+
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = i + 1; j < entries.length; j++) {
+      const [m1, d1] = entries[i];
+      const [m2, d2] = entries[j];
+
+      const a1 = H.accuracy(d1.correct, d1.total);
+      const a2 = H.accuracy(d2.correct, d2.total);
+      const corr = 1 - Math.abs(a1 - a2) / 100;
+
+      if (corr > 0.4) {
         correlations.push({
-          module1: formatModuleName(mod1),
-          module2: formatModuleName(mod2),
-          correlation: Math.round(correlation * 100) / 100
+          module1: formatModuleName(m1),
+          module2: formatModuleName(m2),
+          correlation: Math.round(corr * 100) / 100
         });
       }
     }
   }
-  
   return correlations;
 }
 
+function calculateModuleCorrelationsFromModules(modules) {
+  const list = Array.isArray(modules) ? modules : [];
+  const correlations = [];
+
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i];
+      const b = list[j];
+      const accA = Number(a.accuracy) || 0;
+      const accB = Number(b.accuracy) || 0;
+
+      // This is a light proxy; deep correlations would require item-level data.
+      const corr = 1 - Math.abs(accA - accB) / 100;
+
+      correlations.push({
+        module1: a.module,
+        module2: b.module,
+        correlation: Math.round(corr * 100) / 100
+      });
+    }
+  }
+
+  return correlations;
+}
+
+function generateTransferRecommendations(correlations) {
+  return (Array.isArray(correlations) ? correlations : [])
+    .filter(c => c.correlation > 0.6)
+    .slice(0, 3)
+    .map(c => `Practice ${c.module1} and ${c.module2} together to reinforce shared patterns`);
+}
+
+// Optimization helpers
 function calculateIdealSessionDuration(sessions) {
-  const highQuality = sessions.filter(s => (s.qualityScore || 0) >= 75);
-  if (highQuality.length === 0) return '20-25 minutes';
-  
-  const avgDuration = average(highQuality.map(s => (s.engagedMs || 0) / 60000));
-  return `${Math.round(avgDuration / 5) * 5}-${Math.round(avgDuration / 5) * 5 + 5} minutes`;
+  const list = Array.isArray(sessions) ? sessions : [];
+  const high = list.filter(s => (s.qualityScore || 0) >= 75);
+  if (high.length === 0) return '20-25 minutes';
+  const avgMin = H.average(high.map(s => (s.engagedMs || 0) / 60000));
+  const base = Math.round(avgMin / 5) * 5;
+  return `${base}-${base + 5} minutes`;
 }
 
 function calculateIdealFrequency(sessions, patterns) {
   const consistency = patterns?.practiceHabits?.consistency || 50;
-  
   if (consistency >= 80) return '6-7 days/week (excellent)';
   if (consistency >= 60) return '5-6 days/week (good)';
   if (consistency >= 40) return '4-5 days/week (building)';
@@ -1339,22 +1321,27 @@ function calculateIdealFrequency(sessions, patterns) {
 }
 
 function calculateOptimalRestDays(sessions) {
-  const weeklyAvg = sessions.length / Math.max(1, Math.ceil(
-    (Date.now() - new Date(sessions[sessions.length - 1]?.timestamp || Date.now()).getTime()) 
-    / (7 * 24 * 60 * 60 * 1000)
-  ));
-  
+  const list = Array.isArray(sessions) ? sessions : [];
+  const oldest = list[0]?.timestamp || Date.now();
+  const weeks = Math.max(1, Math.ceil((Date.now() - new Date(oldest).getTime()) / (7 * DAY_MS)));
+  const weeklyAvg = list.length / weeks;
+
   if (weeklyAvg >= 6) return ['Sunday'];
   if (weeklyAvg >= 5) return ['Sunday', 'Wednesday'];
   return ['As needed'];
 }
 
 function generateIntensityProfile(sessions) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  const high = list.filter(s => (s.qualityScore || 0) >= 80).length;
+  const med = list.filter(s => (s.qualityScore || 0) >= 60 && (s.qualityScore || 0) < 80).length;
+  const low = list.filter(s => (s.qualityScore || 0) < 60).length;
+
   return {
-    high: sessions.filter(s => (s.qualityScore || 0) >= 80).length,
-    medium: sessions.filter(s => (s.qualityScore || 0) >= 60 && (s.qualityScore || 0) < 80).length,
-    low: sessions.filter(s => (s.qualityScore || 0) < 60).length,
-    recommendation: 'Mix 60% high, 30% medium, 10% low intensity sessions'
+    high,
+    medium: med,
+    low,
+    recommendation: 'Aim for ~60% high quality, 30% medium, 10% light sessions'
   };
 }
 
@@ -1371,140 +1358,94 @@ function generateWeeklyRotation(patterns) {
 }
 
 function identifyTransferOpportunities(modules) {
-  const opportunities = [];
-  
-  // Example: If intervals are strong, try ear training
-  const intervalsStrong = modules.find(m => 
-    m.moduleKey === 'intervals' && m.accuracy >= 85
-  );
-  const earTrainingWeak = modules.find(m => 
-    m.moduleKey === 'intervalear' && m.accuracy < 75
-  );
-  
-  if (intervalsStrong && earTrainingWeak) {
-    opportunities.push({
+  const ops = [];
+  const intervalsStrong = modules.find(m => m.moduleKey === 'intervals' && (m.accuracy || 0) >= 85);
+  const earWeak = modules.find(m => m.moduleKey === 'intervalear' && (m.accuracy || 0) < 75);
+
+  if (intervalsStrong && earWeak) {
+    ops.push({
       type: 'skill-transfer',
       module: 'Interval Ear Training',
-      currentLevel: earTrainingWeak.accuracy,
-      recommendation: 'Apply interval reading skills to ear training',
+      currentLevel: earWeak.accuracy,
+      recommendation: 'Apply interval-reading mastery to ear training: name + sing + identify.',
       effort: 'medium',
       impact: 'high'
     });
   }
-  
-  return opportunities;
+  return ops;
 }
 
-function calculateShortTermRetention(stats) {
-  // Implement short-term retention calculation
-  return 85; // Placeholder
-}
-
-function calculateMediumTermRetention(stats) {
-  return 75; // Placeholder
-}
-
-function calculateLongTermRetention(stats) {
-  return 65; // Placeholder
-}
-
+// Retention placeholders (kept, but coherent)
+function calculateShortTermRetention(stats) { return 85; }
+function calculateMediumTermRetention(stats) { return 75; }
+function calculateLongTermRetention(stats) { return 65; }
 function estimateForgettingCurve(stats) {
-  return {
-    day1: 100,
-    day7: 85,
-    day30: 70,
-    day90: 60
-  };
+  return { day1: 100, day7: 85, day30: 70, day90: 60 };
 }
 
 function identifyConsolidatedSkills(modules) {
-  return modules
-    .filter(m => m.mastery >= 90 && m.attempts >= 30)
+  return (Array.isArray(modules) ? modules : [])
+    .filter(m => (m.mastery || 0) >= 90 && (m.attempts || 0) >= 30)
     .map(m => m.module);
 }
 
 function identifyVolatileSkills(modules) {
-  return modules
-    .filter(m => m.consistency < 50 && m.attempts >= 10)
+  return (Array.isArray(modules) ? modules : [])
+    .filter(m => (m.consistency || 0) < 50 && (m.attempts || 0) >= 10)
     .map(m => m.module);
 }
 
 function calculateProjectedRetention(stats, modules, days) {
-  // Simplified projection
-  const currentAvg = average(modules.map(m => m.accuracy));
-  const decayRate = 0.002; // 0.2% per day
-  return Math.max(60, currentAvg * (1 - decayRate * days));
+  const list = Array.isArray(modules) ? modules : [];
+  const currentAvg = H.average(list.map(m => m.accuracy || 0));
+  const decayRate = 0.002;
+  return Math.max(60, currentAvg * (1 - decayRate * (Number(days) || 0)));
 }
 
 function identifyAtRiskConcepts(modules) {
-  return modules
-    .filter(m => 
-      m.accuracy >= 70 && 
-      m.accuracy < 85 && 
-      (Date.now() - (m.lastPracticed || 0)) > 7 * 24 * 60 * 60 * 1000
+  const list = Array.isArray(modules) ? modules : [];
+  return list
+    .filter(m =>
+      (m.accuracy || 0) >= 70 &&
+      (m.accuracy || 0) < 85 &&
+      (Date.now() - (m.lastPracticed || 0)) > 7 * DAY_MS
     )
     .map(m => m.module)
     .slice(0, 3);
 }
 
 function identifyStrengthenedConcepts(modules) {
-  return modules
-    .filter(m => m.improvement > 10 && m.attempts >= 10)
+  const list = Array.isArray(modules) ? modules : [];
+  return list
+    .filter(m => (m.improvement || 0) > 10 && (m.attempts || 0) >= 10)
     .map(m => ({ module: m.module, improvement: m.improvement }))
     .slice(0, 3);
 }
 
-function calculateSelfAwareness(sessions) {
-  // Placeholder: Could analyze reflection quality, goal setting
-  return 75;
-}
-
+// Metacognition placeholders
+function calculateSelfAwareness(sessions) { return 75; }
 function calculateAdaptability(sessions, stats) {
-  // Measure how quickly user adapts to challenges
-  const adaptationRate = sessions.filter((s, i) => {
-    if (i === 0) return false;
-    const prev = sessions[i - 1];
-    return prev.accuracy < 70 && s.accuracy >= 75;
-  }).length;
-  
-  return Math.min(100, (adaptationRate / Math.max(1, sessions.length)) * 500);
+  const list = Array.isArray(sessions) ? sessions : [];
+  const adapt = list.filter((s, i) => i > 0 && (list[i - 1].accuracy || 0) < 70 && (s.accuracy || 0) >= 75).length;
+  return Math.min(100, (adapt / Math.max(1, list.length)) * 500);
 }
-
-function calculateErrorCorrectionRate(stats) {
-  return calculateCorrectionRate(stats);
-}
-
+function calculateErrorCorrectionRate(stats) { return calculateCorrectionRate(stats); }
 function assessStrategicThinking(sessions) {
-  // Measure planning and strategy use
-  const strategicSessions = sessions.filter(s => 
-    (s.qualityScore || 0) > 75 && (s.engagedMs || 0) >= 20 * 60000
-  );
-  
-  return Math.round((strategicSessions.length / Math.max(1, sessions.length)) * 100);
+  const list = Array.isArray(sessions) ? sessions : [];
+  const strategic = list.filter(s => (s.qualityScore || 0) > 75 && (s.engagedMs || 0) >= 20 * 60000).length;
+  return Math.round((strategic / Math.max(1, list.length)) * 100);
 }
-
-function assessReflectionQuality(sessions) {
-  // Could integrate with journal entries or session notes
-  return 70; // Placeholder
-}
+function assessReflectionQuality(sessions) { return 70; }
 
 function calculateStyleConfidence(categoryScores) {
-  const scores = Object.values(categoryScores);
-  const max = Math.max(...scores);
-  const variance = calculateVariance(scores);
-  
-  return variance < 100 ? 'low' : variance < 400 ? 'medium' : 'high';
-}
-
-function generateTransferRecommendations(correlations) {
-  return correlations
-    .filter(c => c.correlation > 0.6)
-    .map(c => `Practice ${c.module1} and ${c.module2} together`)
-    .slice(0, 3);
+  const scores = Object.values(categoryScores || {});
+  if (scores.length === 0) return 'low';
+  const v = calculateVariance(scores);
+  return v < 100 ? 'low' : v < 400 ? 'medium' : 'high';
 }
 
 // ======================================
-// 🎯 STATS UPDATE (Enhanced with ML)
+// 🎯 STATS UPDATE (Public)
 // ======================================
 
 /**
@@ -1512,18 +1453,17 @@ function generateTransferRecommendations(correlations) {
  */
 export function updateStats(module, isCorrect, responseTime = 0, sessionData = {}) {
   const stats = loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats());
-  
-  // Global
+  const modKey = String(module || 'unknown');
+
   stats.total += 1;
   stats.correct += isCorrect ? 1 : 0;
-  
-  // Module (production optimized + ML tracking)
-  if (!stats.byModule[module]) {
-    stats.byModule[module] = { 
-      correct: 0, 
-      total: 0, 
-      avgResponseTime: 0, 
-      recentCorrect: 0, 
+
+  if (!stats.byModule[modKey]) {
+    stats.byModule[modKey] = {
+      correct: 0,
+      total: 0,
+      avgResponseTime: 0,
+      recentCorrect: 0,
       recentTotal: 0,
       lastPracticed: Date.now(),
       difficulty: 'medium',
@@ -1531,89 +1471,98 @@ export function updateStats(module, isCorrect, responseTime = 0, sessionData = {
       improvementRate: []
     };
   }
-  
-  const mod = stats.byModule[module];
+
+  const mod = stats.byModule[modKey];
   mod.total += 1;
   mod.correct += isCorrect ? 1 : 0;
   mod.lastPracticed = Date.now();
-  
-  // Running avg (last 20)
+
+  // Recent window (last 20 attempts heuristic)
   mod.recentTotal += 1;
   mod.recentCorrect += isCorrect ? 1 : 0;
   if (mod.recentTotal > 20) {
+    // Keep length 20 by decrementing best-effort; exact window would require a ring buffer.
     mod.recentTotal = 20;
     mod.recentCorrect = Math.max(0, mod.recentCorrect - (isCorrect ? 0 : 1));
   }
-  
-  // Response time (exponential moving average)
-  mod.avgResponseTime = mod.avgResponseTime 
-    ? (mod.avgResponseTime * 0.9 + responseTime * 0.1)
-    : responseTime;
-  
-  // Track improvement rate
-  if (!mod.improvementRate) mod.improvementRate = [];
-  mod.improvementRate.push({
-    timestamp: Date.now(),
-    accuracy: accuracy(mod.correct, mod.total)
-  });
+
+  // EMA for response time
+  const rt = Number(responseTime) || 0;
+  mod.avgResponseTime = mod.avgResponseTime
+    ? (mod.avgResponseTime * 0.9 + rt * 0.1)
+    : rt;
+
+  // Improvement history (bounded)
+  if (!Array.isArray(mod.improvementRate)) mod.improvementRate = [];
+  mod.improvementRate.push({ timestamp: Date.now(), accuracy: H.accuracy(mod.correct, mod.total) });
   if (mod.improvementRate.length > 50) mod.improvementRate.shift();
-  
-  // Daily
+
+  // Daily counts
   const today = new Date().toDateString();
   stats.daily[today] = (stats.daily[today] || 0) + 1;
-  
-  // Learning velocity tracking
-  if (!stats.learningVelocity) stats.learningVelocity = [];
+
+  // Learning velocity (bounded)
+  if (!Array.isArray(stats.learningVelocity)) stats.learningVelocity = [];
   stats.learningVelocity.push({
     timestamp: Date.now(),
-    module,
-    isCorrect,
-    responseTime,
-    currentAccuracy: accuracy(mod.correct, mod.total)
+    module: modKey,
+    isCorrect: !!isCorrect,
+    responseTime: rt,
+    currentAccuracy: H.accuracy(mod.correct, mod.total)
   });
   if (stats.learningVelocity.length > 100) stats.learningVelocity.shift();
-  
+
   saveJSON(STORAGE_KEYS.ANALYTICS, stats);
-  
-  // Live session tracking
-  sessionTracker.trackAnswer(module, isCorrect, responseTime, sessionData);
-  
+
+  // Live session tracking: guard if sessionTracker API differs
+  try {
+    sessionTracker?.trackAnswer?.(module, isCorrect, responseTime, sessionData);
+  } catch {
+    safeTrack('answer', 'record', { module, isCorrect, responseTime });
+  }
+
   return stats;
 }
 
 // ======================================
-// 🎯 QUICK STATS (Dashboard live)
+// 🎯 QUICK STATS (Public)
 // ======================================
 
 export function getQuickStat(type) {
-  const stats = loadJSON(STORAGE_KEYS.ANALYTICS, {});
+  const stats = loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats());
+
   switch (type) {
-    case 'accuracy': 
-      return accuracy(stats.correct, stats.total);
-    case 'sessions': 
+    case 'accuracy':
+      return H.accuracy(stats.correct, stats.total);
+
+    case 'sessions':
       return stats.total || 0;
+
     case 'consistency': {
       const sessions = loadJSON(STORAGE_KEYS.JOURNAL, []);
-      const days = Math.max(1, Math.ceil(
-        (Date.now() - new Date(sessions[sessions.length - 1]?.timestamp || Date.now()).getTime()) 
-        / (24 * 60 * 60 * 1000)
-      ));
-      const uniqueDays = new Set(sessions.map(s => new Date(s.timestamp).toDateString())).size;
+      const list = Array.isArray(sessions) ? sessions : [];
+      const oldest = list[0]?.timestamp || Date.now();
+      const days = Math.max(1, Math.ceil((Date.now() - new Date(oldest).getTime()) / DAY_MS));
+      const uniqueDays = new Set(list.map(s => new Date(s.timestamp).toDateString())).size;
       return Math.min(100, Math.round((uniqueDays / days) * 100));
     }
-    case 'streak': 
-      return stats.streaks?.current || 1;
+
+    case 'streak':
+      return safeGet(stats, 'streaks.current', 0) || 0;
+
     case 'momentum': {
       const sessions = loadJSON(STORAGE_KEYS.JOURNAL, []);
-      return calculateMomentumScore(sessions.slice(0, 10));
+      const list = Array.isArray(sessions) ? sessions : [];
+      return calculateMomentumScore(list.slice(-10));
     }
-    default: 
+
+    default:
       return 0;
   }
 }
 
 // ======================================
-// 🎯 EXPORT (DataManager)
+// 🎯 EXPORT (Public)
 // ======================================
 
 export function exportAnalytics() {
@@ -1623,13 +1572,15 @@ export function exportAnalytics() {
     includeOptimization: true,
     includeBreakthrough: true
   });
-  
+
   return {
     version: '3.0',
     timestamp: Date.now(),
     ...analysis,
-    rawStats: loadJSON(STORAGE_KEYS.ANALYTICS, {}),
-    mlMeta {
+    rawStats: loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats()),
+
+    // ✅ FIXED: colon added (fatal syntax bug removed)
+    mlMeta: {
       predictionsEnabled: true,
       patternsDetected: true,
       optimizationActive: true
@@ -1637,7 +1588,10 @@ export function exportAnalytics() {
   };
 }
 
-// Export all public functions
+// ======================================
+// Default export (keeps prior API shape)
+// ======================================
+
 export default {
   analyzePerformance,
   updateStats,
