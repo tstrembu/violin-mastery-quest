@@ -1,3 +1,4 @@
+// js/components/Welcome.js
 // ======================================
 // VMQ ONBOARDING v3.0 - ML-Powered Smart Start
 // Seeds: Coach, Analytics, Difficulty, Gamification
