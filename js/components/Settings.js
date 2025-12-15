@@ -1,6 +1,6 @@
 // js/components/Settings.js
 // ========================================================
-// VMQ SETTINGS v2.0.5 - Theme, Accessibility, Smart Difficulty
+// VMQ SETTINGS v2.1.5 - Theme, Accessibility, Smart Difficulty
 // (Drop-in replacement: removes dependency on undefined storage helpers)
 // ========================================================
 
@@ -8,29 +8,37 @@ import {
   STORAGE_KEYS,
   loadJSON,
   saveJSON,
-  clearAll,
-  exportData as exportAllData,
-  isStorageAvailable
+  storage,          // <-- exported in your storage.js
+  cleanupAllData    // <-- exported in your storage.js
 } from '../config/storage.js';
 
 import { setDifficulty, DIFFICULTY_SETTINGS } from '../engines/difficultyAdapter.js';
 import { PROFILE_TYPES } from '../config/constants.js';
 
-// React (global in index.html)
 const { createElement: h, useState, useEffect, useMemo } = React;
 
-// --------------------------
-// Storage key helpers
-// --------------------------
-const KEY = (name, fallback) => (STORAGE_KEYS && STORAGE_KEYS[name]) ? STORAGE_KEYS[name] : fallback;
+// Canonical keys only (let storage.js handle legacy migration/candidates)
+const KEY_PROFILE      = STORAGE_KEYS.PROFILE;
+const KEY_SETTINGS     = STORAGE_KEYS.SETTINGS;
+const KEY_DIFFICULTY   = STORAGE_KEYS.DIFFICULTY;
+const KEY_ACHIEVEMENTS = STORAGE_KEYS.ACHIEVEMENTS;
+const KEY_STATS        = STORAGE_KEYS.STATS;
+const KEY_ANALYTICS    = STORAGE_KEYS.ANALYTICS;
 
-const KEY_PROFILE       = KEY('PROFILE',       'vmq_profile');
-const KEY_SETTINGS      = KEY('SETTINGS',      'vmq_settings');
-const KEY_DIFFICULTY    = KEY('DIFFICULTY',    'vmq_difficulty');
-const KEY_GAMIFICATION  = KEY('GAMIFICATION',  'vmq_gamification');
-const KEY_ACHIEVEMENTS  = KEY('ACHIEVEMENTS',  'vmq_achievements');
-const KEY_STATS         = KEY('STATS',         'vmq_stats');
-const KEY_ANALYTICS     = KEY('ANALYTICS',     'vmq_analytics');
+const KEY_XP     = STORAGE_KEYS.XP;
+const KEY_STREAK = STORAGE_KEYS.STREAK;
+
+// Local helper (since isStorageAvailable is not exported in your storage.js)
+function isStorageAvailableSafe() {
+  try {
+    const k = '__vmq_storage_test__';
+    localStorage.setItem(k, '1');
+    localStorage.removeItem(k);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // --------------------------
 // Defaults
