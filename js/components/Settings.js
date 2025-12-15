@@ -1,23 +1,29 @@
 // js/components/Settings.js
 // ========================================================
-// VMQ SETTINGS v2.1.5 - Theme, Accessibility, Smart Difficulty
-// (Drop-in replacement: removes dependency on undefined storage helpers)
+// VMQ SETTINGS v2.1.6 - Theme, Accessibility, Smart Difficulty
+// ✅ Drop-in replacement
+// ✅ Uses canonical STORAGE_KEYS only (storage.js handles legacy + migration)
+// ✅ No undefined identifiers (KEY_GAMIFICATION, KEY(), etc. removed)
+// ✅ Export + Reset use storage engine when available
+// ✅ Safe in private-mode / blocked storage
 // ========================================================
 
 import {
   STORAGE_KEYS,
   loadJSON,
   saveJSON,
-  storage,          // <-- exported in your storage.js
-  cleanupAllData    // <-- exported in your storage.js
+  storage,            // exported in storage.js
+  cleanupAllData,     // exported in storage.js (alias to clearAll)
+  isStorageAvailable  // exported in storage.js
 } from '../config/storage.js';
 
 import { setDifficulty, DIFFICULTY_SETTINGS } from '../engines/difficultyAdapter.js';
 import { PROFILE_TYPES } from '../config/constants.js';
 
+// React (global in index.html)
 const { createElement: h, useState, useEffect, useMemo } = React;
 
-// Canonical keys only (let storage.js handle legacy migration/candidates)
+// Canonical keys only (storage.js handles legacy candidates/migration)
 const KEY_PROFILE      = STORAGE_KEYS.PROFILE;
 const KEY_SETTINGS     = STORAGE_KEYS.SETTINGS;
 const KEY_DIFFICULTY   = STORAGE_KEYS.DIFFICULTY;
@@ -28,21 +34,6 @@ const KEY_ANALYTICS    = STORAGE_KEYS.ANALYTICS;
 const KEY_XP     = STORAGE_KEYS.XP;
 const KEY_STREAK = STORAGE_KEYS.STREAK;
 
-// Local helper (since isStorageAvailable is not exported in your storage.js)
-function isStorageAvailableSafe() {
-  try {
-    const k = '__vmq_storage_test__';
-    localStorage.setItem(k, '1');
-    localStorage.removeItem(k);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// --------------------------
-// Defaults
-// --------------------------
 const DEFAULT_SETTINGS = {
   muted: false,
   darkMode: false,
@@ -61,71 +52,15 @@ const DEFAULT_PROFILE = {
   onboardingComplete: false
 };
 
-// --------------------------
-// Safe loaders (no missing imports)
-// --------------------------
-function loadProfileSafe() {
-  const p = loadJSON(KEY_PROFILE, DEFAULT_PROFILE);
-  return (p && typeof p === 'object') ? { ...DEFAULT_PROFILE, ...p } : { ...DEFAULT_PROFILE };
+function capitalize(str) {
+  return str ? str.charAt(0).toUpperCase() + str.slice(1) : '';
 }
 
-function saveProfileSafe(profile) {
-  saveJSON(KEY_PROFILE, profile);
-}
-
-function loadGamificationSafe() {
-  const g = loadJSON(KEY_GAMIFICATION, null);
-  if (g && typeof g === 'object') return g;
-
-  // Back-compat: some builds store these separately
-  const xp = loadJSON(KEY('XP', 'vmq_xp'), null);
-  const level = loadJSON(KEY('LEVEL', 'vmq_level'), null);
-  const streak = loadJSON(KEY('STREAK', 'vmq_streak'), null);
-
-  return {
-    xp: Number.isFinite(Number(xp)) ? Number(xp) : 0,
-    level: Number.isFinite(Number(level)) ? Number(level) : 1,
-    streak: Number.isFinite(Number(streak)) ? Number(streak) : 0
-  };
-}
-
-function loadAchievementsSafe() {
-  const a1 = loadJSON(KEY_ACHIEVEMENTS, null);
-  if (Array.isArray(a1)) return a1;
-  if (a1 && typeof a1 === 'object') {
-    if (Array.isArray(a1.unlocked)) return a1.unlocked;
-    if (Array.isArray(a1.list)) return a1.list;
-  }
-
-  // Back-compat: sometimes bundled into gamification
-  const g = loadGamificationSafe();
-  if (Array.isArray(g.achievements)) return g.achievements;
-
-  return [];
-}
-
-function loadStatsSafe() {
-  // Prefer analytics stats object if your app stores them there
-  const a = loadJSON(KEY_ANALYTICS, null);
-  if (a && typeof a === 'object' && ('total' in a || 'correct' in a || 'byModule' in a)) return a;
-
-  const s = loadJSON(KEY_STATS, null);
-  if (s && typeof s === 'object') return s;
-
-  // Back-compat: some apps store stats in ANALYTICS even as { events: [] }
-  const a2 = loadJSON(KEY_ANALYTICS, {});
-  return (a2 && typeof a2 === 'object') ? a2 : {};
-}
-
-// --------------------------
-// DOM theme application
-// --------------------------
 function applyThemeSettings(currentSettings, canPersist) {
   if (typeof document === 'undefined') return;
 
   const html = document.documentElement;
 
-  // Theme resolution
   let theme = 'light';
   if (currentSettings.darkMode) theme = 'dark';
   else if (currentSettings.highContrast) theme = 'high-contrast';
@@ -136,7 +71,6 @@ function applyThemeSettings(currentSettings, canPersist) {
     try { localStorage.setItem('vmq-theme', theme); } catch {}
   }
 
-  // Large fonts
   if (currentSettings.largeFonts) {
     html.setAttribute('data-font-size', 'large');
     if (canPersist) {
@@ -149,22 +83,90 @@ function applyThemeSettings(currentSettings, canPersist) {
     }
   }
 
-  // Compact layout
   if (currentSettings.compactLayout) html.setAttribute('data-layout', 'compact');
   else html.removeAttribute('data-layout');
 
-  // Broadcast settings change for listeners
   try {
     window.dispatchEvent(new CustomEvent('vmq-settings-changed', { detail: { settings: currentSettings } }));
   } catch {}
 }
 
-function capitalize(str) {
-  return str ? str.charAt(0).toUpperCase() + str.slice(1) : '';
+// --------------------------
+// Safe loaders (no missing imports / undefined keys)
+// --------------------------
+function loadProfileSafe() {
+  const p = loadJSON(KEY_PROFILE, DEFAULT_PROFILE);
+  return (p && typeof p === 'object') ? { ...DEFAULT_PROFILE, ...p } : { ...DEFAULT_PROFILE };
+}
+
+function saveProfileSafe(profile) {
+  saveJSON(KEY_PROFILE, profile);
+}
+
+function loadGamificationSafe() {
+  // Prefer a structured gamification object if it exists under analytics,
+  // otherwise compose from XP/STREAK (canonical keys).
+  const analytics = loadJSON(KEY_ANALYTICS, null);
+
+  // If your analytics includes a gamification node, use it.
+  if (analytics && typeof analytics === 'object') {
+    const g = analytics.gamification;
+    if (g && typeof g === 'object') {
+      return {
+        xp: Number(g.xp) || 0,
+        level: Number(g.level) || Math.max(1, Math.floor((Number(g.xp) || 0) / 100) + 1),
+        streak: Number(g.streak) || 0,
+        achievements: Array.isArray(g.achievements) ? g.achievements : undefined
+      };
+    }
+  }
+
+  const xp = loadJSON(KEY_XP, 0);
+  const streak = loadJSON(KEY_STREAK, 0);
+
+  const xpNum = Number.isFinite(Number(xp)) ? Number(xp) : 0;
+  const streakNum = Number.isFinite(Number(streak)) ? Number(streak) : 0;
+
+  return {
+    xp: xpNum,
+    level: Math.max(1, Math.floor(xpNum / 100) + 1),
+    streak: streakNum
+  };
+}
+
+function loadAchievementsSafe() {
+  const a1 = loadJSON(KEY_ACHIEVEMENTS, null);
+  if (Array.isArray(a1)) return a1;
+
+  if (a1 && typeof a1 === 'object') {
+    if (Array.isArray(a1.unlocked)) return a1.unlocked;
+    if (Array.isArray(a1.list)) return a1.list;
+  }
+
+  // Back-compat: some builds store achievements inside gamification
+  const g = loadGamificationSafe();
+  if (Array.isArray(g.achievements)) return g.achievements;
+
+  return [];
+}
+
+function loadStatsSafe() {
+  // Prefer analytics if it contains totals
+  const a = loadJSON(KEY_ANALYTICS, null);
+  if (a && typeof a === 'object' && ('total' in a || 'correct' in a || 'byModule' in a)) return a;
+
+  const s = loadJSON(KEY_STATS, null);
+  if (s && typeof s === 'object') return s;
+
+  // Back-compat: sometimes analytics is { events: [] } but might still be useful
+  const a2 = loadJSON(KEY_ANALYTICS, {});
+  return (a2 && typeof a2 === 'object') ? a2 : {};
 }
 
 export function Settings({ navigate, audioEngine, showToast }) {
-  const storageAvailable = isStorageAvailableSafe();
+  const storageAvailable = (typeof isStorageAvailable === 'function')
+    ? isStorageAvailable()
+    : true;
 
   const [settings, setSettings] = useState(() => {
     const s = loadJSON(KEY_SETTINGS, DEFAULT_SETTINGS);
@@ -173,22 +175,32 @@ export function Settings({ navigate, audioEngine, showToast }) {
 
   const [profile, setProfile] = useState(() => loadProfileSafe());
 
-  const [difficulties, setDifficulties] = useState(() =>
-    loadJSON(KEY_DIFFICULTY, {})
-  );
+  // IMPORTANT NOTE:
+  // If your ML/engine also writes to STORAGE_KEYS.DIFFICULTY, this object could conflict.
+  // If that happens, introduce STORAGE_KEYS.DIFFICULTY_OVERRIDES and point Settings at it.
+  const [difficulties, setDifficulties] = useState(() => {
+    const d = loadJSON(KEY_DIFFICULTY, {});
+    return (d && typeof d === 'object') ? d : {};
+  });
 
   const [learningSummary, setLearningSummary] = useState(null);
   const [recommendedDifficulty, setRecommendedDifficulty] = useState(null);
 
   // Apply persisted theme/profile on mount
   useEffect(() => {
-    try { document.body?.setAttribute?.('data-profile', profile?.level || profile?.profile || profile?.id || 'beginner'); } catch {}
+    try {
+      document.body?.setAttribute?.(
+        'data-profile',
+        profile?.level || profile?.profile || profile?.id || 'beginner'
+      );
+    } catch {}
     applyThemeSettings(settings, storageAvailable);
-  }, []); // eslint-disable-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Persist settings + apply to DOM/audio whenever they change
   useEffect(() => {
-    saveJSON(KEY_SETTINGS, settings);
+    if (storageAvailable) saveJSON(KEY_SETTINGS, settings);
 
     if (audioEngine && typeof audioEngine.setMute === 'function') {
       audioEngine.setMute(!!settings.muted);
@@ -197,13 +209,15 @@ export function Settings({ navigate, audioEngine, showToast }) {
     applyThemeSettings(settings, storageAvailable);
   }, [settings, audioEngine, storageAvailable]);
 
-  // Ensure difficulty engine is synchronized with stored values (mount)
+  // Ensure difficulty engine is synchronized with stored values
   useEffect(() => {
-    const modes = Object.keys(DIFFICULTY_SETTINGS || {});
-    modes.forEach((mode) => {
-      const level = (difficulties && difficulties[mode]) ? difficulties[mode] : 'easy';
-      setDifficulty?.(mode, level);
-    });
+    try {
+      const modes = Object.keys(DIFFICULTY_SETTINGS || {});
+      modes.forEach((mode) => {
+        const level = (difficulties && difficulties[mode]) ? difficulties[mode] : 'easy';
+        setDifficulty?.(mode, level);
+      });
+    } catch {}
   }, [difficulties]);
 
   // Load learning summary once for smart difficulty
@@ -233,8 +247,8 @@ export function Settings({ navigate, audioEngine, showToast }) {
         null;
 
       const summary = {
-        total,
-        correct,
+        total: Number(total) || 0,
+        correct: Number(correct) || 0,
         accuracy,
         avgResponseTime,
         xp: Number(g?.xp) || 0,
@@ -245,8 +259,7 @@ export function Settings({ navigate, audioEngine, showToast }) {
 
       setLearningSummary(summary);
 
-      // Heuristic global difficulty suggestion
-      if (accuracy == null || total < 30) setRecommendedDifficulty(null);
+      if (accuracy == null || summary.total < 30) setRecommendedDifficulty(null);
       else if (accuracy < 70) setRecommendedDifficulty('easy');
       else if (accuracy < 86) setRecommendedDifficulty('medium');
       else setRecommendedDifficulty('hard');
@@ -290,7 +303,8 @@ export function Settings({ navigate, audioEngine, showToast }) {
   function handleProfileChange(newProfileId) {
     const next = { ...profile, level: newProfileId };
     setProfile(next);
-    saveProfileSafe(next);
+    if (storageAvailable) saveProfileSafe(next);
+
     try { document.body.setAttribute('data-profile', newProfileId); } catch {}
     showToast?.('Profile updated', 'success');
   }
@@ -300,7 +314,7 @@ export function Settings({ navigate, audioEngine, showToast }) {
 
     const next = { ...(difficulties || {}), [mode]: level };
     setDifficulties(next);
-    saveJSON(KEY_DIFFICULTY, next);
+    if (storageAvailable) saveJSON(KEY_DIFFICULTY, next);
 
     showToast?.(`${mode} difficulty set to ${level}`, 'success');
   }
@@ -321,23 +335,23 @@ export function Settings({ navigate, audioEngine, showToast }) {
   }
 
   function handleExport() {
-    // Best: use the storage engine’s exportAll if present
+    // Best: use storage engine exportAll (includes legacy keys too, in our storage.js)
     try {
       if (storage?.exportAll) {
         const out = storage.exportAll();
-        if (out?.blob) {
+        if (out?.url && typeof document !== 'undefined') {
           const a = document.createElement('a');
           a.href = out.url;
           a.download = `vmq-backup-${new Date().toISOString().split('T')[0]}.json`;
           a.click();
-          URL.revokeObjectURL(out.url);
+          try { URL.revokeObjectURL(out.url); } catch {}
           showToast?.('Progress exported successfully', 'success');
           return;
         }
       }
     } catch {}
-  
-    // Fallback: manual export (what you already had)
+
+    // Fallback: export just what Settings knows about
     const data = {
       profile: loadProfileSafe(),
       gamification: loadGamificationSafe(),
@@ -348,37 +362,39 @@ export function Settings({ navigate, audioEngine, showToast }) {
       exportDate: new Date().toISOString(),
       version: '1.0.0'
     };
-  
-    const dataStr = JSON.stringify(data, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `vmq-backup-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  
-    showToast?.('Progress exported successfully', 'success');
+
+    try {
+      const dataStr = JSON.stringify(data, null, 2);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `vmq-backup-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast?.('Progress exported successfully', 'success');
+    } catch (e) {
+      console.error('[Settings] Export failed:', e);
+      showToast?.('Export failed (storage may be blocked)', 'error');
+    }
   }
 
   function handleReset() {
-    if (
-      confirm(
-        '⚠️ Are you sure? This will erase ALL progress data including XP, achievements, and stats. This cannot be undone.'
-      )
-    ) {
-      try {
-        cleanupAllData?.();   // exported in your storage.js
-      } catch {
-        // last-resort fallback
-        [KEY_PROFILE, KEY_SETTINGS, KEY_DIFFICULTY, KEY_STATS, KEY_ANALYTICS].forEach((k) => {
-          try { saveJSON(k, null); } catch {}
-        });
-      }
-  
-      showToast?.('All progress reset', 'info');
-      setTimeout(() => window.location.reload(), 800);
+    if (!confirm('⚠️ Are you sure? This will erase ALL progress data including XP, achievements, and stats. This cannot be undone.')) {
+      return;
     }
+
+    try {
+      cleanupAllData?.(); // exported in storage.js
+    } catch {
+      // last-resort fallback: clear known logical keys
+      [KEY_PROFILE, KEY_SETTINGS, KEY_DIFFICULTY, KEY_ACHIEVEMENTS, KEY_STATS, KEY_ANALYTICS, KEY_XP, KEY_STREAK].forEach((k) => {
+        try { saveJSON(k, null); } catch {}
+      });
+    }
+
+    showToast?.('All progress reset', 'info');
+    setTimeout(() => window.location.reload(), 800);
   }
 
   const difficultySummaryText = useMemo(() => {
@@ -390,6 +406,7 @@ export function Settings({ navigate, audioEngine, showToast }) {
   return h(
     'div',
     { className: 'mode-container settings-mode' },
+
     // Header
     h(
       'header',
@@ -412,17 +429,13 @@ export function Settings({ navigate, audioEngine, showToast }) {
         'section',
         { className: 'settings-section' },
         h('h3', null, '🎓 Profile Level'),
-        h(
-          'p',
-          {
-            style: {
-              fontSize: 'var(--font-size-sm)',
-              color: 'var(--ink-light)',
-              marginBottom: 'var(--space-md)'
-            }
-          },
-          'Your profile helps customize practice goals and difficulty.'
-        ),
+        h('p', {
+          style: {
+            fontSize: 'var(--font-size-sm)',
+            color: 'var(--ink-light)',
+            marginBottom: 'var(--space-md)'
+          }
+        }, 'Your profile helps customize practice goals and difficulty.'),
 
         Object.values(PROFILE_TYPES).map((profileType) =>
           h(
@@ -461,19 +474,9 @@ export function Settings({ navigate, audioEngine, showToast }) {
               onChange: () => handleProfileChange(profileType.id),
               style: { marginRight: 'var(--space-md)', accentColor: profileType.color }
             }),
-            h(
-              'div',
-              null,
-              h(
-                'div',
-                { style: { fontWeight: 'bold', color: profileType.color, marginBottom: 'var(--space-xs)' } },
-                profileType.label
-              ),
-              h(
-                'div',
-                { style: { fontSize: 'var(--font-size-sm)', color: 'var(--ink-light)' } },
-                profileType.description
-              )
+            h('div', null,
+              h('div', { style: { fontWeight: 'bold', color: profileType.color, marginBottom: 'var(--space-xs)' } }, profileType.label),
+              h('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--ink-light)' } }, profileType.description)
             )
           )
         )
@@ -529,9 +532,7 @@ export function Settings({ navigate, audioEngine, showToast }) {
         'section',
         { className: 'settings-section' },
         h('h3', null, '🤖 Smart Difficulty (beta)'),
-        h('p', {
-          style: { fontSize: 'var(--font-size-sm)', color: 'var(--ink-light)', marginBottom: 'var(--space-xs)' }
-        }, difficultySummaryText),
+        h('p', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--ink-light)', marginBottom: 'var(--space-xs)' } }, difficultySummaryText),
 
         recommendedDifficulty && h('p', {
           style: { fontSize: 'var(--font-size-sm)', color: 'var(--ink-light)', marginBottom: 'var(--space-md)' }
@@ -594,7 +595,7 @@ export function Settings({ navigate, audioEngine, showToast }) {
         h('h3', null, 'ℹ️ About'),
         h('p', { className: 'about-text' }, '🎻 Violin Mastery Quest v1.0.0'),
         h('p', { className: 'about-text' },
-          "Built for serious young violinists. Pedagogy aligned with Ida Bieler Method and Suzuki tradition."
+          'Built for serious young violinists. Pedagogy aligned with Ida Bieler Method and Suzuki tradition.'
         ),
         h('p', {
           className: 'about-text',
