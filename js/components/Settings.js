@@ -191,14 +191,12 @@ export function Settings({ navigate, audioEngine, showToast }) {
 
   // Ensure difficulty engine is synchronized with stored values (mount)
   useEffect(() => {
-    try {
-      const modes = Object.keys(DIFFICULTY_SETTINGS || {});
-      modes.forEach((mode) => {
-        const level = (difficulties && difficulties[mode]) ? difficulties[mode] : 'easy';
-        setDifficulty?.(mode, level);
-      });
-    } catch {}
-  }, []); // eslint-disable-line
+    const modes = Object.keys(DIFFICULTY_SETTINGS || {});
+    modes.forEach((mode) => {
+      const level = (difficulties && difficulties[mode]) ? difficulties[mode] : 'easy';
+      setDifficulty?.(mode, level);
+    });
+  }, [difficulties]);
 
   // Load learning summary once for smart difficulty
   useEffect(() => {
