@@ -354,13 +354,11 @@ export function Settings({ navigate, audioEngine, showToast }) {
         '⚠️ Are you sure? This will erase ALL progress data including XP, achievements, and stats. This cannot be undone.'
       )
     ) {
-      try { clearAll?.(); } catch {
-        // Fallback: clear our known keys
-        try {
-          [KEY_PROFILE, KEY_SETTINGS, KEY_DIFFICULTY, KEY_GAMIFICATION, KEY_ACHIEVEMENTS, KEY_STATS, KEY_ANALYTICS].forEach((k) => {
-            try { localStorage.removeItem(k); } catch {}
-          });
-        } catch {}
+      try { clearAll?.(); }
+      catch {
+        [KEY_PROFILE, KEY_SETTINGS, KEY_DIFFICULTY, KEY_STATS, KEY_ANALYTICS].forEach((k) => {
+          try { saveJSON(k, null); } catch {}
+        });
       }
       showToast?.('All progress reset', 'info');
       setTimeout(() => window.location.reload(), 800);
