@@ -416,7 +416,23 @@ export default spacedRepetition;
  * So this function must be safe even if not awaited.
  */
 export function updateSRSReviews(payloadOrCorrect = 0, wrong = 0, engagedMs = 0) {
-  const payload = (payloadOrCorrect && typeof payloadOrCorrect === 'object')
+  // 1) If called as updateSRSReviews([reviewEvents...]) — count them
+  if (Array.isArray(payloadOrCorrect)) {
+    return (async () => {
+      try {
+        return await spacedRepetition.updateSRSReviews(payloadOrCorrect);
+      } catch (e) {
+        console.warn('[SRS] updateSRSReviews(array) failed:', e);
+        return { count: 0, totalReviews: 0, timestamp: Date.now(), error: true };
+      }
+    })();
+  }
+
+  // 2) If called with an object payload
+  const isPayloadObj =
+    payloadOrCorrect && typeof payloadOrCorrect === 'object' && !Array.isArray(payloadOrCorrect);
+
+  const payload = isPayloadObj
     ? payloadOrCorrect
     : {
         correct: Number(payloadOrCorrect) || 0,
@@ -428,10 +444,9 @@ export function updateSRSReviews(payloadOrCorrect = 0, wrong = 0, engagedMs = 0)
   const count =
     Array.isArray(payload.reviews) ? payload.reviews.length :
     Number.isFinite(payload.count) ? Math.max(0, Math.trunc(payload.count)) :
-    Number.isFinite(payload.reviews) ? Math.max(0, Math.trunc(payload.reviews)) :
     Math.max(0, (Number(payload.correct) || 0) + (Number(payload.wrong) || 0));
 
-  // Return a promise, but never reject (so callers that don't await won't get unhandled rejections).
+  // Never reject (safe if caller doesn't await)
   return (async () => {
     try {
       return await spacedRepetition._updateSessionMeta({
