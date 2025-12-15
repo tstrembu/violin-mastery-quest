@@ -1,3 +1,4 @@
+// js/engines/pedagogyEngine.js
 // ======================================
 // VMQ PEDAGOGY ENGINE v3.0 - ML-Enhanced
 // Progression ladders + passage analysis + predictive repertoire
