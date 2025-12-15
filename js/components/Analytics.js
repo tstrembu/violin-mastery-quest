@@ -226,3 +226,78 @@ export default function Analytics({ onNavigate }) {
     )
   );
 }
+
+// ================================
+// COMPAT HELPERS (Dashboard + Modules)
+// Add to bottom of js/engines/analytics.js
+// ================================
+
+import { loadJSON, STORAGE_KEYS } from '../config/storage.js';
+
+/**
+ * Detect learning plateau risk from recent practice history.
+ * Returns { risk: 'low'|'medium'|'high', score: 0..1, reason }
+ */
+export function detectPlateau(history = [], opts = {}) {
+  const items = Array.isArray(history) ? history.slice(-Math.max(10, opts.window || 14)) : [];
+  if (items.length < 6) return { risk: 'low', score: 0, reason: 'insufficient-data' };
+
+  const acc = items.map((s) => Number(s.accuracy ?? 0)).filter((n) => Number.isFinite(n));
+  const xp = items.map((s) => Number(s.xpGained ?? 0)).filter((n) => Number.isFinite(n));
+
+  const avg = (arr) => arr.reduce((a, b) => a + b, 0) / Math.max(1, arr.length);
+
+  const firstHalf = acc.slice(0, Math.floor(acc.length / 2));
+  const secondHalf = acc.slice(Math.floor(acc.length / 2));
+
+  const deltaAcc = avg(secondHalf) - avg(firstHalf);
+  const avgXp = avg(xp);
+
+  // score: flat/declining accuracy + low XP gains => higher plateau likelihood
+  let score = 0;
+  if (deltaAcc < 1) score += 0.45;
+  if (deltaAcc < -2) score += 0.25;
+  if (avgXp < 15) score += 0.20;
+  if (items.length < 10) score -= 0.10;
+
+  score = Math.max(0, Math.min(1, score));
+
+  const risk = score > 0.66 ? 'high' : score > 0.33 ? 'medium' : 'low';
+  const reason =
+    risk === 'high' ? 'accuracy-flat-and-low-xp' :
+    risk === 'medium' ? 'accuracy-slowing' :
+    'steady-progress';
+
+  return { risk, score, reason };
+}
+
+/**
+ * Fingerboard-specific analysis (lightweight + safe).
+ * Accepts sessions filtered for fingerboard modules, returns weaknesses/patterns.
+ */
+export function analyzeFingerboardPerformance(sessions = []) {
+  const items = Array.isArray(sessions) ? sessions : [];
+  if (!items.length) return { weakStrings: [], weakPositions: [], summary: 'no-data' };
+
+  // These fields are optional; your components can start writing them over time:
+  // session.string, session.position, session.intervalType, etc.
+  const by = (key) => {
+    const map = {};
+    for (const s of items) {
+      const k = s?.[key];
+      if (!k) continue;
+      const bucket = (map[k] ||= { total: 0, correct: 0 });
+      bucket.total += Number(s.total || 1);
+      bucket.correct += Number(s.correct || (s.accuracy != null ? Math.round((s.accuracy / 100) * (s.total || 1)) : 0));
+    }
+    return Object.entries(map).map(([k, v]) => {
+      const acc = v.total > 0 ? Math.round((v.correct / v.total) * 100) : 0;
+      return { key: k, accuracy: acc, total: v.total };
+    });
+  };
+
+  const strings = by('string').sort((a, b) => a.accuracy - b.accuracy);
+  const positions = by('position').sort((a, b) => a.accuracy - b.accuracy);
+
+  return {
+    weak
