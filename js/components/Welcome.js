@@ -1,6 +1,6 @@
 // js/components/Welcome.js
 // ======================================
-// VMQ ONBOARDING v3.1 - Smart Start (Drop-in replacement)
+// VMQ ONBOARDING v3.0.5 - Smart Start (Drop-in replacement)
 // - No dependency on missing named exports (e.g., updateSettings)
 // - Uses loadJSON/saveJSON directly and seeds keys safely
 // ======================================
