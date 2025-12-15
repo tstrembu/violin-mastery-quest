@@ -1,282 +1,391 @@
 // /js/contexts/AppContext.js
 // ======================================
-// VMQ APP CONTEXT v2.0 - 6-Engine Live State
-// Analytics + SM-2 + Coach + 50+ modules
+// VMQ APP CONTEXT v2.1 - 6-Engine Live State (Safe + Compatible)
+// Fixes: updateStreak name collision / recursion
+// Uses: sessionTracker browser events (no .on dependency)
 // ======================================
 
-const { createElement: h, useState, useEffect, useReducer, useContext, createContext } = React;
+const {
+  createElement: h,
+  useEffect,
+  useReducer,
+  useContext,
+  createContext,
+  useCallback,
+  useMemo
+} = React;
 
-// 🎯 6-ENGINE LIVE IMPORTS
-import { 
-  loadJSON, saveJSON, STORAGE_KEYS 
-} from '../config/storage.js';
-import { 
-  analyzePerformance, updateStats 
-} from '../engines/analytics.js';
-import { 
-  loadXP, addXP, loadStreak, updateStreak 
+import { loadJSON, STORAGE_KEYS } from '../config/storage.js';
+
+import { analyzePerformance } from '../engines/analytics.js';
+
+import {
+  loadXP,
+  addXP,
+  loadStreak,
+  updateStreak as engineUpdateStreak,
+  getLevel
 } from '../engines/gamification.js';
-import { 
-  getRecommendations 
-} from '../engines/coachEngine.js';
-import { 
-  getStats as sm2Stats 
-} from '../engines/spacedRepetition.js';
-import { 
-  sessionTracker 
-} from '../engines/sessionTracker.js';
-import { 
-  getDifficulty 
-} from '../engines/difficultyAdapter.js';
-import { formatDate } from '../utils/helpers.js';
 
-// 🎯 VMQ PRODUCTION STATE (6 engines live)
+import { getCoachInsights } from '../engines/coachEngine.js';
+import { getStats as sm2Stats } from '../engines/spacedRepetition.js';
+import { sessionTracker } from '../engines/sessionTracker.js';
+import { getDifficulty } from '../engines/difficultyAdapter.js';
+
+// --------------------------------------
+// INITIAL STATE
+// --------------------------------------
 const INITIAL_STATE = {
-  // 🎯 USER PROFILE
   profile: { name: 'Student', level: 1, instrument: 'violin' },
-  
-  // 🎮 GAMIFICATION (XP + Streak)
+
+  // Keep this shape: many components assume xp + streak number + level number
   gamification: { xp: 0, streak: 0, level: 1 },
-  
-  // 📊 ANALYTICS (Live module stats)
-  analytics: { 
-    overallAccuracy: 0, 
-    consistency: 0, 
+
+  analytics: {
+    overallAccuracy: 0,
+    consistency: 0,
     modules: [],
     trends: {}
   },
-  
-  // 🧠 SM-2 (Spaced repetition)
+
   sm2: { dueToday: 0, mature: 0, retention: 0 },
-  
-  // 🎯 COACH (AI recommendations)
+
   coach: { recommendations: [], priorities: [] },
-  
-  // 📓 SESSION (Live tracking)
-  session: { 
-    currentModule: null, 
-    activeTime: 0, 
-    todaySessions: 0 
+
+  session: {
+    currentModule: null,
+    activeTimeMs: 0,
+    todaySessions: 0,
+    lastSessionEndedAt: null
   },
-  
-  // 🎵 DRILL STATE
+
   currentDrill: null,
-  
-  // 🔄 UI STATE
+
   ui: { isLoading: true, theme: 'light', notifications: [] },
-  
-  // 💾 LAST SYNC
+
   lastSync: Date.now()
 };
 
-// 🎯 VMQ REDUCER (Production optimized)
+// --------------------------------------
+// REDUCER (pure; side-effects live in actions)
+// --------------------------------------
 function appReducer(state, action) {
   switch (action.type) {
-    case 'INITIALIZE':
-      return { ...INITIAL_STATE, ...action.payload, ui: { ...state.ui, isLoading: false } };
-    
-    case 'UPDATE_GAMIFICATION':
-      saveJSON(STORAGE_KEYS.GAMIFICATION, action.payload);
-      return { ...state, gamification: action.payload };
-    
-    case 'UPDATE_ANALYTICS':
-      saveJSON(STORAGE_KEYS.ANALYTICS, action.payload);
+    case 'INITIALIZE': {
+      const merged = { ...state, ...action.payload };
+      return { ...merged, ui: { ...merged.ui, isLoading: false } };
+    }
+
+    case 'SET_GAMIFICATION':
+      return { ...state, gamification: { ...state.gamification, ...action.payload } };
+
+    case 'SET_ANALYTICS':
       return { ...state, analytics: action.payload };
-    
-    case 'UPDATE_SM2':
-      saveJSON(STORAGE_KEYS.SM2_STATS, action.payload);
+
+    case 'SET_SM2':
       return { ...state, sm2: action.payload };
-    
-    case 'SET_COACH_RECOMMENDATIONS':
-      return { ...state, coach: { ...state.coach, recommendations: action.payload } };
-    
+
+    case 'SET_COACH':
+      return { ...state, coach: { ...state.coach, ...action.payload } };
+
     case 'SET_CURRENT_DRILL':
-      sessionTracker.startSession(action.payload);
-      return { ...state, currentDrill: action.payload, session: { 
-        ...state.session, currentModule: action.payload?.module 
-      }};
-    
-    case 'UPDATE_SESSION':
-      return { ...state, session: { ...state.session, ...action.payload } };
-    
-    case 'ADD_NOTIFICATION':
-      return { 
-        ...state, 
-        ui: { 
-          ...state.ui, 
-          notifications: [...state.ui.notifications, action.payload].slice(-5) 
-        } 
+      return {
+        ...state,
+        currentDrill: action.payload,
+        session: {
+          ...state.session,
+          currentModule: action.payload?.module || action.payload?.activity || state.session.currentModule
+        }
       };
-    
+
+    case 'SESSION_START':
+      return {
+        ...state,
+        session: {
+          ...state.session,
+          currentModule: action.payload?.activity || state.session.currentModule,
+          todaySessions: state.session.todaySessions + 1
+        }
+      };
+
+    case 'SESSION_END': {
+      const entry = action.payload?.entry || null;
+      const elapsedMs = typeof entry?.elapsedMs === 'number' ? entry.elapsedMs : 0;
+      return {
+        ...state,
+        session: {
+          ...state.session,
+          activeTimeMs: state.session.activeTimeMs + elapsedMs,
+          lastSessionEndedAt: Date.now()
+        }
+      };
+    }
+
+    case 'ADD_NOTIFICATION': {
+      const next = [...state.ui.notifications, action.payload].slice(-5);
+      return { ...state, ui: { ...state.ui, notifications: next } };
+    }
+
     case 'LIVE_SYNC':
-      return { ...state, lastSync: Date.now(), ui: { ...state.ui, isLoading: false } };
-    
+      return { ...state, lastSync: Date.now() };
+
     default:
       return state;
   }
 }
 
-// 🎯 VMQ CONTEXT
-export const AppContext = createContext();
+// --------------------------------------
+// CONTEXT
+// --------------------------------------
+export const AppContext = createContext(null);
 
-// 🎯 APP PROVIDER (6-Engine Live)
+// --------------------------------------
+// PROVIDER
+// --------------------------------------
 export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(appReducer, INITIAL_STATE);
 
-  // 🚀 BOOTSTRAP (6 engines parallel)
-  useEffect(() => {
-    const bootstrap = async () => {
-      try {
-        const [profile, gamification, analytics, sm2, recommendations] = await Promise.all([
-          loadJSON(STORAGE_KEYS.PROFILE),
-          loadJSON(STORAGE_KEYS.GAMIFICATION, { xp: 0, streak: 0 }),
-          analyzePerformance('week'),
-          sm2Stats(),
-          getRecommendations()
-        ]);
-        
-        dispatch({
-          type: 'INITIALIZE',
-          payload: {
-            profile: profile || INITIAL_STATE.profile,
-            gamification,
-            analytics,
-            sm2,
-            coach: { recommendations }
-          }
-        });
-        
-        sessionTracker.on('activity', (data) => {
-          dispatch({ type: 'UPDATE_SESSION', payload: data });
-          dispatch({ type: 'UPDATE_ANALYTICS', payload: updateStats(data.module, data.correct, data.responseTime) });
-        });
-        
-      } catch (error) {
-        console.warn('[AppContext] Bootstrap failed:', error);
-        dispatch({ type: 'INITIALIZE', payload: {} });
-      }
-    };
-    
-    bootstrap();
-    
-    // 🎯 LIVE SYNC (10s)
-    const liveSync = setInterval(async () => {
-      const [analytics, sm2, recommendations] = await Promise.all([
-        analyzePerformance('week'),
-        sm2Stats(),
-        getRecommendations()
-      ]);
-      
-      dispatch({ 
-        type: 'LIVE_SYNC',
-        payload: { analytics, sm2, coach: { recommendations } }
-      });
-    }, 10000);
-    
-    return () => clearInterval(liveSync);
-  }, []);
-
-  // 🎯 LIVE DISPATCHERS (Production)
-  const updateXP = (amount, source = 'practice') => {
-    const newXP = state.gamification.xp + amount;
-    dispatch({
-      type: 'UPDATE_GAMIFICATION',
-      payload: { 
-        ...state.gamification, 
-        xp: newXP,
-        level: Math.floor(newXP / 1000) + 1 
-      }
-    });
-    addXP(amount, source);
-  };
-
-  const updateStreak = () => {
-    const newStreak = state.gamification.streak + 1;
-    dispatch({
-      type: 'UPDATE_GAMIFICATION',
-      payload: { ...state.gamification, streak: newStreak }
-    });
-    updateStreak(newStreak);
-  };
-
-  const setCurrentDrill = (drill) => {
-    dispatch({ type: 'SET_CURRENT_DRILL', payload: drill });
-  };
-
-  const addNotification = (message, type = 'info') => {
+  // ---------- helpers ----------
+  const addNotification = useCallback((message, type = 'info') => {
     dispatch({
       type: 'ADD_NOTIFICATION',
       payload: { id: Date.now(), message, type, timestamp: Date.now() }
     });
-  };
+  }, []);
 
-  const value = {
-    state,
-    updateXP,
-    updateStreak,
-    setCurrentDrill,
-    addNotification,
-    sessionTracker,
-    actions: {
+  const refreshCoach = useCallback(async (profile) => {
+    try {
+      const insights = await Promise.resolve(getCoachInsights(profile));
+      const recommendations = Array.isArray(insights?.recommendations)
+        ? insights.recommendations
+        : [];
+      const priorities = Array.isArray(insights?.priorities) ? insights.priorities : [];
+      dispatch({ type: 'SET_COACH', payload: { recommendations, priorities } });
+      return { recommendations, priorities };
+    } catch (e) {
+      // coach should never crash the app
+      return { recommendations: [], priorities: [] };
+    }
+  }, []);
+
+  const refreshAll = useCallback(async () => {
+    const profile = loadJSON(STORAGE_KEYS.PROFILE, INITIAL_STATE.profile) || INITIAL_STATE.profile;
+
+    // Gamification engine is canonical for xp/streak
+    const xp = loadXP();
+    const streakData = loadStreak();
+    const levelMeta = getLevel(xp);
+
+    // These may be async or sync depending on engine implementation; treat uniformly
+    const [analytics, sm2] = await Promise.all([
+      Promise.resolve(analyzePerformance('week')).catch(() => state.analytics),
+      Promise.resolve(sm2Stats()).catch(() => state.sm2)
+    ]);
+
+    await refreshCoach(profile);
+
+    dispatch({
+      type: 'INITIALIZE',
+      payload: {
+        profile,
+        gamification: {
+          xp,
+          streak: typeof streakData?.current === 'number' ? streakData.current : 0,
+          level: typeof levelMeta?.level === 'number' ? levelMeta.level : 1
+        },
+        analytics,
+        sm2
+      }
+    });
+  }, [refreshCoach, state.analytics, state.sm2]);
+
+  // ---------- bootstrap ----------
+  useEffect(() => {
+    // ensure tracker is running (it is already guarded against double init)
+    try {
+      sessionTracker.init?.();
+    } catch (e) {
+      // ignore
+    }
+
+    refreshAll().catch((err) => {
+      console.warn('[AppContext] Bootstrap failed:', err);
+      dispatch({ type: 'INITIALIZE', payload: {} });
+    });
+
+    // Wire into tracker events (no dependency on a non-existent .on API)
+    const onStart = (e) => dispatch({ type: 'SESSION_START', payload: e?.detail || {} });
+    const onEnd = (e) => dispatch({ type: 'SESSION_END', payload: e?.detail || {} });
+
+    window.addEventListener('vmq-session-start', onStart);
+    window.addEventListener('vmq-session-end', onEnd);
+
+    // Live sync (10s)
+    const t = setInterval(async () => {
+      try {
+        const [analytics, sm2] = await Promise.all([
+          Promise.resolve(analyzePerformance('week')).catch(() => null),
+          Promise.resolve(sm2Stats()).catch(() => null)
+        ]);
+
+        if (analytics) dispatch({ type: 'SET_ANALYTICS', payload: analytics });
+        if (sm2) dispatch({ type: 'SET_SM2', payload: sm2 });
+
+        // Coach refresh is lightweight; keep it safe
+        const profile = loadJSON(STORAGE_KEYS.PROFILE, INITIAL_STATE.profile) || INITIAL_STATE.profile;
+        await refreshCoach(profile);
+
+        dispatch({ type: 'LIVE_SYNC' });
+      } catch (e) {
+        // never crash the UI on sync
+      }
+    }, 10000);
+
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('vmq-session-start', onStart);
+      window.removeEventListener('vmq-session-end', onEnd);
+    };
+  }, [refreshAll, refreshCoach]);
+
+  // ---------- actions ----------
+  const updateXP = useCallback(
+    (amount, source = 'practice', metadata = {}) => {
+      try {
+        addXP(amount, source, { source, metadata });
+        const xp = loadXP();
+        const levelMeta = getLevel(xp);
+
+        dispatch({
+          type: 'SET_GAMIFICATION',
+          payload: {
+            xp,
+            level: typeof levelMeta?.level === 'number' ? levelMeta.level : state.gamification.level
+          }
+        });
+      } catch (e) {
+        addNotification('XP update failed (non-fatal).', 'error');
+      }
+    },
+    [addNotification, state.gamification.level]
+  );
+
+  // IMPORTANT: local name is NOT updateStreak (prevents shadowing recursion)
+  const dispatchStreakUpdate = useCallback(() => {
+    try {
+      const streakData = engineUpdateStreak(); // gamification helper (canonical)
+      dispatch({
+        type: 'SET_GAMIFICATION',
+        payload: { streak: typeof streakData?.current === 'number' ? streakData.current : 0 }
+      });
+      return streakData;
+    } catch (e) {
+      addNotification('Streak update failed (non-fatal).', 'error');
+      return null;
+    }
+  }, [addNotification]);
+
+  const setCurrentDrill = useCallback((drill) => {
+    // SessionTracker expects an activity string; keep it compatible
+    const activity = drill?.module || drill?.activity || null;
+    if (activity) {
+      try {
+        sessionTracker.startSession?.(activity);
+      } catch (e) {
+        // ignore
+      }
+    }
+    dispatch({ type: 'SET_CURRENT_DRILL', payload: drill });
+  }, []);
+
+  const actions = useMemo(
+    () => ({
       getDifficulty,
       analyzePerformance,
-      getRecommendations
-    }
-  };
+      getCoachInsights,
+      sm2Stats
+    }),
+    []
+  );
 
-  return h(AppContext.Provider, { value }, 
-    state.ui.isLoading 
-      ? h('div', { className: 'loading-screen' }, 
-          h('div', { className: 'spinner' }), 
-          'Loading VMQ...')
+  const value = useMemo(
+    () => ({
+      state,
+      updateXP,
+      // expose the action under the expected public name, but it points to the safe function
+      updateStreak: dispatchStreakUpdate,
+      setCurrentDrill,
+      addNotification,
+      sessionTracker,
+      actions
+    }),
+    [state, updateXP, dispatchStreakUpdate, setCurrentDrill, addNotification, actions]
+  );
+
+  return h(
+    AppContext.Provider,
+    { value },
+    state.ui.isLoading
+      ? h('div', { className: 'loading-screen' }, h('div', { className: 'spinner' }), 'Loading VMQ…')
       : children
   );
 }
 
-// 🎯 CUSTOM HOOKS (Production)
+// --------------------------------------
+// HOOKS
+// --------------------------------------
 export const useAppState = () => {
-  const context = useContext(AppContext);
-  if (!context) throw new Error('useAppState must be used within AppProvider');
-  return context.state;
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useAppState must be used within AppProvider');
+  return ctx.state;
 };
 
 export const useGamification = () => {
-  const context = useContext(AppContext);
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useGamification must be used within AppProvider');
   return {
-    xp: context.state.gamification.xp,
-    streak: context.state.gamification.streak,
-    updateXP: context.updateXP,
-    updateStreak: context.updateStreak
+    xp: ctx.state.gamification.xp,
+    streak: ctx.state.gamification.streak,
+    level: ctx.state.gamification.level,
+    updateXP: ctx.updateXP,
+    updateStreak: ctx.updateStreak
   };
 };
 
 export const useAnalytics = () => {
-  const context = useContext(AppContext);
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useAnalytics must be used within AppProvider');
   return {
-    analytics: context.state.analytics,
-    modules: context.state.analytics.modules || [],
-    refresh: () => context.actions.analyzePerformance('week')
+    analytics: ctx.state.analytics,
+    modules: ctx.state.analytics.modules || [],
+    refresh: () => ctx.actions.analyzePerformance('week')
   };
 };
 
 export const useCoach = () => {
-  const context = useContext(AppContext);
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useCoach must be used within AppProvider');
   return {
-    recommendations: context.state.coach.recommendations,
-    refresh: () => context.actions.getRecommendations()
+    recommendations: ctx.state.coach.recommendations || [],
+    priorities: ctx.state.coach.priorities || [],
+    refresh: async () => {
+      const profile = loadJSON(STORAGE_KEYS.PROFILE, INITIAL_STATE.profile) || INITIAL_STATE.profile;
+      return Promise.resolve(getCoachInsights(profile));
+    }
   };
 };
 
 export const useSession = () => {
-  const context = useContext(AppContext);
-  return context.state.session;
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useSession must be used within AppProvider');
+  return ctx.state.session;
 };
 
 export const useNotifications = () => {
-  const context = useContext(AppContext);
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useNotifications must be used within AppProvider');
   return {
-    notifications: context.state.ui.notifications,
-    add: context.addNotification
+    notifications: ctx.state.ui.notifications,
+    add: ctx.addNotification
   };
 };
-
