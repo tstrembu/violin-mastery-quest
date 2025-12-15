@@ -291,6 +291,103 @@ export function saveJSON(key, data) {
 }
 
 // ======================================
+// COMPAT EXPORTS (for older components)
+// ======================================
+
+// Storage availability check (private mode / blocked storage)
+export function isStorageAvailable() {
+  try {
+    const testKey = ns('vmq.__storage_test__');
+    localStorage.setItem(testKey, '1');
+    localStorage.removeItem(testKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Back-compat alias: clear all VMQ data
+export function clearAll() {
+  return STORAGE.clearAll();
+}
+
+// Back-compat: exportData() triggers a file download
+export function exportData(filenamePrefix = 'vmq-backup') {
+  try {
+    const out = STORAGE.exportAll();
+    if (!out?.url) return false;
+
+    const a = document.createElement('a');
+    a.href = out.url;
+    a.download = `${filenamePrefix}-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+
+    try { URL.revokeObjectURL(out.url); } catch {}
+    return true;
+  } catch (e) {
+    console.error('[Storage] exportData failed:', e);
+    return false;
+  }
+}
+
+// Convenience wrappers expected by Settings/Welcome (safe + non-breaking)
+export function loadProfile() {
+  return STORAGE.get(STORAGE_KEYS.PROFILE, {
+    name: '',
+    level: 'beginner',
+    goals: [],
+    preferredTime: 'flexible',
+    practiceMinutes: 20,
+    repertoire: 'suzuki1',
+    onboardingComplete: false
+  });
+}
+
+export function saveProfile(profile) {
+  return STORAGE.set(STORAGE_KEYS.PROFILE, profile);
+}
+
+// XP may be stored as number OR as object; support both.
+export function loadXP() {
+  const v = STORAGE.get(STORAGE_KEYS.XP, 0);
+  if (typeof v === 'number') return v;
+  if (v && typeof v === 'object' && typeof v.xp === 'number') return v.xp;
+  return 0;
+}
+
+// Your STORAGE_KEYS has no LEVEL key; derive a gamification level from XP if needed.
+export function loadLevel() {
+  const v = STORAGE.get(STORAGE_KEYS.XP, 0);
+  if (v && typeof v === 'object' && typeof v.level === 'number') return v.level;
+
+  const xp = loadXP();
+  // Simple, stable derivation (100xp per level)
+  return Math.max(1, Math.floor(xp / 100) + 1);
+}
+
+export function loadStreak() {
+  const v = STORAGE.get(STORAGE_KEYS.STREAK, 0);
+  return Number.isFinite(Number(v)) ? Number(v) : 0;
+}
+
+export function loadAchievements() {
+  const v = STORAGE.get(STORAGE_KEYS.ACHIEVEMENTS, []);
+  if (Array.isArray(v)) return v;
+  if (v && typeof v === 'object' && Array.isArray(v.unlocked)) return v.unlocked;
+  return [];
+}
+
+export function loadStats() {
+  // Prefer STATS (your canonical stats key)
+  const s = STORAGE.get(STORAGE_KEYS.STATS, null);
+  if (s && typeof s === 'object') return s;
+
+  // Fallback: analytics sometimes stores totals
+  const a = STORAGE.get(STORAGE_KEYS.ANALYTICS, {});
+  return (a && typeof a === 'object') ? a : {};
+}
+
+// ======================================
 // DATA MIGRATION
 // ======================================
 
