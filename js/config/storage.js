@@ -342,6 +342,10 @@ export function clearAll() {
   return STORAGE.clearAll();
 }
 
+export function exportData() {
+  return STORAGE.exportAll();
+}
+
 // Back-compat: exportData() triggers a file download
 export function exportData(filenamePrefix = 'vmq-backup') {
   try {
