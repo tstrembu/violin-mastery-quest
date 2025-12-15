@@ -433,6 +433,60 @@ export const updateSRSReviews  = spacedRepetition.updateSRSReviews.bind(spacedRe
 // Default export (singleton)
 export default spacedRepetition;
 
+// --- Session-level SRS sync hook ---
+// Called by sessionTracker at end-of-session.
+export function updateSRSReviews(payloadOrCorrect, wrong, engagedMs) {
+  // Supports both:
+  // 1) updateSRSReviews({ correct, wrong, engagedMs, reviews: [...] })
+  // 2) updateSRSReviews(correct, wrong, engagedMs)  (legacy)
+  const payload = (payloadOrCorrect && typeof payloadOrCorrect === 'object')
+    ? payloadOrCorrect
+    : {
+        correct: Number(payloadOrCorrect) || 0,
+        wrong: Number(wrong) || 0,
+        engagedMs: Number(engagedMs) || 0,
+        reviews: []
+      };
+
+  try {
+    // Best-effort: keep a tiny rolling log + counters inside the same SRS storage blob.
+    // NOTE: your file currently uses STORAGE_KEYS.SPACED_REP (typo); storage.js defines SPACED_REPETITION.  [oai_citation:10‡sessionTracker.js](sediment://file_00000000ac4c71f8a30041ab27c5ff8a)
+    const key = STORAGE_KEYS.SPACED_REPETITION || STORAGE_KEYS.SPACED_REP;
+    const state = loadJSON(key, {}) || {};
+
+    state.sessionStats = state.sessionStats || {
+      totalSessions: 0,
+      totalCorrect: 0,
+      totalWrong: 0,
+      totalEngagedMs: 0,
+      lastSessionEnd: 0
+    };
+
+    state.sessionStats.totalSessions += 1;
+    state.sessionStats.totalCorrect += Number(payload.correct) || 0;
+    state.sessionStats.totalWrong += Number(payload.wrong) || 0;
+    state.sessionStats.totalEngagedMs += Number(payload.engagedMs) || 0;
+    state.sessionStats.lastSessionEnd = Date.now();
+
+    // Optional rolling log (small)
+    const log = Array.isArray(state.sessionLog) ? state.sessionLog : [];
+    log.unshift({
+      ts: Date.now(),
+      sessionId: payload.sessionId || null,
+      activity: payload.activity || 'SRS',
+      correct: Number(payload.correct) || 0,
+      wrong: Number(payload.wrong) || 0,
+      engagedMs: Number(payload.engagedMs) || 0,
+      reviewCount: Array.isArray(payload.reviews) ? payload.reviews.length : 0
+    });
+    state.sessionLog = log.slice(0, 50);
+
+    saveJSON(key, state);
+  } catch (e) {
+    console.warn('[SRS] updateSRSReviews failed:', e);
+  }
+}
+
 // ======================================
 // AUTO-INIT (optional)
 // ======================================
