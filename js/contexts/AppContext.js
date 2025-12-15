@@ -1,3 +1,4 @@
+// /js/contexts/AppContext.js
 // ======================================
 // VMQ APP CONTEXT v2.0 - 6-Engine Live State
 // Analytics + SM-2 + Coach + 50+ modules
