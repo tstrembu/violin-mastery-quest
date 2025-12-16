@@ -11,7 +11,7 @@ import { addXP, updateStreak, checkAchievements } from './gamification.js';
 // CONFIGURATION
 // ======================================
 const CONFIG = {
-  IDLE_TIMEOUT: 30000,        // 30s idle → pause
+  IDLE_TIMEOUT: 45000,        // 45s idle → pause
   IDLE_WARNING: 20000,        // 20s → show warning
   TICK_INTERVAL: 1000,        // 1s updates
   MIN_SESSION_MINUTES: 1,     // Minimum trackable session
