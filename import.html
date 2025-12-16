@@ -1,50 +1,327 @@
 <!-- import.html
 ========================================================
-VMQ Import?
+VMQ Import (Drop-in replacement)
+- Imports VMQ backup JSON (from Settings export or other VMQ builds)
+- Merges safely without clobbering critical structures
+- Uses storage.js (STORAGE_KEYS/loadJSON/saveJSON/cleanup) when available
+- Falls back to localStorage if storage.js isn't reachable
+- Validates JSON, reports what was imported, and offers "Open VMQ"
 ========================================================
 -->
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#3a5ba0" />
+  <meta name="robots" content="noindex" />
   <title>Import Practice Data – Violin Mastery Quest</title>
   <link rel="stylesheet" href="./css/base.css" />
+  <style>
+    body { margin: 0; }
+    .card {
+      margin: 1.25rem auto;
+      max-width: min(92vw, 760px);
+      background: var(--card, #fff);
+      border: 1px solid var(--border, #e2e8f0);
+      border-radius: var(--radius, 12px);
+      padding: 1.25rem;
+      box-shadow: 0 10px 15px rgba(0,0,0,0.08);
+    }
+    .row { display:flex; gap: .75rem; flex-wrap: wrap; align-items: center; }
+    .muted { opacity: .85; }
+    .mono { font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace; }
+    .status {
+      margin-top: var(--space-md, 12px);
+      padding: .75rem 1rem;
+      border-radius: 10px;
+      border: 1px solid var(--border, #e2e8f0);
+      background: rgba(58, 91, 160, 0.06);
+    }
+    .status.ok { background: rgba(16,185,129,.10); border-color: rgba(16,185,129,.25); }
+    .status.warn { background: rgba(245,158,11,.10); border-color: rgba(245,158,11,.25); }
+    .status.bad { background: rgba(239,68,68,.10); border-color: rgba(239,68,68,.25); }
+    .small { font-size: .95rem; }
+    input[type="file"] { max-width: 100%; }
+    details { margin-top: .75rem; }
+  </style>
 </head>
+
 <body>
   <main class="module-container">
-    <h1>Import Practice Data</h1>
-    <p>Select a VMQ practice JSON file to import.  This will merge with any
-      existing practice data stored on this device.</p>
-    <input type="file" id="importFile" accept=".vmq,.practice,application/json" />
-    <button id="importButton" class="btn btn-primary" style="margin-top: var(--space-md)">
-      Import
-    </button>
-    <p id="status" class="text-muted" style="margin-top: var(--space-md)"></p>
+    <div class="card">
+      <h1>Import Practice Data</h1>
+      <p class="muted">
+        Choose a VMQ export / backup JSON file to import. VMQ will merge it with existing data stored on this device.
+      </p>
+
+      <div class="row" style="margin-top: var(--space-md, 12px);">
+        <input type="file" id="importFile" accept=".vmq,.practice,application/json,.json" />
+        <button id="importButton" class="btn btn-primary" type="button">Import</button>
+        <button id="openButton" class="btn btn-outline" type="button" style="display:none;">Open VMQ</button>
+      </div>
+
+      <div id="status" class="status muted small" aria-live="polite">
+        Waiting for a file…
+      </div>
+
+      <details id="details" style="display:none;">
+        <summary class="muted">Import details</summary>
+        <pre id="detailsText" class="mono small" style="white-space:pre-wrap; margin: .75rem 0 0;"></pre>
+      </details>
+    </div>
   </main>
+
   <script type="module">
-    import { loadJSON, saveJSON } from './js/config/storage.js';
+    const BASE = '/violin-mastery-quest/'; // GitHub Pages repo base
+    const FALLBACK_PREFIX = 'vmq_';        // used only for localStorage fallback
+
     const fileInput = document.getElementById('importFile');
     const importButton = document.getElementById('importButton');
+    const openButton = document.getElementById('openButton');
     const statusEl = document.getElementById('status');
+    const detailsEl = document.getElementById('details');
+    const detailsText = document.getElementById('detailsText');
+
+    function setStatus(kind, msg) {
+      statusEl.classList.remove('ok','warn','bad');
+      statusEl.classList.add(kind);
+      statusEl.textContent = msg;
+    }
+
+    function showDetails(obj) {
+      detailsEl.style.display = 'block';
+      detailsText.textContent = JSON.stringify(obj, null, 2);
+    }
+
+    function isPlainObject(x) {
+      return !!x && typeof x === 'object' && !Array.isArray(x);
+    }
+
+    function safeMergeObjects(existing, incoming) {
+      // Shallow merge for predictable VMQ keys; avoids deep surprises.
+      // If both are objects: { ...existing, ...incoming }, else incoming wins.
+      if (isPlainObject(existing) && isPlainObject(incoming)) {
+        return { ...existing, ...incoming };
+      }
+      return incoming !== undefined ? incoming : existing;
+    }
+
+    async function tryLoadStorageModule() {
+      try {
+        // VMQ canonical module path
+        const mod = await import('./js/config/storage.js');
+        return mod || null;
+      } catch {
+        return null;
+      }
+    }
+
+    function fallbackLoadJSON(key, def = null) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw == null) return def;
+        return JSON.parse(raw);
+      } catch {
+        return def;
+      }
+    }
+
+    function fallbackSaveJSON(key, value) {
+      try {
+        if (value === null || value === undefined) {
+          localStorage.removeItem(key);
+          return true;
+        }
+        localStorage.setItem(key, JSON.stringify(value));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    function detectBackupShape(data) {
+      // Accept:
+      // 1) VMQ Settings export: { profile, gamification, achievements, stats, settings, difficulties, ... }
+      // 2) Legacy/Custom: any object with recognizable keys
+      // 3) PRACTICE_DATA-style: { ... } (we’ll store under PRACTICE_DATA)
+      if (!isPlainObject(data)) return { kind: 'invalid' };
+
+      const hasVMQExportKeys =
+        ('profile' in data) ||
+        ('gamification' in data) ||
+        ('achievements' in data) ||
+        ('settings' in data) ||
+        ('difficulties' in data) ||
+        ('stats' in data) ||
+        ('analytics' in data);
+
+      if (hasVMQExportKeys) return { kind: 'vmq_export' };
+
+      return { kind: 'generic_object' };
+    }
+
+    function normalizeForVMQStorage(data, storageMod) {
+      // Map the imported backup keys to the app’s storage keys (when known).
+      // We use STORAGE_KEYS when present; otherwise fallback to common vmq_* keys.
+      const keys = storageMod?.STORAGE_KEYS || {};
+
+      const out = [];
+
+      // Helper to pick a storage key
+      const K = (preferred, fallback) => preferred || fallback;
+
+      // Common keys
+      const KEY_PROFILE      = K(keys.PROFILE,      'vmq_profile');
+      const KEY_SETTINGS     = K(keys.SETTINGS,     'vmq_settings');
+      const KEY_DIFFICULTY   = K(keys.DIFFICULTY,   'vmq_difficulty');
+      const KEY_ACHIEVEMENTS = K(keys.ACHIEVEMENTS, 'vmq_achievements');
+      const KEY_STATS        = K(keys.STATS,        'vmq_stats');
+      const KEY_ANALYTICS    = K(keys.ANALYTICS,    'vmq_analytics');
+
+      // Some builds store XP/STREAK separately; if present we preserve them too
+      const KEY_XP     = K(keys.XP,     'vmq_xp');
+      const KEY_STREAK = K(keys.STREAK, 'vmq_streak');
+
+      // Generic practice data key (if the user imports an older export)
+      const KEY_PRACTICE_DATA = 'PRACTICE_DATA';
+
+      const shape = detectBackupShape(data);
+
+      if (shape.kind === 'vmq_export') {
+        if (data.profile)      out.push({ key: KEY_PROFILE, value: data.profile, label: 'profile' });
+        if (data.settings)     out.push({ key: KEY_SETTINGS, value: data.settings, label: 'settings' });
+        if (data.difficulties) out.push({ key: KEY_DIFFICULTY, value: data.difficulties, label: 'difficulties' });
+
+        if (data.achievements) out.push({ key: KEY_ACHIEVEMENTS, value: data.achievements, label: 'achievements' });
+
+        // Stats/analytics can be structured differently across builds
+        if (data.stats)        out.push({ key: KEY_STATS, value: data.stats, label: 'stats' });
+        if (data.analytics)    out.push({ key: KEY_ANALYTICS, value: data.analytics, label: 'analytics' });
+
+        // Gamification can be a bundle or just numbers
+        if (data.gamification && isPlainObject(data.gamification)) {
+          // Preserve xp/streak if explicitly provided
+          if ('xp' in data.gamification)     out.push({ key: KEY_XP, value: data.gamification.xp, label: 'xp' });
+          if ('streak' in data.gamification) out.push({ key: KEY_STREAK, value: data.gamification.streak, label: 'streak' });
+
+          // Some versions store achievements inside gamification; we already handle above.
+        }
+
+        // If export includes a catch-all PRACTICE_DATA, keep it too.
+        if (data.practiceData && isPlainObject(data.practiceData)) {
+          out.push({ key: KEY_PRACTICE_DATA, value: data.practiceData, label: 'practiceData' });
+        }
+
+        return out;
+      }
+
+      // Generic object: store into PRACTICE_DATA to avoid stomping unknown app keys.
+      out.push({ key: KEY_PRACTICE_DATA, value: data, label: 'practiceData' });
+      return out;
+    }
+
+    async function loadExisting(storageMod, key, def = null) {
+      if (storageMod?.loadJSON) return storageMod.loadJSON(key, def);
+      return fallbackLoadJSON(key, def);
+    }
+
+    async function saveValue(storageMod, key, value) {
+      if (storageMod?.saveJSON) {
+        storageMod.saveJSON(key, value);
+        return true;
+      }
+      return fallbackSaveJSON(key, value);
+    }
+
+    async function importFile(file) {
+      const storageMod = await tryLoadStorageModule();
+
+      const text = await file.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error('File is not valid JSON.');
+      }
+
+      if (!isPlainObject(data) && !Array.isArray(data)) {
+        throw new Error('Unsupported file format. Expected a JSON object.');
+      }
+
+      const writes = normalizeForVMQStorage(data, storageMod);
+      const results = [];
+
+      for (const w of writes) {
+        const existing = await loadExisting(storageMod, w.key, (isPlainObject(w.value) ? {} : null));
+
+        // Merge strategy:
+        // - Objects: shallow merge
+        // - Arrays: append unique-ish (by JSON string) but cap size
+        // - Scalars: imported wins
+        let merged;
+        if (Array.isArray(existing) && Array.isArray(w.value)) {
+          const seen = new Set(existing.map(v => JSON.stringify(v)));
+          const appended = [];
+          for (const item of w.value) {
+            const sig = JSON.stringify(item);
+            if (!seen.has(sig)) {
+              seen.add(sig);
+              appended.push(item);
+            }
+          }
+          merged = [...existing, ...appended].slice(-5000); // safety cap
+        } else {
+          merged = safeMergeObjects(existing, w.value);
+        }
+
+        const ok = await saveValue(storageMod, w.key, merged);
+        results.push({ key: w.key, label: w.label, ok, importedType: Array.isArray(w.value) ? 'array' : typeof w.value });
+      }
+
+      return {
+        fileName: file.name,
+        fileSize: file.size,
+        savedVia: storageMod?.saveJSON ? 'storage.js' : 'localStorage',
+        writes: results
+      };
+    }
 
     importButton.addEventListener('click', async () => {
       const file = fileInput.files?.[0];
       if (!file) {
-        statusEl.textContent = 'Please choose a file.';
+        setStatus('warn', 'Please choose a file first.');
         return;
       }
+
+      importButton.disabled = true;
+      setStatus('warn', 'Importing…');
+
       try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-        const existing = loadJSON('PRACTICE_DATA') || {};
-        const merged = { ...existing, ...data };
-        saveJSON('PRACTICE_DATA', merged);
-        statusEl.textContent = 'Import successful!';
+        const summary = await importFile(file);
+        setStatus('ok', '✅ Import successful! You can now open VMQ.');
+        showDetails(summary);
+
+        openButton.style.display = 'inline-flex';
+        openButton.onclick = () => { window.location.href = BASE; };
       } catch (err) {
         console.error(err);
-        statusEl.textContent = 'Import failed: ' + err.message;
+        setStatus('bad', '❌ Import failed: ' + (err?.message || 'Unknown error'));
+        showDetails({ error: String(err?.message || err) });
+      } finally {
+        importButton.disabled = false;
       }
+    });
+
+    // Nice UX: if user selects a file, update status
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      if (!file) {
+        setStatus('warn', 'Waiting for a file…');
+        return;
+      }
+      setStatus('warn', `Ready to import: ${file.name} (${Math.round(file.size/1024)} KB)`);
+      detailsEl.style.display = 'none';
     });
   </script>
 </body>
