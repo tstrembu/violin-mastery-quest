@@ -1,6 +1,6 @@
 // /js/contexts/AppContext.js
 // ======================================
-// VMQ APP CONTEXT v2.2.0 - 6-Engine Live State (Safe + Compatible)
+// VMQ APP CONTEXT v2.1.5 - 6-Engine Live State (Safe + Compatible)
 // Fixes:
 // - updateStreak name collision / recursion
 // - sessionTracker event wiring (no .on dependency)
