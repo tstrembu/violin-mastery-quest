@@ -1,47 +1,85 @@
-// Loading – Browser-safe version (no React import, no JSX)
+// js/components/Loading.js
+// ======================================
+// VMQ LOADING v2.0.0 (Drop-in)
+// Browser-safe, no React import, no JSX.
+// Returns an HTMLElement so it can be used by non-React loaders.
+// Also provides a small React-compat wrapper export for places that expect
+// a React component (optional, non-breaking).
+// ======================================
+
+import { createElement } from '../utils/helpers.js';
+
 /**
- * js/components/Loading.js
- * Simple loading indicator using native DOM methods.
+ * Create a loading screen element.
+ * @param {object} [props]
+ * @param {string} [props.message='Loading…'] Text message to display.
+ * @param {boolean} [props.active=true] Whether to add "active" class.
+ * @param {string} [props.ariaLabel='Loading'] Accessible label for the spinner region.
+ * @returns {HTMLElement}
  */
+export default function Loading(props = {}) {
+  const {
+    message = 'Loading…',
+    active = true,
+    ariaLabel = 'Loading',
+  } = props;
 
-import { createElement } from '../utils/helpers.js'; // Assuming you implement the helper
+  // Root
+  const root = createElement('div', `loading-screen${active ? ' active' : ''}`);
+  root.setAttribute('role', 'status');
+  root.setAttribute('aria-live', 'polite');
+  root.setAttribute('aria-busy', 'true');
 
-/**
- * Simple loading indicator used as a Suspense fallback when lazily loaded
- * modules are still being downloaded.
- * * @param {object} props - Component properties
- * @param {string} props.message - The text message to display
- * @returns {HTMLElement} The loading screen DOM element
- */
-export default function Loading({ message = 'Loading…' }) {
-    // 1. Create the main container div
-    const loadingScreen = createElement('div', 'loading-screen active');
-    
-    // 2. Create the content container
-    const loadingContent = createElement('div', 'loading-content');
-    loadingContent.style.textAlign = 'center';
+  // Content
+  const content = createElement('div', 'loading-content');
+  content.style.textAlign = 'center';
 
-    // 3. Create the spinner div
-    const spinner = createElement('div', 'loading-spinner');
-    spinner.style.cssText = `
-        width: clamp(48px, 12vw, 64px);
-        height: clamp(48px, 12vw, 64px);
-        margin: 0 auto var(--space-xl);
-    `;
+  // Spinner
+  const spinner = createElement('div', 'loading-spinner');
+  spinner.setAttribute('aria-label', ariaLabel);
+  spinner.style.width = 'clamp(48px, 12vw, 64px)';
+  spinner.style.height = 'clamp(48px, 12vw, 64px)';
+  spinner.style.margin = '0 auto var(--space-xl)';
 
-    // 4. Create the message heading
-    const messageHeading = createElement('h2');
-    messageHeading.textContent = message;
-    messageHeading.style.marginBottom = 'var(--space-md)';
+  // Message
+  const heading = createElement('h2', null, message);
+  heading.style.marginBottom = 'var(--space-md)';
 
-    // 5. Assemble the elements
-    loadingContent.appendChild(spinner);
-    loadingContent.appendChild(messageHeading);
-    loadingScreen.appendChild(loadingContent);
+  // Assemble
+  content.appendChild(spinner);
+  content.appendChild(heading);
+  root.appendChild(content);
 
-    return loadingScreen;
+  return root;
 }
 
-// NOTE: Ensure your /js/utils/helpers.js includes the createElement function:
-// export function createElement(tag, className, text) { ... }
+/**
+ * Optional: React-compat wrapper (non-breaking).
+ * If some parts of VMQ still do `const { createElement: h } = React;`
+ * and expect Loading to be callable as a React function component,
+ * they can import { LoadingReact } instead.
+ *
+ * Usage:
+ *   import Loading, { LoadingReact } from './Loading.js';
+ */
+export function LoadingReact({ message = 'Loading…', active = true } = {}) {
+  // If React is unavailable, fall back to DOM element.
+  // If React is available, wrap the DOM element in a container via ref.
+  // This keeps compatibility without requiring JSX.
+  const ReactRef = (globalThis && globalThis.React) ? globalThis.React : null;
+  if (!ReactRef?.createElement || !ReactRef?.useEffect || !ReactRef?.useRef) {
+    return Loading({ message, active });
+  }
 
+  const { createElement: h, useEffect, useRef } = ReactRef;
+  const hostRef = useRef(null);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    host.innerHTML = '';
+    host.appendChild(Loading({ message, active }));
+  }, [message, active]);
+
+  return h('div', { ref: hostRef });
+}
