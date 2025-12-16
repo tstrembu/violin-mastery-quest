@@ -44,3 +44,4 @@ export default function Loading({ message = 'Loading…' }) {
 
 // NOTE: Ensure your /js/utils/helpers.js includes the createElement function:
 // export function createElement(tag, className, text) { ... }
+
