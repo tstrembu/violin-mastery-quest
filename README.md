@@ -1,3 +1,4 @@
+// README.md
 # 🎻 Violin Mastery Quest (VMQ) v3.0.5
 
 **Adaptive violin & music theory practice app with ML-powered coaching, spaced repetition, and gamification for serious young violinists.**
