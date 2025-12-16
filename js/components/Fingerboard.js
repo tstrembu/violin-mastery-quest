@@ -1,7 +1,8 @@
 // js/components/Fingerboard.js
 // ======================================
-// FINGERBOARD v3.0.5 - ML-ADAPTIVE VIOLIN MASTERY
+// FINGERBOARD v3.0.5+ - ML-ADAPTIVE VIOLIN MASTERY
 // Position Confusion • Optimal Fingering • 8-Engine Live
+// Adds: Show Answer • Pair Drills • Aggregated Mastery • Low/High 2 Frames
 // ======================================
 
 const { createElement: h, useState, useEffect, useCallback, useMemo, useRef } = React;
@@ -35,27 +36,44 @@ const STRINGS = [
 
 const POSITIONS = [1, 2, 3, 4, 5, 7, 9]; // standard violin milestones
 
+// NOTE: finger semitones are now driven by the selected "frame"
+// (high2 vs low2), but we keep this array for rendering & identity.
 const FINGERS = [
-  { id: '1',  semitones: 0, label: '1',  extension: false },
-  { id: '2',  semitones: 2, label: '2',  extension: false },
-  { id: '3',  semitones: 4, label: '3',  extension: false },
-  { id: '4',  semitones: 5, label: '4',  extension: false },
-  { id: '1x', semitones: 7, label: '1×', extension: true }
+  { id: '1',  label: '1',  extension: false },
+  { id: '2',  label: '2',  extension: false },
+  { id: '3',  label: '3',  extension: false },
+  { id: '4',  label: '4',  extension: false },
+  { id: '1x', label: '1×', extension: true }
 ];
+
+// -----------------------------
+// Low-2 / High-2 finger frames
+// -----------------------------
+// These are offsets relative to 1st finger (which is 0 by definition in this model).
+// High2 = "normal" whole step between 1 and 2 (0->2), and whole step 2->3 (2->4)
+// Low2  = half step between 1 and 2 (0->1), then whole step 2->3 (1->3)
+const FINGER_FRAMES = {
+  high2: { '1': 0, '2': 2, '3': 4, '4': 5, '1x': 7 },
+  low2:  { '1': 0, '2': 1, '3': 3, '4': 5, '1x': 7 }
+};
+
+function getFingerSemitone(fingerId, frameId) {
+  const frame = FINGER_FRAMES[frameId] || FINGER_FRAMES.high2;
+  const v = frame[fingerId];
+  return Number.isFinite(Number(v)) ? Number(v) : 0;
+}
 
 // -----------------------------
 // Violin-accurate position model
 // -----------------------------
-// These are semitone offsets from open string to the *1st finger* for each position.
-// This corrects the original (position-1)*4 formula which is not violin-accurate.
 const POSITION_1ST_FINGER_OFFSET = {
-  1: 2,   // 1st pos: 1st finger is a whole step above open string
-  2: 4,   // 2nd pos
-  3: 5,   // 3rd pos
-  4: 7,   // 4th pos
-  5: 9,   // 5th pos
-  7: 12,  // 7th pos ~ octave
-  9: 16   // 9th pos ~ octave + major 3rd
+  1: 2,
+  2: 4,
+  3: 5,
+  4: 7,
+  5: 9,
+  7: 12,
+  9: 16
 };
 
 // -----------------------------
@@ -63,11 +81,17 @@ const POSITION_1ST_FINGER_OFFSET = {
 // -----------------------------
 const DEFAULT_CONFIG = {
   level: 1,
-  positions: 3,   // number of unlocked positions (slice of POSITIONS)
-  strings: 4,     // unlocked strings (1-4)
+  positions: 3,
+  strings: 4,
   maxQuestions: 30,
   autoPlayTrainer: true,
-  trainerVibrato: 0.3
+  trainerVibrato: 0.3,
+
+  // new (no external interface changes)
+  fingerFrame: 'high2',       // 'high2' | 'low2'
+  pairDrills: true,           // allow confusion.pairs drills
+  pairDrillRate: 0.25,        // ~25% of trainer questions can be pair drills
+  showAnswerReplay: true      // replay target when revealing answer
 };
 
 function clampInt(n, lo, hi) {
@@ -75,30 +99,29 @@ function clampInt(n, lo, hi) {
   if (!Number.isFinite(x)) return lo;
   return Math.max(lo, Math.min(hi, Math.trunc(x)));
 }
-
 function clamp01(x) {
   const n = Number(x);
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(1, n));
 }
-
 function nowMs() {
   return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 }
-
 function safeCall(fn, ...args) {
   try { return (typeof fn === 'function') ? fn(...args) : undefined; }
   catch (_) { return undefined; }
 }
-
 async function safeAsync(promiseLike) {
   try { return await Promise.resolve(promiseLike); }
   catch (_) { return undefined; }
 }
 
-// Confusion data can be many shapes; normalize to:
+// -----------------------------
+// Confusion normalization
+// -----------------------------
+// normalize to:
 // - midiSet: Set<midiNumber>
-// - pairs: Set<"lo-hi"> (optional future use)
+// - pairs: Set<"lo-hi">
 // - weights: Map<"lo-hi", weight>
 function normalizeConfusion(confusionData) {
   const raw = confusionData?.pairs ?? confusionData ?? [];
@@ -133,10 +156,10 @@ function normalizeConfusion(confusionData) {
   return { midiSet, pairs, weights };
 }
 
-// Mastery data can be:
-// - numeric score (0..1)
-// - object { attempts, correct, accuracy }
-// Normalize to { attempts, correct, accuracy0to1 } for each key.
+// -----------------------------
+// Mastery normalization
+// -----------------------------
+// normalized to { attempts, correct, accuracy0to1 }
 function normalizeMastery(masteryRaw) {
   const out = {};
   if (!masteryRaw || typeof masteryRaw !== 'object') return out;
@@ -161,7 +184,6 @@ function normalizeMastery(masteryRaw) {
 function masteryKey(stringId, position) {
   return `${stringId}-${position}`;
 }
-
 function accuracyGrade(accPct) {
   const a = Number(accPct) || 0;
   if (a >= 95) return 'S';
@@ -170,19 +192,20 @@ function accuracyGrade(accPct) {
   if (a >= 80) return 'C';
   return 'D';
 }
-
 function firstFingerOffset(position) {
   return POSITION_1ST_FINGER_OFFSET[position] ?? POSITION_1ST_FINGER_OFFSET[1];
 }
 
-// Compute note info using violin-correct model:
-// midi = openMidi + firstFingerOffset(position) + finger.semitones
-function computeNoteInfo({ stringIdx, position, fingerId, confusion }) {
+// -----------------------------
+// Note computation (frame-aware)
+// -----------------------------
+function computeNoteInfo({ stringIdx, position, fingerId, confusion, frameId }) {
   const string = STRINGS[stringIdx] || STRINGS[0];
   const finger = FINGERS.find(f => f.id === fingerId) || FINGERS[0];
 
   const base = firstFingerOffset(position);
-  const midi = string.openMidi + base + finger.semitones;
+  const semis = getFingerSemitone(finger.id, frameId);
+  const midi = string.openMidi + base + semis;
 
   const noteName = safeCall(MUSIC?.midiToNoteName, midi) || `MIDI ${midi}`;
   const octave = Math.floor(midi / 12) - 1;
@@ -206,13 +229,13 @@ function computeNoteInfo({ stringIdx, position, fingerId, confusion }) {
     finger: finger.label,
     fingerId: finger.id,
     difficulty,
-    confusionScore
+    confusionScore,
+    frameId
   };
 }
 
-// Generate challenging notes inside unlocked ranges.
-// Keeps your intent: extension finger mainly early positions (<=3) unless you later expand.
-function generateChallengingNotes(maxPosCount, maxStrCount, confusion) {
+// Generate challenging notes inside unlocked ranges (frame-aware)
+function generateChallengingNotes(maxPosCount, maxStrCount, confusion, frameId) {
   const posList = POSITIONS.slice(0, clampInt(maxPosCount, 1, POSITIONS.length));
   const strCount = clampInt(maxStrCount, 1, 4);
 
@@ -221,9 +244,9 @@ function generateChallengingNotes(maxPosCount, maxStrCount, confusion) {
     for (const pos of posList) {
       for (const f of FINGERS) {
         if (f.extension && pos > 3) continue;
-        const info = computeNoteInfo({ stringIdx: s, position: pos, fingerId: f.id, confusion });
+        const info = computeNoteInfo({ stringIdx: s, position: pos, fingerId: f.id, confusion, frameId });
         if ((info.difficulty || 1) > 1.2) {
-          challenging.push({ stringIdx: s, position: pos, fingerId: f.id, difficulty: info.difficulty });
+          challenging.push({ stringIdx: s, position: pos, fingerId: f.id, difficulty: info.difficulty, frameId });
         }
       }
     }
@@ -231,37 +254,36 @@ function generateChallengingNotes(maxPosCount, maxStrCount, confusion) {
   return challenging;
 }
 
-// If an item is midi-only (from due/confusion), find a playable fingering inside unlocked set.
-function findPlayableForMidi(targetMidi, maxPosCount, maxStrCount, confusion) {
+// Find playable fingering for a midi under current frame; fallback to high2 if needed
+function findPlayableForMidi(targetMidi, maxPosCount, maxStrCount, confusion, frameId) {
   const posList = POSITIONS.slice(0, clampInt(maxPosCount, 1, POSITIONS.length));
   const strCount = clampInt(maxStrCount, 1, 4);
 
-  let best = null;
-  for (let s = 0; s < strCount; s++) {
-    for (const pos of posList) {
-      for (const f of FINGERS) {
-        if (f.extension && pos > 3) continue;
-        const info = computeNoteInfo({ stringIdx: s, position: pos, fingerId: f.id, confusion });
-        if (info.midi !== targetMidi) continue;
+  const attempt = (frameTry) => {
+    let best = null;
+    for (let s = 0; s < strCount; s++) {
+      for (const pos of posList) {
+        for (const f of FINGERS) {
+          if (f.extension && pos > 3) continue;
+          const info = computeNoteInfo({ stringIdx: s, position: pos, fingerId: f.id, confusion, frameId: frameTry });
+          if (info.midi !== targetMidi) continue;
 
-        // “Optimal fingering” heuristic: prefer lower difficulty, then lower position, then lower string index
-        const score = (info.difficulty || 1) * (info.confusionScore || 1) + (pos * 0.05) + (s * 0.02);
-        if (!best || score < best.score) best = { ...info, score };
+          const score = (info.difficulty || 1) * (info.confusionScore || 1) + (pos * 0.05) + (s * 0.02);
+          if (!best || score < best.score) best = { ...info, score };
+        }
       }
     }
-  }
-  return best ? { ...best } : null;
+    return best ? { ...best } : null;
+  };
+
+  return attempt(frameId) || attempt('high2') || null;
 }
 
-// Normalize due items returned by SR engine to an internal shape:
-// { stringIdx, position, fingerId, midi?, difficulty?, weight? }
+// Normalize due items
 function normalizeDueItem(item) {
   if (!item) return null;
-
-  // midi-only
   if (typeof item.midi === 'number') return { midi: item.midi };
 
-  // possible keys from earlier prototype
   const stringIdx = (typeof item.stringIdx === 'number')
     ? item.stringIdx
     : (typeof item.string === 'number' ? item.string : null);
@@ -280,17 +302,18 @@ function normalizeDueItem(item) {
 // Component
 // -----------------------------
 export default function Fingerboard({ onBack, refreshStats }) {
-  // Feature gate (if FEATURES exists)
   const enabled = (FEATURES && typeof FEATURES.FINGERBOARD !== 'undefined') ? FEATURES.FINGERBOARD : true;
 
-  // 🎯 ML-ADAPTIVE CORE STATE
-  const [mode, setMode] = useState('explore'); // explore | quiz | trainer
+  // 🎯 Core
+  const [mode, setMode] = useState('explore');
   const [config, setConfig] = useState({ ...DEFAULT_CONFIG });
 
-  // Default selected string should be valid index (0..3). The prompt’s snippet uses 1.
   const [selectedString, setSelectedString] = useState(0);
   const [selectedPosition, setSelectedPosition] = useState(POSITIONS[0]);
   const [selectedFinger, setSelectedFinger] = useState('1');
+
+  // New: finger frame state (kept in sync with config)
+  const [fingerFrame, setFingerFrame] = useState(DEFAULT_CONFIG.fingerFrame);
 
   const [targetNote, setTargetNote] = useState(null);
   const [userAnswer, setUserAnswer] = useState(null);
@@ -299,21 +322,81 @@ export default function Fingerboard({ onBack, refreshStats }) {
   const [isPlaying, setIsPlaying] = useState(false);
 
   const [positionMastery, setPositionMastery] = useState({});
+  const [positionMasteryAgg, setPositionMasteryAgg] = useState({}); // NEW: aggregated by position
   const [confusion, setConfusion] = useState(() => normalizeConfusion([]));
+
   const [statusLine, setStatusLine] = useState('');
 
-  const inputRef = useRef(null);
+  // NEW: show-answer + last result state
+  const [lastResult, setLastResult] = useState(null);     // { correct, responseTime, drillType, ... }
+  const [revealAnswer, setRevealAnswer] = useState(false);
+
+  // NEW: pair-drill context
+  const [pairContext, setPairContext] = useState(null);   // { loMidi, hiMidi, targetMidi, distractorMidi, prompt }
+
   const questionStartRef = useRef(nowMs());
   const answeredLockRef = useRef(false);
   const timerRef = useRef(null);
 
-  // 🎯 8-ENGINE HOOKS (safe)
+  // 8-engine hooks (safe)
   const router = safeCall(useVMQRouter) || {};
   const navigate = router.navigate || (() => {});
   const gamCtx = safeCall(useGamification) || {};
   const updateXP = gamCtx.updateXP;
   const notifCtx = safeCall(useNotifications) || {};
   const addNotification = notifCtx.addNotification || (() => {});
+
+  // -----------------------------
+  // Derived lists
+  // -----------------------------
+  const unlockedPositions = useMemo(
+    () => POSITIONS.slice(0, clampInt(config.positions, 1, POSITIONS.length)),
+    [config.positions]
+  );
+  const unlockedStrings = useMemo(
+    () => STRINGS.slice(0, clampInt(config.strings, 1, 4)),
+    [config.strings]
+  );
+
+  // -----------------------------
+  // Keep config.fingerFrame and local fingerFrame aligned
+  // -----------------------------
+  useEffect(() => {
+    if (config?.fingerFrame && config.fingerFrame !== fingerFrame) setFingerFrame(config.fingerFrame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config?.fingerFrame]);
+
+  // -----------------------------
+  // Aggregate mastery (by position, across strings) — NEW
+  // -----------------------------
+  useEffect(() => {
+    const agg = {};
+    for (const pos of POSITIONS) {
+      agg[pos] = { attempts: 0, correct: 0, accuracy: 0 };
+    }
+
+    for (const [k, v] of Object.entries(positionMastery || {})) {
+      const parts = String(k).split('-');
+      const pos = Number(parts[1]);
+      if (!Number.isFinite(pos)) continue;
+
+      const attempts = Number(v?.attempts) || 0;
+      const correct = Number(v?.correct) || 0;
+
+      if (!agg[pos]) agg[pos] = { attempts: 0, correct: 0, accuracy: 0 };
+      agg[pos].attempts += attempts;
+      agg[pos].correct += correct;
+    }
+
+    for (const [posKey, v] of Object.entries(agg)) {
+      const attempts = Number(v.attempts) || 0;
+      const correct = Number(v.correct) || 0;
+      v.accuracy = attempts > 0 ? clamp01(correct / attempts) : 0;
+      agg[Number(posKey)] = v;
+    }
+
+    setPositionMasteryAgg(agg);
+  }, [positionMastery]);
 
   // -----------------------------
   // Init adaptive (ML)
@@ -334,10 +417,13 @@ export default function Fingerboard({ onBack, refreshStats }) {
       ? clampInt(adaptive.maxQuestions, 5, 200)
       : DEFAULT_CONFIG.maxQuestions;
 
+    const fingerFrameCfg = (adaptive.fingerFrame === 'low2' || adaptive.fingerFrame === 'high2')
+      ? adaptive.fingerFrame
+      : DEFAULT_CONFIG.fingerFrame;
+
     const normalizedMastery = normalizeMastery(masteryRaw);
     const normalizedConfusion = normalizeConfusion(confusionRaw);
 
-    // weak positions list (accuracy < 0.7)
     const weakPositions = Object.entries(normalizedMastery)
       .filter(([, v]) => (v?.accuracy ?? 0) < 0.7)
       .map(([k]) => k);
@@ -349,7 +435,8 @@ export default function Fingerboard({ onBack, refreshStats }) {
       positions: positionsUnlocked,
       strings: stringsUnlocked,
       maxQuestions,
-      weakPositions
+      weakPositions,
+      fingerFrame: fingerFrameCfg
     }));
 
     setPositionMastery(normalizedMastery);
@@ -361,10 +448,11 @@ export default function Fingerboard({ onBack, refreshStats }) {
       stringsUnlocked,
       weakPositionsCount: weakPositions.length,
       confusionMidiCount: normalizedConfusion.midiSet.size,
-      confusionPairCount: normalizedConfusion.pairs.size
+      confusionPairCount: normalizedConfusion.pairs.size,
+      fingerFrame: fingerFrameCfg
     });
 
-    setStatusLine(`Adaptive loaded: Lv${lvl} • ${positionsUnlocked} pos • ${stringsUnlocked} str`);
+    setStatusLine(`Adaptive: Lv${lvl} • ${positionsUnlocked} pos • ${stringsUnlocked} str • Frame ${fingerFrameCfg}`);
   }, []);
 
   useEffect(() => {
@@ -373,15 +461,21 @@ export default function Fingerboard({ onBack, refreshStats }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
 
-  // If mode changes, clear timers and locks as needed
+  // -----------------------------
+  // Mode changes reset ephemeral state — NEW
+  // -----------------------------
   useEffect(() => {
     answeredLockRef.current = false;
     if (timerRef.current) clearTimeout(timerRef.current);
+
     setUserAnswer(null);
+    setLastResult(null);
+    setRevealAnswer(false);
+    setPairContext(null);
 
     if (mode === 'trainer') {
+      setTargetNote(null);
       setStatusLine('Trainer: find the target note on the fingerboard.');
-      // start with a question
       setTimeout(() => { nextQuestion(); }, 0);
     } else if (mode === 'quiz') {
       setTargetNote(null);
@@ -394,14 +488,20 @@ export default function Fingerboard({ onBack, refreshStats }) {
   }, [mode]);
 
   // -----------------------------
-  // Note info
+  // Note info (frame-aware) — UPDATED
   // -----------------------------
   const getNoteInfo = useCallback((stringIdx, position, fingerId) => {
-    return computeNoteInfo({ stringIdx, position, fingerId, confusion });
-  }, [confusion]);
+    return computeNoteInfo({
+      stringIdx,
+      position,
+      fingerId,
+      confusion,
+      frameId: fingerFrame
+    });
+  }, [confusion, fingerFrame]);
 
   // -----------------------------
-  // Audio (enhanced + fallback)
+  // Audio helpers
   // -----------------------------
   const playNote = useCallback(async (stringIdx, position, fingerId, opts = {}) => {
     if (isPlaying) return;
@@ -413,7 +513,6 @@ export default function Fingerboard({ onBack, refreshStats }) {
       const duration = opts.duration ?? 1.2;
       const vibrato = opts.vibrato ?? 0;
 
-      // Preferred: playViolinNote(freq, duration, params, onEnd?)
       if (audioEngine?.playViolinNote) {
         await audioEngine.playViolinNote(info.freq, duration, {
           string: STRINGS[stringIdx]?.tension || 'medium',
@@ -434,79 +533,39 @@ export default function Fingerboard({ onBack, refreshStats }) {
         position: info.position,
         finger: info.finger,
         mode,
-        difficulty: info.difficulty
+        difficulty: info.difficulty,
+        frameId: fingerFrame
       });
 
       safeCall(a11y?.announce, `${info.fullName} on ${info.string} string, position ${info.position}, finger ${info.finger}`);
     } catch (error) {
       // eslint-disable-next-line no-console
-      console.warn('[Fingerboard v3.0.5] Audio failed:', error);
+      console.warn('[Fingerboard v3.0.5+] Audio failed:', error);
     } finally {
       setIsPlaying(false);
     }
-  }, [isPlaying, getNoteInfo, mode]);
+  }, [isPlaying, getNoteInfo, mode, fingerFrame]);
 
-  // -----------------------------
-  // ML-weighted question generation
-  // -----------------------------
-  const nextQuestion = useCallback(async () => {
-    if (!enabled) return;
+  // NEW: play a midi directly (used for pair-drill sequences)
+  const playMidi = useCallback(async (midi, opts = {}) => {
+    const freq = safeCall(MUSIC?.midiToFreq, midi) || 440 * Math.pow(2, (midi - 69) / 12);
+    const duration = opts.duration ?? 1.0;
 
-    answeredLockRef.current = false;
-    setUserAnswer(null);
+    // If we can find a playable fingering under current frame, use violin rendering:
+    const playable = findPlayableForMidi(midi, config.positions, config.strings, confusion, fingerFrame);
 
-    const weakNotesRaw = await safeAsync(safeCall(getDueItems, 'fingerboard', 20));
-    const weakNotesArr = Array.isArray(weakNotesRaw) ? weakNotesRaw : [];
-    const weakNotes = weakNotesArr.map(normalizeDueItem).filter(Boolean);
-
-    const confusionNotes = Array.from(confusion.midiSet).map(midi => ({ midi }));
-
-    const challenging = generateChallengingNotes(config.positions, config.strings, confusion);
-
-    // Weighted pool: 50% weak, 30% confusion, 20% challenging
-    const pool = [
-      ...weakNotes.map(n => ({ ...n, weight: 3.0 })),
-      ...confusionNotes.map(n => ({ ...n, weight: 2.5 })),
-      ...challenging.map(n => ({ ...n, weight: 1.5 + (n.difficulty || 1) * 0.5 }))
-    ];
-
-    // Fail-safe: if pool empty, pick a deterministic note
-    const chosen = (pool.length && safeCall(getRandomWeighted, pool)) || pool[0] || { stringIdx: 0, position: POSITIONS[0], fingerId: '1' };
-
-    let info = null;
-
-    if (typeof chosen.midi === 'number') {
-      // Convert midi into a playable fingering within unlocked range
-      info = findPlayableForMidi(chosen.midi, config.positions, config.strings, confusion);
-      if (!info) {
-        // fallback: first challenging note or a safe default
-        const fb = challenging[0] || { stringIdx: 0, position: POSITIONS[0], fingerId: '1' };
-        info = getNoteInfo(fb.stringIdx, fb.position, fb.fingerId);
-      }
-    } else {
-      // chosen already has fingering fields; normalize & compute
-      const sIdx = clampInt(chosen.stringIdx ?? 0, 0, 3);
-      const posList = POSITIONS.slice(0, clampInt(config.positions, 1, POSITIONS.length));
-      const pos = posList.includes(chosen.position) ? chosen.position : posList[0];
-      const fingerId = FINGERS.some(f => f.id === chosen.fingerId) ? chosen.fingerId : '1';
-      info = getNoteInfo(sIdx, pos, fingerId);
+    if (playable) {
+      await playNote(playable.stringIdx, playable.position, playable.fingerId, { duration, vibrato: opts.vibrato ?? 0.12 });
+      return;
     }
 
-    setTargetNote(info);
-    questionStartRef.current = nowMs();
-
-    safeCall(a11y?.announce, `Find ${info.fullName}. Level ${config.level}.`);
-    setStatusLine(`Find: ${info.fullName} (Lv${config.level})`);
-
-    if (mode === 'trainer' && config.autoPlayTrainer) {
-      setTimeout(() => {
-        playNote(info.stringIdx, info.position, info.fingerId, { duration: 1.3, vibrato: config.trainerVibrato });
-      }, 450);
-    }
-  }, [enabled, config, confusion, getNoteInfo, playNote, mode]);
+    // fallback
+    if (audioEngine?.playTone) await audioEngine.playTone(freq, duration);
+    else if (audioEngine?.playNote) await audioEngine.playNote(freq, duration);
+  }, [config.positions, config.strings, confusion, fingerFrame, playNote]);
 
   // -----------------------------
-  // Mastery update helper (local)
+  // Mastery update (string-position only; agg computed separately) — unchanged behavior
   // -----------------------------
   const bumpMastery = useCallback((stringId, position, isCorrect) => {
     const k = masteryKey(stringId, position);
@@ -521,7 +580,7 @@ export default function Fingerboard({ onBack, refreshStats }) {
   }, []);
 
   // -----------------------------
-  // XP award helper (context-first, fallback to engine)
+  // XP award helper
   // -----------------------------
   const awardXP = useCallback(async (xp, reason) => {
     const amount = Math.max(0, Math.round(Number(xp) || 0));
@@ -534,7 +593,183 @@ export default function Fingerboard({ onBack, refreshStats }) {
   }, [updateXP]);
 
   // -----------------------------
-  // Check answer (ML + 8-engine)
+  // Pair drill selection — NEW
+  // -----------------------------
+  const choosePairDrill = useCallback(() => {
+    if (!config.pairDrills) return null;
+    if (!confusion?.pairs || confusion.pairs.size === 0) return null;
+
+    // Make weighted list from confusion.pairs + optional weights
+    const pairItems = Array.from(confusion.pairs).map(k => {
+      const w = confusion.weights?.get?.(k);
+      const weight = Number.isFinite(Number(w)) ? (2.0 + Number(w)) : 2.0;
+      return { pairKey: k, weight };
+    });
+
+    const chosen = safeCall(getRandomWeighted, pairItems) || pairItems[0];
+    if (!chosen?.pairKey) return null;
+
+    const [loS, hiS] = String(chosen.pairKey).split('-');
+    const loMidi = Number(loS);
+    const hiMidi = Number(hiS);
+    if (!Number.isFinite(loMidi) || !Number.isFinite(hiMidi)) return null;
+
+    // Choose target randomly (or bias toward the higher one if you prefer)
+    const targetMidi = (Math.random() < 0.5) ? loMidi : hiMidi;
+    const distractorMidi = (targetMidi === loMidi) ? hiMidi : loMidi;
+
+    // Build a prompt that works with existing tap interface:
+    // "I will play two notes; tap the SECOND one."
+    const targetName = safeCall(MUSIC?.midiToNoteName, targetMidi) || `MIDI ${targetMidi}`;
+    const distractorName = safeCall(MUSIC?.midiToNoteName, distractorMidi) || `MIDI ${distractorMidi}`;
+
+    const prompt = `Pair Drill: I’ll play 2 notes — tap the SECOND. (Confusion: ${targetName} vs ${distractorName})`;
+
+    return { loMidi, hiMidi, targetMidi, distractorMidi, prompt };
+  }, [config.pairDrills, confusion, fingerFrame]);
+
+  // -----------------------------
+  // ML-weighted question generation — UPDATED (includes pair drills)
+  // -----------------------------
+  const nextQuestion = useCallback(async () => {
+    if (!enabled) return;
+
+    answeredLockRef.current = false;
+    setUserAnswer(null);
+    setLastResult(null);
+    setRevealAnswer(false);
+    setPairContext(null);
+
+    // --- PAIR DRILL BRANCH (trainer only) ---
+    const canPair = (mode === 'trainer')
+      && config.pairDrills
+      && confusion?.pairs?.size > 0
+      && (Math.random() < (Number(config.pairDrillRate) || DEFAULT_CONFIG.pairDrillRate));
+
+    if (canPair) {
+      const pair = choosePairDrill();
+      if (pair) {
+        setPairContext(pair);
+
+        // Create target note "info" for the chosen targetMidi (best playable fingering)
+        let info = findPlayableForMidi(pair.targetMidi, config.positions, config.strings, confusion, fingerFrame);
+        if (!info) {
+          // fallback: ensure we at least have something
+          info = findPlayableForMidi(pair.targetMidi, config.positions, config.strings, confusion, 'high2');
+        }
+        if (!info) {
+          // last-ditch: pick a safe default
+          info = getNoteInfo(0, POSITIONS[0], '1');
+        }
+
+        setTargetNote({ ...info, drillType: 'pair', pairKey: `${pair.loMidi}-${pair.hiMidi}`, pairTargetMidi: pair.targetMidi });
+        questionStartRef.current = nowMs();
+
+        setStatusLine(`${pair.prompt} • Frame ${fingerFrame}`);
+        safeCall(a11y?.announce, pair.prompt);
+
+        if (config.autoPlayTrainer) {
+          // Play two notes: distractor first, then target (SECOND is correct)
+          setTimeout(async () => {
+            await playMidi(pair.distractorMidi, { duration: 0.9, vibrato: config.trainerVibrato });
+            setTimeout(async () => {
+              await playMidi(pair.targetMidi, { duration: 0.95, vibrato: config.trainerVibrato });
+            }, 650);
+          }, 450);
+        }
+
+        safeCall(sessionTracker?.trackActivity, 'fingerboard', 'pair_drill_start', {
+          loMidi: pair.loMidi, hiMidi: pair.hiMidi,
+          targetMidi: pair.targetMidi, distractorMidi: pair.distractorMidi,
+          level: config.level, frameId: fingerFrame
+        });
+
+        return;
+      }
+    }
+
+    // --- STANDARD QUESTION BRANCH ---
+    const weakNotesRaw = await safeAsync(safeCall(getDueItems, 'fingerboard', 20));
+    const weakNotesArr = Array.isArray(weakNotesRaw) ? weakNotesRaw : [];
+    const weakNotes = weakNotesArr.map(normalizeDueItem).filter(Boolean);
+
+    const confusionNotes = Array.from(confusion.midiSet).map(midi => ({ midi }));
+
+    const challenging = generateChallengingNotes(config.positions, config.strings, confusion, fingerFrame);
+
+    const pool = [
+      ...weakNotes.map(n => ({ ...n, weight: 3.0 })),
+      ...confusionNotes.map(n => ({ ...n, weight: 2.5 })),
+      ...challenging.map(n => ({ ...n, weight: 1.5 + (n.difficulty || 1) * 0.5 }))
+    ];
+
+    const chosen = (pool.length && safeCall(getRandomWeighted, pool)) || pool[0] || { stringIdx: 0, position: POSITIONS[0], fingerId: '1' };
+
+    let info = null;
+
+    if (typeof chosen.midi === 'number') {
+      info = findPlayableForMidi(chosen.midi, config.positions, config.strings, confusion, fingerFrame);
+      if (!info) {
+        const fb = challenging[0] || { stringIdx: 0, position: POSITIONS[0], fingerId: '1' };
+        info = getNoteInfo(fb.stringIdx, fb.position, fb.fingerId);
+      }
+    } else {
+      const sIdx = clampInt(chosen.stringIdx ?? 0, 0, 3);
+      const posList = POSITIONS.slice(0, clampInt(config.positions, 1, POSITIONS.length));
+      const pos = posList.includes(chosen.position) ? chosen.position : posList[0];
+      const fingerId = FINGERS.some(f => f.id === chosen.fingerId) ? chosen.fingerId : '1';
+      info = getNoteInfo(sIdx, pos, fingerId);
+    }
+
+    setTargetNote({ ...info, drillType: 'single' });
+    questionStartRef.current = nowMs();
+
+    safeCall(a11y?.announce, `Find ${info.fullName}. Level ${config.level}.`);
+    setStatusLine(`Find: ${info.fullName} (Lv${config.level}) • Frame ${fingerFrame}`);
+
+    if (mode === 'trainer' && config.autoPlayTrainer) {
+      setTimeout(() => {
+        playNote(info.stringIdx, info.position, info.fingerId, { duration: 1.2, vibrato: config.trainerVibrato });
+      }, 450);
+    }
+  }, [
+    enabled,
+    mode,
+    config,
+    confusion,
+    fingerFrame,
+    getNoteInfo,
+    playNote,
+    playMidi,
+    choosePairDrill
+  ]);
+
+  // -----------------------------
+  // Show Answer action — NEW
+  // -----------------------------
+  const onShowAnswer = useCallback(async () => {
+    if (!targetNote) return;
+    setRevealAnswer(true);
+
+    const msg = `Answer revealed: ${targetNote.fullName}.`;
+    setStatusLine(msg);
+    safeCall(a11y?.announce, msg);
+
+    safeCall(sessionTracker?.trackActivity, 'fingerboard', 'show_answer', {
+      targetMidi: targetNote.midi,
+      drillType: targetNote.drillType || 'single',
+      frameId: fingerFrame,
+      level: config.level
+    });
+
+    if (config.showAnswerReplay) {
+      // replay target for reinforcement
+      await playMidi(targetNote.midi, { duration: 1.0, vibrato: 0.15 });
+    }
+  }, [targetNote, config.showAnswerReplay, playMidi, fingerFrame, config.level]);
+
+  // -----------------------------
+  // Check answer — UPDATED (integrates show-answer gating)
   // -----------------------------
   const checkAnswer = useCallback(async (stringIdx, position, fingerId) => {
     if (!targetNote) return;
@@ -563,13 +798,16 @@ export default function Fingerboard({ onBack, refreshStats }) {
       difficulty: targetNote.difficulty,
       confusionScore: targetNote.confusionScore,
       level: config.level,
-      mode
+      mode,
+      frameId: fingerFrame,
+      drillType: targetNote.drillType || 'single',
+      pairKey: targetNote.pairKey || null
     }));
 
-    // Update mastery
+    // Update mastery (string-position)
     bumpMastery(targetNote.string, targetNote.position, isCorrect);
 
-    // Update stats (avoid stale closure by using functional setState)
+    // Update stats (functional)
     setStats(prev => {
       const correct = prev.correct + (isCorrect ? 1 : 0);
       const total = prev.total + 1;
@@ -580,14 +818,24 @@ export default function Fingerboard({ onBack, refreshStats }) {
       return next;
     });
 
-    // Difficulty-weighted XP
+    // Compute XP
     const positionMultiplier = (targetNote.position > 3) ? 1.5 : 1.2;
-    const difficultyFactor = clamp01((Number(targetNote.difficulty) || 1) / 2) + 0.75; // ~0.75..1.25
-    const xp = Math.round(20 * positionMultiplier * (targetNote.confusionScore || 1) * difficultyFactor);
+    const difficultyFactor = clamp01((Number(targetNote.difficulty) || 1) / 2) + 0.75;
+    const confusionFactor = (targetNote.confusionScore || 1);
+    const drillBonus = (targetNote.drillType === 'pair') ? 1.15 : 1.0;
+    const xp = Math.round(20 * positionMultiplier * confusionFactor * difficultyFactor * drillBonus);
+
+    // Save lastResult for UI logic (Show Answer button)
+    setLastResult({
+      correct: isCorrect,
+      responseTime,
+      drillType: targetNote.drillType || 'single',
+      targetMidi: targetNote.midi,
+      answerMidi: answerInfo.midi
+    });
 
     if (isCorrect) {
-      // Update spaced repetition item
-      // Use stable ID to avoid string formatting issues.
+      // SR update
       const itemId = `fingerboard_${targetNote.midi}_${targetNote.string}_${targetNote.position}`;
 
       await safeAsync(safeCall(updateItem, itemId, 4, responseTime, {
@@ -595,42 +843,57 @@ export default function Fingerboard({ onBack, refreshStats }) {
         midi: targetNote.midi,
         fullName: targetNote.fullName,
         position: targetNote.position,
-        string: targetNote.string
+        string: targetNote.string,
+        frameId: fingerFrame
       }));
 
       await awardXP(xp, 'fingerboard_ml');
+
       addNotification(`✅ ${targetNote.fullName} +${xp}XP (Lv${config.level})`, 'success');
-      setStatusLine(`✅ Correct: ${targetNote.fullName} (+${xp} XP)`);
+      setStatusLine(`✅ Correct: ${targetNote.fullName} (+${xp} XP) • Frame ${fingerFrame}`);
 
-      // quick reinforcement play
-      playNote(stringIdx, position, fingerId, { duration: 0.9, vibrato: 0.12 });
+      // Positive reinforcement play
+      playNote(stringIdx, position, fingerId, { duration: 0.85, vibrato: 0.10 });
+
+      // If correct, do not reveal answer highlight
+      setRevealAnswer(false);
     } else {
+      // Miss: DO NOT highlight target automatically.
+      // We only reveal highlight after pressing "Show Answer".
       addNotification(`❌ Target: ${targetNote.fullName} • You chose: ${answerInfo.fullName}`, 'error');
-      setStatusLine(`❌ Target was ${targetNote.fullName}. You chose ${answerInfo.fullName}.`);
 
-      // play target for reinforcement
+      // Give a helpful status line, including pair drill context if applicable
+      if (targetNote.drillType === 'pair' && pairContext) {
+        setStatusLine(`❌ Miss. Pair Drill: tap the SECOND note. Press “Show Answer” to highlight.`);
+      } else {
+        setStatusLine(`❌ Miss. Press “Show Answer” to highlight the correct stop.`);
+      }
+
+      // Optional: still play target note (audio) after miss for reinforcement,
+      // but not visual highlight. This helps ear-learning without giving away location.
       setTimeout(() => {
-        playNote(targetNote.stringIdx, targetNote.position, targetNote.fingerId, { duration: 1.0, vibrato: 0.18 });
+        playMidi(targetNote.midi, { duration: 0.95, vibrato: 0.14 });
       }, 500);
+
+      setRevealAnswer(false);
     }
 
-    // Track activity
     safeCall(sessionTracker?.trackActivity, 'fingerboard', 'answer_checked', {
       correct: isCorrect,
       responseTime,
       target: targetNote.fullName,
       answer: answerInfo.fullName,
       level: config.level,
-      mode
+      mode,
+      frameId: fingerFrame,
+      drillType: targetNote.drillType || 'single'
     });
 
-    // Auto-advance (trainer)
+    // Trainer auto-advance
     if (mode === 'trainer') {
       if (timerRef.current) clearTimeout(timerRef.current);
 
       timerRef.current = setTimeout(async () => {
-        // periodic adaptive refresh & analytics
-        // (we avoid stale stats closure by checking session count via next state inference)
         const nextTotal = (stats.total || 0) + 1;
 
         if (nextTotal % 10 === 0) {
@@ -653,21 +916,23 @@ export default function Fingerboard({ onBack, refreshStats }) {
     }
   }, [
     targetNote,
-    userAnswer,
     stats.total,
     config,
     mode,
+    fingerFrame,
+    pairContext,
     getNoteInfo,
     bumpMastery,
     refreshStats,
     awardXP,
     playNote,
+    playMidi,
     initAdaptiveFingerboard,
     nextQuestion
   ]);
 
   // -----------------------------
-  // Keyboard / a11y bindings
+  // Keyboard / a11y bindings (unchanged behavior, plus 'h' to toggle frame)
   // -----------------------------
   useEffect(() => {
     if (!enabled) return;
@@ -675,47 +940,51 @@ export default function Fingerboard({ onBack, refreshStats }) {
     const handler = (e) => {
       const k = e.key;
 
-      // Fingers: 1-5 (5 selects 1×)
       if (k === '1') return setSelectedFinger('1');
       if (k === '2') return setSelectedFinger('2');
       if (k === '3') return setSelectedFinger('3');
       if (k === '4') return setSelectedFinger('4');
       if (k === '5') return setSelectedFinger('1x');
 
-      // TAB cycles strings
+      // NEW: 'h' toggles high2/low2 quickly
+      if (k === 'h' || k === 'H') {
+        const next = (fingerFrame === 'high2') ? 'low2' : 'high2';
+        setFingerFrame(next);
+        setConfig(prev => ({ ...prev, fingerFrame: next }));
+        setStatusLine(`Frame switched: ${next === 'high2' ? 'High 2' : 'Low 2'}`);
+        safeCall(sessionTracker?.trackActivity, 'fingerboard', 'frame_toggle_key', { frameId: next });
+        return;
+      }
+
       if (k === 'Tab') {
         e.preventDefault();
         setSelectedString(prev => (prev + 1) % clampInt(config.strings, 1, 4));
         return;
       }
 
-      // Arrow keys cycle positions
-      const unlockedPositions = POSITIONS.slice(0, clampInt(config.positions, 1, POSITIONS.length));
+      const posList = POSITIONS.slice(0, clampInt(config.positions, 1, POSITIONS.length));
       if (k === 'ArrowRight' || k === 'ArrowUp') {
         e.preventDefault();
         setSelectedPosition(prev => {
-          const idx = unlockedPositions.indexOf(prev);
-          const next = unlockedPositions[(idx + 1) % unlockedPositions.length];
-          return next;
+          const idx = posList.indexOf(prev);
+          return posList[(idx + 1) % posList.length];
         });
         return;
       }
       if (k === 'ArrowLeft' || k === 'ArrowDown') {
         e.preventDefault();
         setSelectedPosition(prev => {
-          const idx = unlockedPositions.indexOf(prev);
-          const next = unlockedPositions[(idx - 1 + unlockedPositions.length) % unlockedPositions.length];
-          return next;
+          const idx = posList.indexOf(prev);
+          return posList[(idx - 1 + posList.length) % posList.length];
         });
         return;
       }
 
-      // SPACE: play selection (explore/quiz) or replay/next (trainer)
       if (k === ' ') {
         e.preventDefault();
         if (mode === 'trainer' && targetNote) {
           if (!answeredLockRef.current) {
-            playNote(targetNote.stringIdx, targetNote.position, targetNote.fingerId, { duration: 1.1, vibrato: config.trainerVibrato });
+            playMidi(targetNote.midi, { duration: 1.0, vibrato: config.trainerVibrato });
           } else {
             nextQuestion();
           }
@@ -725,7 +994,14 @@ export default function Fingerboard({ onBack, refreshStats }) {
         return;
       }
 
-      // ENTER: in quiz/trainer, answer using current selection
+      // NEW: 'a' shows answer (after miss only)
+      if (k === 'a' || k === 'A') {
+        if ((mode === 'trainer' || mode === 'quiz') && lastResult?.correct === false && !revealAnswer) {
+          onShowAnswer();
+        }
+        return;
+      }
+
       if (k === 'Enter') {
         if ((mode === 'trainer' || mode === 'quiz') && targetNote) {
           checkAnswer(selectedString, selectedPosition, selectedFinger);
@@ -749,18 +1025,19 @@ export default function Fingerboard({ onBack, refreshStats }) {
     selectedString,
     selectedPosition,
     selectedFinger,
+    fingerFrame,
+    lastResult,
+    revealAnswer,
     playNote,
+    playMidi,
     nextQuestion,
-    checkAnswer
+    checkAnswer,
+    onShowAnswer
   ]);
 
   // -----------------------------
-  // SVG rendering (complete)
+  // SVG rendering
   // -----------------------------
-  const unlockedPositions = useMemo(() => POSITIONS.slice(0, clampInt(config.positions, 1, POSITIONS.length)), [config.positions]);
-  const unlockedStrings = useMemo(() => STRINGS.slice(0, clampInt(config.strings, 1, 4)), [config.strings]);
-
-  // Geometry for rendering
   const GEO = useMemo(() => {
     const W = 1200, H = 480;
     const left = 170, right = 1030;
@@ -777,9 +1054,7 @@ export default function Fingerboard({ onBack, refreshStats }) {
 
     const posX = (pIdx) => left + pIdx * posW;
 
-    // finger offsets within a position band
     const fingerOffsets = [0.20, 0.45, 0.70, 0.88, 0.96]; // 1,2,3,4,1x
-
     const fingerX = (pIdx, fIdx) => posX(pIdx) + posW * (fingerOffsets[fIdx] ?? 0.2);
 
     return { W, H, left, right, top, bottom, posW, stringY, posX, fingerX };
@@ -798,43 +1073,29 @@ export default function Fingerboard({ onBack, refreshStats }) {
         x: 110, y: 100, width: 980, height: 300,
         rx: 20, fill: 'var(--wood-light, #A0522D)',
         stroke: '#654321', strokeWidth: 3
-      }),
-      // F-holes (stylized)
-      h('path', { d: 'M 320 160 Q 340 140 360 160 T 400 200', fill: 'none', stroke: '#5D4037', strokeWidth: 2 }),
-      h('path', { d: 'M 800 160 Q 820 140 840 160 T 880 200', fill: 'none', stroke: '#5D4037', strokeWidth: 2 })
+      })
     );
   }, []);
 
+  // UPDATED: position markers can use aggregated mastery
   const renderPositionMarkers = useCallback(() => {
     return h('g', { className: 'pos-markers-v3' },
       unlockedPositions.map((pos, i) => {
-        const x = 280 + i * 160; // same look as your snippet, but safe for unlocked count
-        const stringId = unlockedStrings[selectedString]?.id || 'G';
-        const k = masteryKey(stringId, pos);
-        const m = positionMastery[k] || { accuracy: 0 };
-        const acc = clamp01(m.accuracy);
+        const x = 280 + i * 160;
+
+        const agg = positionMasteryAgg?.[pos] || { accuracy: 0 };
+        const acc = clamp01(agg.accuracy);
 
         const isCurrent = (pos === selectedPosition);
         const fill = isCurrent ? '#FFD700' : (acc >= 0.9 ? '#4CAF50' : acc >= 0.75 ? '#FF9800' : '#B0BEC5');
 
         return h('g', { key: `pos-${pos}` },
-          h('rect', {
-            x, y: 130, width: 12, height: 220, rx: 4,
-            fill,
-            className: `pos-marker ${acc >= 0.9 ? 'mastered' : ''}`
-          }),
-          h('text', {
-            x: x + 6,
-            y: 380,
-            fontSize: 22,
-            fontWeight: 'bold',
-            fill: '#fff',
-            textAnchor: 'middle'
-          }, String(pos))
+          h('rect', { x, y: 130, width: 12, height: 220, rx: 4, fill, className: `pos-marker ${acc >= 0.9 ? 'mastered' : ''}` }),
+          h('text', { x: x + 6, y: 380, fontSize: 22, fontWeight: 'bold', fill: '#fff', textAnchor: 'middle' }, String(pos))
         );
       })
     );
-  }, [unlockedPositions, unlockedStrings, selectedString, selectedPosition, positionMastery]);
+  }, [unlockedPositions, selectedPosition, positionMasteryAgg]);
 
   const renderString = useCallback((sIdx, active) => {
     const s = STRINGS[sIdx];
@@ -842,10 +1103,8 @@ export default function Fingerboard({ onBack, refreshStats }) {
 
     return h('g', { key: `string-${s.id}`, className: `fb-string ${active ? 'active' : ''}` },
       h('line', {
-        x1: GEO.left,
-        y1: y,
-        x2: GEO.right,
-        y2: y,
+        x1: GEO.left, y1: y,
+        x2: GEO.right, y2: y,
         stroke: active ? s.color : 'rgba(255,255,255,0.55)',
         strokeWidth: active ? 5 : 3,
         opacity: active ? 1 : 0.8
@@ -861,7 +1120,8 @@ export default function Fingerboard({ onBack, refreshStats }) {
     );
   }, [GEO]);
 
-  const renderFingerStop = useCallback((sIdx, pos, pIdx, finger, fIdx, masteryForPos) => {
+  // UPDATED: "correct stop highlight" only appears when revealAnswer is true AFTER a miss.
+  const renderFingerStop = useCallback((sIdx, pos, pIdx, finger, fIdx) => {
     if (finger.extension && pos > 3) return null;
 
     const x = GEO.fingerX(pIdx, fIdx);
@@ -870,10 +1130,14 @@ export default function Fingerboard({ onBack, refreshStats }) {
     const info = getNoteInfo(sIdx, pos, finger.id);
 
     const isSelected = (selectedString === sIdx && selectedPosition === pos && selectedFinger === finger.id);
-    const isTarget = !!(targetNote && targetNote.midi === info.midi);
     const isAnswered = !!(userAnswer && userAnswer.midi === info.midi);
 
-    // Visual weighting based on difficulty/confusion
+    const missed = (lastResult?.correct === false);
+    const isTarget = !!(targetNote && targetNote.midi === info.midi);
+
+    // NEW: Only highlight target if user missed AND pressed Show Answer.
+    const showTargetHighlight = (missed && revealAnswer && (mode === 'trainer' || mode === 'quiz') && isTarget);
+
     const diff = Number(info.difficulty) || 1;
     const confusionScore = Number(info.confusionScore) || 1;
     const weightGlow = Math.min(1, 0.25 + (diff - 1) * 0.3 + (confusionScore > 1 ? 0.25 : 0));
@@ -882,7 +1146,7 @@ export default function Fingerboard({ onBack, refreshStats }) {
     let stroke = 'rgba(255,255,255,0.35)';
 
     if (isSelected) { fill = 'rgba(255,255,255,0.30)'; stroke = '#fff'; }
-    if ((mode === 'trainer' || mode === 'quiz') && isTarget) { fill = 'rgba(255,215,0,0.15)'; stroke = 'rgba(255,215,0,0.40)'; }
+    if (showTargetHighlight) { fill = 'rgba(255,215,0,0.22)'; stroke = 'rgba(255,215,0,0.65)'; }
     if (isAnswered) { fill = 'rgba(76,175,80,0.33)'; stroke = '#4CAF50'; }
 
     const r = isSelected ? 18 : 14;
@@ -897,11 +1161,10 @@ export default function Fingerboard({ onBack, refreshStats }) {
       } else if (mode === 'trainer') {
         await checkAnswer(sIdx, pos, finger.id);
       } else if (mode === 'quiz') {
-        // If no target, set it; if target exists, attempt answer
         if (!targetNote) {
-          setTargetNote(info);
+          setTargetNote({ ...info, drillType: 'single' });
           questionStartRef.current = nowMs();
-          setStatusLine(`Quiz target set: ${info.fullName}`);
+          setStatusLine(`Quiz target set: ${info.fullName} • Frame ${fingerFrame}`);
           safeCall(a11y?.announce, `Quiz target set: ${info.fullName}`);
         } else {
           await checkAnswer(sIdx, pos, finger.id);
@@ -929,54 +1192,50 @@ export default function Fingerboard({ onBack, refreshStats }) {
           }
         }
       }),
-      isSelected && h('text', {
-        x, y: y - 20,
-        fontSize: 14,
-        fill: '#fff',
-        textAnchor: 'middle'
-      }, info.name)
+      isSelected && h('text', { x, y: y - 20, fontSize: 14, fill: '#fff', textAnchor: 'middle' }, info.name)
     );
   }, [
     GEO,
     mode,
     targetNote,
     userAnswer,
+    lastResult,
+    revealAnswer,
     selectedString,
     selectedPosition,
     selectedFinger,
+    fingerFrame,
     getNoteInfo,
     playNote,
     checkAnswer
   ]);
 
-  const renderFinger = useCallback((finger, fIdx) => {
-    // Not a literal finger; we draw “stops” across strings/positions.
-    // This function exists to keep compatibility with your intended structure.
-    return null;
-  }, []);
-
   const renderTargetDisplay = useCallback((noteInfo) => {
     if (!noteInfo) return null;
 
-    const label = `Find: ${noteInfo.fullName}`;
-    const detail = `${noteInfo.string}${noteInfo.position}${noteInfo.finger}`;
+    // For pair drills, show a different header (still not revealing location)
+    const label = (noteInfo.drillType === 'pair')
+      ? 'Pair Drill Target'
+      : 'Find';
+
+    const detail = `${noteInfo.fullName} • ${noteInfo.string}${noteInfo.position}${noteInfo.finger} • Frame ${fingerFrame}`;
 
     return h('g', { className: 'target-display-v3' },
       h('rect', {
-        x: 360, y: 92, width: 480, height: 40, rx: 12,
+        x: 290, y: 92, width: 620, height: 40, rx: 12,
         fill: 'rgba(0,0,0,0.35)',
         stroke: 'rgba(255,255,255,0.25)',
         strokeWidth: 2
       }),
       h('text', {
         x: 600, y: 118,
-        fontSize: 20,
+        fontSize: 18,
         fill: '#fff',
         textAnchor: 'middle',
         fontWeight: 'bold'
-      }, `${label} • ${detail}`)
+      }, `${label}: ${detail}`)
     );
-  }, []);
+  }, [fingerFrame]);
 
   const fingerboardSVG = useMemo(() => {
     const currentStringId = STRINGS[selectedString]?.id || 'G';
@@ -984,7 +1243,7 @@ export default function Fingerboard({ onBack, refreshStats }) {
     const m = positionMastery[key] || { accuracy: 0 };
 
     const aria = (mode === 'trainer' && targetNote)
-      ? `Fingerboard trainer. Find ${targetNote.fullName}.`
+      ? `Fingerboard trainer. Target ${targetNote.fullName}.`
       : `Fingerboard ${selectedPosition} position. Mastery ${(clamp01(m.accuracy) * 100).toFixed(0)} percent.`;
 
     return h('svg', {
@@ -992,7 +1251,7 @@ export default function Fingerboard({ onBack, refreshStats }) {
       height: 480,
       viewBox: '0 0 1200 480',
       className: 'fingerboard-svg-v3',
-      role: mode === 'trainer' ? 'application' : 'application',
+      role: 'application',
       'aria-label': aria
     },
       renderViolinBody(),
@@ -1003,20 +1262,16 @@ export default function Fingerboard({ onBack, refreshStats }) {
         renderString(sIdx, selectedString === sIdx)
       ),
 
-      // Stops: draw for every string/position/finger
+      // Stops
       h('g', { className: 'stops-layer-v3' },
         STRINGS.slice(0, clampInt(config.strings, 1, 4)).map((s, sIdx) =>
-          unlockedPositions.map((pos, pIdx) => {
-            const mk = masteryKey(s.id, pos);
-            const masteryForPos = positionMastery[mk] || { accuracy: 0 };
-            return FINGERS.map((finger, fIdx) =>
-              renderFingerStop(sIdx, pos, pIdx, finger, fIdx, masteryForPos)
-            );
-          })
+          unlockedPositions.map((pos, pIdx) =>
+            FINGERS.map((finger, fIdx) => renderFingerStop(sIdx, pos, pIdx, finger, fIdx))
+          )
         )
       ),
 
-      // Target display (trainer)
+      // Target display (trainer only)
       (mode === 'trainer' && targetNote) ? renderTargetDisplay(targetNote) : null
     );
   }, [
@@ -1051,6 +1306,14 @@ export default function Fingerboard({ onBack, refreshStats }) {
 
   const playSelection = () => playNote(selectedString, selectedPosition, selectedFinger, { duration: 1.0, vibrato: 0 });
 
+  const setFrame = (frameId) => {
+    const next = (frameId === 'low2') ? 'low2' : 'high2';
+    setFingerFrame(next);
+    setConfig(prev => ({ ...prev, fingerFrame: next }));
+    setStatusLine(`Frame: ${next === 'high2' ? 'High 2' : 'Low 2'}`);
+    safeCall(sessionTracker?.trackActivity, 'fingerboard', 'frame_toggle_ui', { frameId: next });
+  };
+
   // -----------------------------
   // Guard: feature disabled
   // -----------------------------
@@ -1058,7 +1321,7 @@ export default function Fingerboard({ onBack, refreshStats }) {
     return h('div', { className: 'module-container fingerboard-v3 disabled', role: 'main' },
       h('header', { className: 'module-header elevated' },
         h('button', { className: 'btn-back', onClick: onBack }, '← Back'),
-        h('h1', null, '🎻 Fingerboard'),
+        h('h1', null, '🎻 Fingerboard')
       ),
       h('p', null, 'This module is disabled in this build.')
     );
@@ -1072,7 +1335,7 @@ export default function Fingerboard({ onBack, refreshStats }) {
     // Header
     h('header', { className: 'module-header elevated' },
       h('button', { className: 'btn-back', onClick: onBack }, '← Back'),
-      h('h1', null, '🎻 Fingerboard v3.0.5'),
+      h('h1', null, '🎻 Fingerboard v3.0.5+'),
       h('div', { className: 'stats-live ml-enhanced', 'aria-live': 'polite' },
         h('div', { className: 'stat-card accuracy' },
           h('div', { className: 'stat-value' }, `${stats.correct}/${stats.total}`),
@@ -1099,6 +1362,7 @@ export default function Fingerboard({ onBack, refreshStats }) {
 
     // Controls
     h('section', { className: 'fingerboard-controls-v3' },
+
       // Strings
       h('div', { className: 'toggle-group strings-v3' },
         STRINGS.slice(0, clampInt(config.strings, 1, 4)).map((string, i) =>
@@ -1118,7 +1382,8 @@ export default function Fingerboard({ onBack, refreshStats }) {
       // Positions
       h('div', { className: 'toggle-group positions-v3' },
         unlockedPositions.map(pos => {
-          const k = masteryKey(STRINGS[selectedString]?.id || 'G', pos);
+          const stringId = STRINGS[selectedString]?.id || 'G';
+          const k = masteryKey(stringId, pos);
           const mastered = (positionMastery[k]?.accuracy || 0) >= 0.9;
           return h('button', {
             key: pos,
@@ -1138,6 +1403,20 @@ export default function Fingerboard({ onBack, refreshStats }) {
             'aria-label': `Finger ${f.label}`
           }, f.label)
         )
+      ),
+
+      // NEW: Frame toggle (Low 2 / High 2)
+      h('div', { className: 'toggle-group frames-v3' },
+        h('button', {
+          className: `toggle-btn frame-btn-v3 ${fingerFrame === 'high2' ? 'active' : ''}`,
+          onClick: () => setFrame('high2'),
+          'aria-label': 'High 2 frame'
+        }, 'High 2'),
+        h('button', {
+          className: `toggle-btn frame-btn-v3 ${fingerFrame === 'low2' ? 'active' : ''}`,
+          onClick: () => setFrame('low2'),
+          'aria-label': 'Low 2 frame'
+        }, 'Low 2')
       )
     ),
 
@@ -1163,52 +1442,85 @@ export default function Fingerboard({ onBack, refreshStats }) {
 
       // Actions
       h('div', { className: 'fingerboard-actions-v3' },
+
+        // Explore/Quiz play
         mode !== 'trainer' && h('button', {
           className: `btn-play-large-v3 ${isPlaying ? 'playing' : ''}`,
           onClick: playSelection,
           disabled: isPlaying
         }, isPlaying ? '🔊 PLAYING…' : '🔊 Play Note'),
 
+        // Trainer next
         mode === 'trainer' && h('button', {
           className: 'btn-next-v3',
           onClick: nextQuestion
-        }, '🎯 Next Challenge')
+        }, '🎯 Next Challenge'),
+
+        // NEW: Show Answer button (only after a miss)
+        (mode !== 'explore' && lastResult?.correct === false && !revealAnswer) && h('button', {
+          className: 'btn-show-answer-v3',
+          onClick: onShowAnswer
+        }, '👁 Show Answer'),
+
+        // Optional: hide again
+        (mode !== 'explore' && lastResult?.correct === false && revealAnswer) && h('button', {
+          className: 'btn-hide-answer-v3',
+          onClick: () => setRevealAnswer(false)
+        }, '🙈 Hide Highlight')
       ),
 
-      // Position mastery grid
+      // Mastery section (now includes aggregated mastery)
       h('div', { className: 'fingerboard-mastery' },
         h('h3', null, 'Position Mastery'),
+
+        // Existing: per selected string
+        h('div', { className: 'mastery-subhead' }, `Selected string: ${STRINGS[selectedString]?.id || 'G'}`),
         h('div', { className: 'mastery-grid-v3' },
           unlockedPositions.map(pos => {
-            const k = masteryKey(STRINGS[selectedString]?.id || 'G', pos);
+            const stringId = STRINGS[selectedString]?.id || 'G';
+            const k = masteryKey(stringId, pos);
             const m = positionMastery[k] || { accuracy: 0 };
             const pct = clamp01(m.accuracy) * 100;
 
-            return h('div', {
-              key: pos,
-              className: `mastery-item ${pct >= 90 ? 'mastered' : 'needs-work'}`
-            },
+            return h('div', { key: `str-${stringId}-pos-${pos}`, className: `mastery-item ${pct >= 90 ? 'mastered' : 'needs-work'}` },
               h('strong', null, `Pos ${pos}`),
               h('div', { className: 'progress-bar' },
-                h('div', {
-                  className: 'progress-fill',
-                  style: { width: `${pct.toFixed(0)}%` }
-                })
+                h('div', { className: 'progress-fill', style: { width: `${pct.toFixed(0)}%` } })
               ),
               h('small', null, `${pct.toFixed(0)}%`)
+            );
+          })
+        ),
+
+        // NEW: aggregated mastery across all strings
+        h('div', { className: 'mastery-subhead' }, `Overall (all strings)`),
+        h('div', { className: 'mastery-grid-v3 mastery-grid-agg' },
+          unlockedPositions.map(pos => {
+            const m = positionMasteryAgg?.[pos] || { accuracy: 0 };
+            const pct = clamp01(m.accuracy) * 100;
+            const attempts = Number(m.attempts) || 0;
+
+            return h('div', { key: `agg-pos-${pos}`, className: `mastery-item ${pct >= 90 ? 'mastered' : 'needs-work'}` },
+              h('strong', null, `Pos ${pos}`),
+              h('div', { className: 'progress-bar' },
+                h('div', { className: 'progress-fill', style: { width: `${pct.toFixed(0)}%` } })
+              ),
+              h('small', null, `${pct.toFixed(0)}% • ${attempts} tries`)
             );
           })
         )
       )
     ),
 
-    // Keyboard hints
+    // Keyboard hints (updated)
     h('div', { className: 'keyboard-hints-v3' },
       h('div', null, h('kbd', null, '1-5'), ' Fingers (5 = 1×)'),
       h('div', null, h('kbd', null, 'TAB'), ' Next string'),
       h('div', null, h('kbd', null, '←/→'), ' Change position'),
       h('div', null, h('kbd', null, 'SPACE'), mode === 'trainer' ? 'Replay/Next' : 'Play'),
-      h('div', null, h('kbd', null, 'ENTER'), (mode === 'trainer' || mode === 'quiz') ? 'Answer' : '—')
+      h('div', null, h('kbd', null, 'ENTER'), (mode === 'trainer' || mode === 'quiz') ? 'Answer' : '—'),
+      h('div', null, h('kbd', null, 'H'), ' Toggle High/Low 2 frame'),
+      h('div', null, h('kbd', null, 'A'), ' Show Answer (after miss)')
     )
   );
 }
