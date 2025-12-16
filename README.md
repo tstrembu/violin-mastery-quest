@@ -1,472 +1,428 @@
-// README.md
-# 🎻 Violin Mastery Quest (VMQ) v3.0.5
+# 🎻 Violin Mastery Quest (VMQ) v3.0.6
 
-**Adaptive violin & music theory practice app with ML-powered coaching, spaced repetition, and gamification for serious young violinists.**
+**Adaptive violin & music theory practice app with coaching, spaced repetition, gamification, analytics, and session tracking — built for serious young violinists.**
 
-**[🚀 Try Live Demo](https://tstrembu.github.io/violin-mastery-quest/)** | [Report Bug](https://github.com/tstrembu/violin-mastery-quest/issues) | [Request Feature](https://github.com/tstrembu/violin-mastery-quest/discussions) | [View Documentation](#overview)
+**[🚀 Try Live Demo](https://tstrembu.github.io/violin-mastery-quest/)** ·
+[Report Bug](https://github.com/tstrembu/violin-mastery-quest/issues) ·
+[Request Feature](https://github.com/tstrembu/violin-mastery-quest/discussions)
+
+---
+
+## Table of Contents
+
+- [🎯 Overview](#-overview)
+- [🎓 Why This Exists](#-why-this-exists)
+- [🎯 Core Goals](#-core-goals)
+- [✨ Current Features](#-current-features)
+- [🚀 Engines](#-engines)
+- [📸 Screenshots](#-screenshots)
+- [🎓 Pedagogical Foundations](#-pedagogical-foundations)
+- [🛠️ Tech Stack](#️-tech-stack)
+- [📂 Project Structure](#-project-structure)
+- [🚀 Getting Started](#-getting-started)
+- [🌐 Browser Support](#-browser-support)
+- [📱 PWA Features](#-pwa-features)
+- [🔒 Privacy & Data](#-privacy--data)
+- [🧰 Troubleshooting](#-troubleshooting)
+- [🤝 Contributing](#-contributing)
+- [📜 License](#-license)
+- [🙏 Acknowledgments](#-acknowledgments)
+- [📬 Contact & Support](#-contact--support)
+- [🗺️ Roadmap](#️-roadmap-community-votes-welcome)
 
 ---
 
 ## 🎯 Overview
 
-**Violin Mastery Quest** is a browser-based training app for serious young violinists, teachers, and parents. It combines:
+**Violin Mastery Quest** is a browser-based training app for violinists, teachers, and parents. It combines:
 
-- **Evidence-informed pedagogy** – Ida Bieler Method, Suzuki progressions, spaced repetition science
-- **8 ML-powered engines** – Audio synthesis, adaptive difficulty, SM-2 spaced repetition, AI coaching, analytics, gamification, session tracking, pedagogy reasoning
-- **50+ practice modules** – Intervals, keys, rhythm, fingerboard, Bieler technique, flashcards, scales, tempos, custom drills, daily planners, and more
+- **Evidence-informed pedagogy** – Ida Bieler Method concepts, Suzuki-friendly progressions, learning-science principles
+- **Learning engines** – Web Audio synthesis, adaptive difficulty, SM-2 spaced repetition, coaching logic, analytics, gamification, session tracking
+- **Many practice modules** – Intervals, keys, rhythm, fingerboard, Bieler technique vocab/labs, flashcards, scales, tempo work, custom drills, planning tools
 - **Game-like interface** – Streaks, achievements, XP rewards, live progress dashboards
-- **Zero backend required** – Runs entirely in the browser with local storage; no account, no tracking, no login
+- **Zero backend required** – Runs entirely in the browser with local storage; no account, no login
 
-The app is optimized for **iPhone/iPad Safari** and works as a PWA (add to home screen for native-like experience).
+Optimized for **iPhone/iPad Safari** and works as a **PWA** (Add to Home Screen).
 
-**Who it's for:**
-- 🎻 Serious young violinists who understand music theory and the Ida Bieler Method
-- 👩‍🏫 Teachers who want violin-specific, structured drills between lessons
-- 👨‍👩‍👧‍👦 Parents supporting practice goals and clear learning data
-- 🎼 Self-motivated students who love stats, streaks, and measurable progress
+**Who it’s for**
+- 🎻 Serious young violinists building theory + technique literacy
+- 👩‍🏫 Teachers who want structured between-lesson drills and inspectable learning data
+- 👨‍👩‍👧‍👦 Parents supporting practice goals with clear feedback and trends
+- 🎼 Self-motivated students who like stats, streaks, and measurable progress
 
 ---
 
 ## 🎓 Why This Exists
 
-Most violin apps are:
-- ❌ Generic music theory trainers (not violin-specific)
-- ❌ Random drill generators (no spaced repetition or adaptation)
-- ❌ Desktop-only (not optimized for practice room tablets/phones)
-- ❌ Black-box algorithms (no transparency in learning logic)
+Most violin/music apps are:
+- ❌ Generic theory trainers (not violin-specific)
+- ❌ Random drill generators (no spacing/adaptation)
+- ❌ Desktop-first (not practice-room-friendly)
+- ❌ Black-box (hard to audit, tweak, or trust)
 
-**VMQ is different:**
-- ✅ **Built for violin** – Ida Bieler Method taxonomy, hand maps, bow stroke vocabulary, position-aware exercises
-- ✅ **Adaptive & spaced** – SM-2 algorithm, Bayesian difficulty, confusion-matrix-aware recommendations
-- ✅ **Mobile-first PWA** – Fullscreen on iPhone, works offline, no login required
-- ✅ **Transparent ML** – All logic is inspectable, debuggable, and tweakable; no opaque neural nets
-- ✅ **50+ modules** – Far beyond basic theory; includes Bieler labs, custom drills, repertoire integration, daily planning
+**VMQ is different**
+- ✅ Built for violin: hand-frame thinking, position-aware drills, technique vocabulary
+- ✅ Adaptive + spaced: SM-2 scheduling + difficulty selection logic
+- ✅ Mobile-first PWA: fast, offline after first load, large tap targets
+- ✅ Transparent logic: algorithms are explicit code you can inspect
+- ✅ Designed to grow: architecture supports adding modules without breaking the core
 
 ---
 
 ## 🎯 Core Goals
 
-These high-level goals guide architecture, refactoring, and feature decisions so humans and AI can reason about the codebase:
+These goals guide architecture, refactoring, and feature decisions.
 
-### 1. **Train Violin "Thinking Skills"**
+### 1) Train violin “thinking skills”
+- Intervals (aural + conceptual)
+- Key signatures & hand maps
+- Note reading & fingerboard geography
+- Rhythm recognition & internal pulse
+- Technique vocabulary aligned to real pedagogy
+- Repertoire-aware practice (where applicable)
 
-Develop skills that matter for real violin playing:
-- **Intervals** (aural + conceptual) via Web Audio API
-- **Key signatures & hand maps** using Bieler's hand-frame approach
-- **Note reading & fingerboard awareness** via interactive visualizer
-- **Rhythm recognition & internal pulse** with adaptive metronome
-- **Technique vocabulary & trained functions** from the Ida Bieler Method
-- **Repertoire-aware practice** (Suzuki book connections, orchestra excerpts)
+### 2) Adaptive practice (not random drilling)
+- Track performance per item (seen/correct/lastSeen/interval/EF/responseTime)
+- Prioritize weaker items via **SM-2** + difficulty selection logic
+- Auto-adjust difficulty based on accuracy and speed
+- Keep logic inspectable and debuggable
 
-### 2. **Adaptive Practice (Not Random Drilling)**
+### 3) Align with real violin pedagogy
+- Bieler-style vocabulary and progression concepts
+- Suzuki-friendly progression assumptions for rhythm/keys (where used)
+- Hand-map and position logic that matches teacher language
+- Exportable learning data for review/backup
 
-- Track per-item performance (`seen`, `correct`, `lastSeen`, `interval`, `easeFactor`)
-- Prioritize weaker items via **SM-2 spaced repetition** + **Bayesian UCB difficulty selection**
-- Automatically adjust difficulty (easy/medium/hard) based on rolling accuracy and time-to-respond
-- **Transparent logic** – All algorithms are explicit functions, not hidden weights
+### 4) Make practice low-friction on phones/tablets
+- Big tap targets (44×44px minimum)
+- Minimal typing
+- Local save, no login
+- Offline mode after first load
+- iPhone portrait-first UX (including iPhone 14 Pro Max)
 
-### 3. **Align with Real Violin Pedagogy**
+### 5) Give teachers/parents inspectable data
+- Item-level stats (accuracy, attempts, priority, response time)
+- Module-level analytics (strengths/weaknesses/trends)
+- Session-level logs (what, when, how long, quality metrics)
+- Export/import JSON for backup or analysis
+- No student data sent to a server by default
 
-- Reflect **Ida Bieler's trained functions** (1st–4th functions for left hand, bow-stroke hierarchy for right hand)
-- Use **Suzuki-style repertoire references** (books 1–5 progressions)
-- Integrate **hand maps** and **position logic** that match what violin teachers actually say
-- Support teachers reviewing student data (JSON export, detailed stats per module)
-
-### 4. **Make Practice Low-Friction on Phones & Tablets**
-
-- One-screen modes with large tap targets (min 44×44px)
-- Minimal text entry; prefer multiple-choice or gesture input
-- Progress saved locally; no login, no backend, no tracking
-- Works in offline mode after first load
-- Optimized for **iPhone 14 Pro Max** (and similar) in portrait mode
-
-### 5. **Give Teachers/Parents Inspectable Data**
-
-- Item-level stats: accuracy, attempts, priority, last practiced, response time
-- Module-level analytics: strengths, weaknesses, consistency, mastery zones
-- Session-level granularity: what, when, how long, quality metrics
-- Export/import as JSON for backup, analysis, or teacher review
-- **No private student data sent anywhere**
-
-### 6. **Be Easy to Extend and Audit**
-
-- Pedagogy content (intervals, vocab, keys, rhythms, fingerboard, Bieler taxonomy) lives in `js/config/constants.js`
-- Learning engines (audio, spaced rep, difficulty, gamification, analytics, coaching) are pure functions in `js/engines/`
-- React components are UI-only and live in `js/components/`
-- Readable, explicit code with clear intent comments
-- AI-friendly for safe refactoring and feature additions
+### 6) Be easy to extend and audit
+- Content in `js/config/`
+- Learning logic in `js/engines/`
+- UI in `js/components/`
+- Clear naming + comments + stable interfaces between layers
 
 ---
 
-## ✨ Current Features (v3.1)
+## ✨ Current Features
 
-### 🎵 **Core Music Theory Modules**
+### 🎵 Core music theory modules
+- **Intervals** (melodic + harmonic) with Web Audio playback
+- **Interval Ear Tester / Sprint** modes (timed + feedback)
+- **Key signature training** (major/minor) with fast drills
+- **Flashcards** with **SM-2 spaced repetition**
+- **Review scheduling** and stats
 
-| Module | What | Pedagogy |
-|--------|------|----------|
-| **Intervals** | Melodic + harmonic intervals with Web Audio | Develops relative pitch and intervallic thinking |
-| **Interval Ear Tester** | 20-question sprint with feedback | Real-time auditory discrimination |
-| **Interval Sprint** | Timed race mode, difficulty adapts | Speed + accuracy trade-off training |
-| **Keys** | Major/minor signatures, hand maps by string | Bieler hand-frame approach to key understanding |
-| **Key Tester** | Rapid recognition drills | Automatic difficulty progression |
-| **Flashcards** | SM-2 spaced repetition for note names, positions | Proven retrieval practice science |
-| **Spaced Repetition Engine** | Adaptive scheduling + confusion matrix | Optimizes review intervals per item |
+### 🎻 Violin technique & fingerboard
+- **Bieler technique vocabulary** (terms, definitions, context)
+- **Bieler Lab**-style guided exploration (where present)
+- **Fingerboard visualizer / note locator** modules (interactive)
+- **Scales Lab** (reference + playback where supported)
 
-### 🎻 **Violin Technique & Fingerboard**
+### 🥁 Rhythm & tempo training
+- Rhythm drills (pattern recognition + progression)
+- Tempo trainer/metronome utilities (where present)
+- Speed/accuracy style drill modes (where present)
 
-| Module | What | Pedagogy |
-|--------|------|----------|
-| **Bieler Technique Vocab** | 40+ terms: trained functions, bowing, tempo, dynamics | Language of professional violin pedagogy |
-| **Bieler Lab** | Deep dives into each trained function | Technique progression aligned to Bieler method |
-| **Fingerboard Visualizer** | Interactive SVG positions 1–5, all strings | Visual reference for position work + note geography |
-| **Note Locator** | Tap-to-play: find D on A string, etc. | Active learning of fingerboard geography |
-| **Scales Lab** | Major/minor/harmonic minor, all keys | Foundation for repertoire reading and intonation |
-| **Scales & Arpeggios** | Playback + visual reference | Bieler-aligned scale studies |
+### 🧠 Coaching, analytics, and tracking
+- **Session tracker** (engagement + focus + session logs)
+- **Analytics dashboard** (module trends, summaries)
+- **Coaching feed / recommendations** (engine-driven suggestions)
+- **Gamification** (XP/streaks/achievements)
 
-### 🥁 **Rhythm & Tempo Training**
-
-| Module | What | Pedagogy |
-|--------|------|----------|
-| **Rhythm Trainer** | Notation patterns with audio click playback | Develops internal pulse and rhythmic literacy |
-| **Rhythm Drills** | Adaptive difficulty, syncopation focus | Suzuki-aligned progression |
-| **Tempo Trainer** | BPM control, metronome, tap-along mode | Build independent internal tempo |
-| **Speed Drill** | Accelerating tempos, rhythm patterns | Controlled technical acceleration |
-
-### 🧠 **AI-Powered Coaching & Analytics**
-
-| Feature | What | Integration |
-|---------|------|-----------|
-| **AI Coach** | 6-engine live recommendations (SM-2, difficulty, session, analytics, pedagogy, gamification) | Prioritizes weak spots, breakthrough opportunities, daily plans |
-| **Daily Goals Planner** | Coach-generated or custom practice goals | Interactive task checklist with XP rewards |
-| **Practice Journal** | 5-min live session summaries + AI insights | Tracks 50 modules, trend analysis, mood/focus |
-| **Analytics Dashboard** | ML-enhanced performance analysis | Learning velocity, retention forecasting, breakthrough detection |
-| **Achievements (75 total)** | Milestone badges, mastery unlocks, streaks | Gamified progress + long-term motivation |
-| **Difficulty Adapter** | Bayesian UCB algorithm for question difficulty | Balances challenge vs. frustration (optimal learning zone) |
-
-### 📊 **Tools & Settings**
-
-| Tool | Purpose |
-|------|---------|
-| **Data Manager** | Export/import progress as JSON; cloud sync (future) |
-| **Settings** | Dark mode, accessibility (large fonts, high contrast, WCAG 2.2-AAA), volume, mute, difficulty presets |
-| **Practice Journal** | Live multi-engine dashboard; filter by time period |
-| **Reference Library** | Searchable encyclopedia: Bieler vocab, key signatures, intervals, rhythm patterns, fingerboard positions |
-| **Session Tracker** | Behind-the-scenes: logs all 50 modules, engagement metrics, focus quality |
+> VMQ is a fast-evolving codebase. Module availability depends on what’s currently wired into `js/App.js` routes and the active feature toggles (if configured).
 
 ---
 
-## 🚀 8 ML-Powered Engines (v3.1)
+## 🚀 Engines
 
-VMQ runs **8 specialized engines** in parallel:
+VMQ runs multiple engines in parallel (implementation lives in `js/engines/`), typically including:
 
-1. **Audio Engine v3.1** – Web Audio API synthesis with sawtooth/sine, vibrato, harmonics, ADSR envelopes, ML-adaptive feedback tones
-2. **SM-2 Spaced Repetition v3** – Proven SuperMemo algorithm for optimal review scheduling + confusion matrix tracking
-3. **Bayesian Difficulty Adapter** – UCB (Upper Confidence Bound) for intelligent challenge selection
-4. **AI Coach Engine v2.1** – 7-day adaptive plans, pattern recognition, Bieler progression tracking, breakthrough detection
-5. **Analytics Engine v3.0** – Learning velocity, retention forecasting, plateau detection, transfer learning analysis
-6. **Gamification System v3.0** – 75 achievements, XP rewards, streaks, daily goals, level progression
-7. **Session Tracker v3.0** – Real-time activity logging, focus assessment, confusion matrix building
-8. **Pedagogy Engine** – 42 domain rules for Bieler method, Suzuki progressions, violin-specific logic
+1. **Audio Engine** – Web Audio API synthesis/playback
+2. **SM-2 Spaced Repetition** – item scheduling + review stats
+3. **Difficulty Adapter** – challenge selection logic
+4. **Coach Engine** – recommendations & practice planning logic
+5. **Analytics Engine** – learning summaries, trends, retention hints
+6. **Gamification** – XP, streaks, achievements
+7. **Session Tracker** – activity/session logging + quality metrics
+8. **Pedagogy Rules** – domain rules and mappings (where implemented)
 
-All engines are **feature-gated** and can be toggled via `js/config/version.js`.
+If your build supports feature gating, it is typically configured via `js/config/version.js`.
 
 ---
 
 ## 📸 Screenshots
 
+> 📝 Replace these placeholders by uploading real screenshots from the app.
+
 ### Main Dashboard
-![VMQ Dashboard](https://via.placeholder.com/800x600/1a1a2e/ffffff?text=VMQ+v3.1+Dashboard+-+50+Modules+Live)  
-*Live coach, SM-2 reviews, streak tracking, XP counter*
+![VMQ Dashboard](https://via.placeholder.com/800x600/1a1a2e/ffffff?text=VMQ+Dashboard)
 
-### AI Coach Panel
-![Coach](https://via.placeholder.com/800x600/4a90e2/ffffff?text=AI+Coach+-+Smart+Recommendations+from+6+Engines)  
-*Priority intelligence, daily plan, adaptive recommendations*
+### Coach Panel
+![Coach](https://via.placeholder.com/800x600/4a90e2/ffffff?text=Coach+Panel)
 
-### Interval Training with Playback
-![Intervals](https://via.placeholder.com/800x600/7b68ee/ffffff?text=Interval+Training+-+Web+Audio+API)  
-*Hear intervals, identify them, get instant feedback*
+### Interval Training
+![Intervals](https://via.placeholder.com/800x600/7b68ee/ffffff?text=Interval+Training)
 
 ### Bieler Technique Vocab
-![Bieler](https://via.placeholder.com/800x600/20c997/ffffff?text=Bieler+Vocabulary+-+Trained+Functions+etc)  
-*Definitions with context, spaced repetition, progressive hints*
+![Bieler](https://via.placeholder.com/800x600/20c997/ffffff?text=Bieler+Vocabulary)
 
 ### Fingerboard Visualizer
-![Fingerboard](https://via.placeholder.com/800x600/ffc107/ffffff?text=Interactive+Fingerboard+-+Positions+1-5)  
-*Click-to-play positions; learn note geography*
+![Fingerboard](https://via.placeholder.com/800x600/ffc107/ffffff?text=Fingerboard+Visualizer)
 
 ### Dark Mode
-![Dark](https://via.placeholder.com/800x600/0d1117/ffffff?text=Dark+Mode+-+Eyes-Friendly+Evening+Practice)  
-*Automatic dark theme, high contrast option, WCAG 2.2-AAA accessibility*
-
-> 📝 **Note:** Replace placeholders by uploading actual screenshots from the running app.
+![Dark Mode](https://via.placeholder.com/800x600/0d1117/ffffff?text=Dark+Mode)
 
 ---
 
 ## 🎓 Pedagogical Foundations
 
-### Ida Bieler Method
-- **Trained Functions** – Structured left-hand technique progression (1st → 4th function, shifting, vibrato)
-- **Bow Hierarchy** – Right-hand stroke taxonomy (détaché, martelé, spiccato, collé, ricochet, etc.)
-- **Hand Frame** – Perfect 4th between fingers 1–4; extension/contraction for sharp/flat keys
-- **Source:** *Ida Bieler Method: Basic Violin Technique* by Lucia Kobza
+### Ida Bieler Method (influence)
+- Technique vocabulary and structured concepts (trained functions, hand frame, bow-stroke taxonomy)
+- **Reference:** *Ida Bieler Method: Basic Violin Technique* (commonly referenced in Bieler-related instruction)
 
-### Suzuki & Standard Repertoire
-- Rhythm and key progressions mirror Suzuki Books 1–5
-- Fingerboard awareness exercises aligned to common positions
-- Repertoire-specific technique ("Meditation from Thaïs" vibrato, Bach excerpt double stops, etc.)
+### Suzuki & standard repertoire (friendly alignment)
+- Rhythm/key progression ideas are designed to be compatible with common early-to-intermediate repertoire progressions
+- Repertoire tie-ins can be expanded via `js/config/`
 
-### Spaced Repetition Science
-- **SM-2 Algorithm** – Optimal review scheduling based on item difficulty (EF) and repetition interval
-- **Leitner System** – Priority queue for high-priority cards
-- **Retrieval Practice** – Active recall improves long-term retention vs. passive review
-- **Source:** *Make It Stick: The Science of Successful Learning* by Brown, Roediger, McDaniel
-
-### Learning Psychology
-- **Metacognition** – Reflection prompts help students understand their learning
-- **Deliberate Practice** – Focused, feedback-rich drills beat mindless repetition
-- **Variability** – Mix difficulty, modules, and contexts to improve transfer
-- **Source:** *Mindset* by Carol Dweck; *Peak* by Anders Ericsson
+### Spaced repetition & learning science
+- **SM-2** scheduling (Anki/SuperMemo-style)
+- Retrieval practice and feedback loops
+- **References (general):** *Make It Stick* (Brown, Roediger, McDaniel), deliberate practice literature, metacognition research
 
 ---
 
 ## 🛠️ Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| **Framework** | React 18 (CDN, no build step) |
-| **Modules** | ES6 (native browser imports) |
-| **Styling** | Modular CSS (base + components + themes + animations) |
-| **Audio** | Web Audio API (synthesis, feedback, playback) |
-| **Storage** | localStorage + IndexedDB (hybrid, auto-fallback) |
-| **Deployment** | GitHub Pages (static) |
-| **Accessibility** | WCAG 2.2-AAA, keyboard nav, screen reader support |
-| **PWA** | Service Worker for offline mode, cache-first strategy |
-| **Dependencies** | **ZERO** – No npm, no webpack, no external libraries |
+|------|-----------|
+| UI | React 18 (CDN, no build step) |
+| Modules | Native ES Modules (browser imports) |
+| Styling | Modular CSS (`css/`) |
+| Audio | Web Audio API |
+| Storage | localStorage wrapper; optional IndexedDB fallback (if enabled in `storage.js`) |
+| Deployment | GitHub Pages |
+| Accessibility | Keyboard navigation + screen reader friendly patterns (aiming for WCAG-aligned UX) |
+| PWA | Service Worker + manifest |
+
+**No build tooling required.** VMQ is intentionally “edit-and-refresh” friendly.
 
 ---
 
 ## 📂 Project Structure
 
-```
+```text
 violin-mastery-quest/
-├── index.html                      # Entry point, React root, manifest link
-├── manifest.json                   # PWA metadata
-├── sw.js                           # Service Worker for offline
-├── offline.html                    # Offline fallback
+├── index.html
+├── manifest.json
+├── sw.js
+├── offline.html
 ├── icons/
-│   ├── icon-192.png
-│   └── icon-512.png
 ├── css/
-│   ├── base.css                    # Variables, typography, layout
-│   ├── components.css              # Module-level styles (card, form, etc.)
-│   ├── themes.css                  # Light/dark/high-contrast modes
-│   └── animations.css              # Transitions, keyframes
+│   ├── base.css
+│   ├── components.css
+│   ├── themes.css
+│   └── animations.css
 └── js/
-    ├── App.js                      # Root React component, router, context
+    ├── App.js
     ├── config/
-    │   ├── constants.js            # All pedagogy content (intervals, keys, rhythms, Bieler vocab, etc.)
-    │   ├── storage.js              # localStorage wrapper + IndexedDB fallback
-    │   ├── repertoirePlans.js      # 7-day practice plans + ML-adaptive scheduling
-    │   └── version.js              # v3.1 build info, feature gating
+    │   ├── constants.js
+    │   ├── storage.js
+    │   ├── repertoirePlans.js
+    │   └── version.js
     ├── contexts/
-    │   └── AppContext.js           # Global state (profile, coaches, settings)
+    │   └── AppContext.js
     ├── utils/
-    │   ├── helpers.js              # Utility functions (format, clamp, etc.)
-    │   ├── keyboard.js             # Keyboard shortcut registry
-    │   ├── router.js               # Hash-based navigation (50+ routes)
-    │   └── statsVisualizer.js      # Chart generation (Chart.js future)
+    │   ├── helpers.js
+    │   ├── keyboard.js
+    │   ├── router.js
+    │   └── statsVisualizer.js
     ├── engines/
-    │   ├── audioEngine.js          # Web Audio synthesis + vibrato + harmonics
-    │   ├── spacedRepetition.js     # SM-2 algorithm + confusion matrix
-    │   ├── difficultyAdapter.js    # Bayesian UCB question selection
-    │   ├── gamification.js         # XP, streaks, achievements, levels
-    │   ├── sessionTracker.js       # Real-time activity logging
-    │   ├── analytics.js            # ML-enhanced performance analysis
-    │   ├── coachEngine.js          # 6-engine AI recommendations + 7-day planning
-    │   └── pedagogyEngine.js       # 42 domain rules (Bieler, Suzuki, pedagogy)
+    │   ├── audioEngine.js
+    │   ├── spacedRepetition.js
+    │   ├── difficultyAdapter.js
+    │   ├── gamification.js
+    │   ├── sessionTracker.js
+    │   ├── analytics.js
+    │   ├── coachEngine.js
+    │   └── pedagogyEngine.js
     └── components/
-        ├── MainMenu.js             # Mode selection
-        ├── Intervals.js            # Interval training
-        ├── IntervalEarTester.js    # Ear-only mode
-        ├── Bieler.js               # Technique vocabulary
-        ├── BielerLab.js            # Deep technique exploration
-        ├── Keys.js                 # Key signature training
-        ├── Rhythm.js               # Rhythm drill
-        ├── Flashcards.js           # SM-2 note-name training
-        ├── Fingerboard.js          # Interactive position learner
-        ├── ScalesLab.js            # Scale reference + playback
-        ├── TempoTrainer.js         # Metronome + BPM trainer
-        ├── SpeedDrill.js           # Accelerating tempo trainer
-        ├── Dashboard.js            # Live stats + coach feed
-        ├── CoachPanel.js           # AI coaching + daily planner
-        ├── PracticeJournal.js      # Session history + insights
-        ├── Analytics.js            # Detailed performance graphs
-        ├── DailyGoals.js           # Goal planner + checklist
-        ├── Achievements.js         # 75 milestones + badge progress
-        ├── Settings.js             # Accessibility, difficulty, sound, theme
-        ├── DataManager.js          # Export/import JSON
-        ├── ReferenceLibrary.js     # Searchable knowledge base
-        ├── CustomDrill.js          # Teacher-created practice sets
-        ├── Toast.js                # Notification system
-        └── Welcome.js              # Onboarding flow
-```
+        ├── MainMenu.js
+        ├── Dashboard.js
+        ├── CoachPanel.js
+        ├── PracticeJournal.js
+        ├── Analytics.js
+        ├── Settings.js
+        ├── DataManager.js
+        ├── Toast.js
+        └── (many module components…)
 
-**Design Principle:** Separation of concerns.
-- **Pedagogy** lives in `constants.js` (easy to review and update)
-- **Learning algorithms** are pure functions in `engines/` (easy to test)
-- **UI components** are React-only in `components/` (easy to redesign)
+Design principle
+	•	Pedagogy/content → js/config/
+	•	Learning logic → js/engines/
+	•	UI components → js/components/
 
----
+⸻
 
-## 🚀 Getting Started
+🚀 Getting Started
 
-### For Users (Instant Access)
-1. **Visit:** https://tstrembu.github.io/violin-mastery-quest/
-2. **On iPhone/iPad:** Tap Share → Add to Home Screen → Launch like a native app
-3. **Start practicing!** Progress is saved locally.
+For Users
+	1.	Visit: https://tstrembu.github.io/violin-mastery-quest/
+	2.	iPhone/iPad: Share → Add to Home Screen
+	3.	Practice — progress saves locally
 
-### For Developers (Desktop Quick Run)
+For Developers (quick run)
 
-**Clone & serve:**
-```
 git clone https://github.com/tstrembu/violin-mastery-quest.git
 cd violin-mastery-quest
 
 # Python 3
 python3 -m http.server 8000
 
-# Or Node + http-server
-npx http-server
-```
+Open: http://localhost:8000
 
-Open `http://localhost:8000` in your browser.
+Important: ES modules require a real web server. Opening index.html via file:// will break imports.
 
-**No build step required!** All code is vanilla ES modules. Just edit and refresh.
+GitHub Pages deployment
+	1.	Repo → Settings → Pages
+	2.	Source: Deploy from a branch
+	3.	Branch: main (or master) / root
+	4.	Save, then load the Pages URL
 
-### Development Workflow
-1. Edit any `.js` or `.css` file
-2. Refresh the browser
-3. Use DevTools to debug
-4. Test on a real phone (iPhone Safari especially)
-5. Commit when ready
+⸻
 
----
+🌐 Browser Support
 
-## 🌐 Browser Support
+Browser	Support	Notes
+Safari (iOS 15+)	✅ Recommended	Audio requires a user gesture
+Safari (macOS)	✅	Great for debugging
+Chrome / Edge (90+)	✅	Full ES module support
+Firefox (88+)	✅	Full ES module support
 
-| Browser | Support | Notes |
-|---------|---------|-------|
-| **Safari (iOS 15+)** | ✅ Excellent | Recommended; audio requires user gesture |
-| **Safari (macOS)** | ✅ Excellent | Full desktop experience |
-| **Chrome (Desktop & Mobile 90+)** | ✅ Full | All features work |
-| **Edge (Chromium 90+)** | ✅ Full | All features work |
-| **Firefox (Desktop & Mobile 88+)** | ✅ Full | All features work |
+Known limitations
+	•	iOS Web Audio requires a tap/gesture to start audio
+	•	Private browsing can reduce or disable persistent storage (device/browser dependent)
 
-**Known Limitations:**
-- **Audio on iOS:** Requires user tap to enable (Web Audio API restriction)
-- **Private Browsing (Safari):** localStorage disabled; app uses memory fallback (progress lost on reload)
-- **Older browsers:** No support for ES6 modules or Web Audio API
+⸻
 
----
+📱 PWA Features
 
-## 📱 PWA Features
+When added to Home Screen:
+	•	✅ Fullscreen experience (minimal browser chrome)
+	•	✅ Offline after first successful load (service worker + cache)
+	•	✅ App icon + quick launch
+	•	✅ Fast startup (cached assets)
 
-When added to home screen on iOS:
-- ✅ Launches fullscreen (no browser chrome)
-- ✅ Offline access after first load
-- ✅ Custom app icon
-- ✅ Fast startup (cached assets)
-- ✅ Feels like a native app
+⸻
 
----
+🔒 Privacy & Data
 
-## 🤝 Contributing
+VMQ is designed as a local-first app.
+	•	✅ Progress is stored locally in the browser (e.g., localStorage / IndexedDB fallback if enabled)
+	•	✅ No account required
+	•	✅ No default server-side tracking
+	•	✅ Export/import available for backup (JSON)
 
-We welcome contributions! Here's how:
+Note: If you add analytics integrations yourself, document them here.
 
-### Content Contributions
-- 📝 Add Bieler vocabulary terms with context
-- 🎵 Suggest interval exercises or listening examples
-- 🥁 Add rhythm patterns from specific Suzuki books or repertoire
-- 🎼 Expand key signature coverage
-- 🎯 Suggest practice module ideas
+⸻
 
-### Code Contributions
-1. **Open an issue** to discuss your idea
-2. **Fork the repo** and create a feature branch
-3. **Make changes** (keep them small & focused)
-4. **Test thoroughly** on at least one mobile browser
-5. **Submit a pull request**
+🧰 Troubleshooting
 
-### Pedagogical Review
-- ✅ Verify technique definitions accuracy
-- 📚 Suggest repertoire connections
-- 🎯 Recommend difficulty progression tweaks
-- 📖 Propose pedagogical sources to integrate
+“Audio doesn’t play on iPhone”
+	•	Tap once on the page (or press a Play button) to unlock Web Audio. iOS blocks audio until a user gesture.
 
-### AI-Assisted Contributions
-You're welcome to use Claude, ChatGPT, or other LLMs to help draft code. If you do:
-- ✅ Mention the tool in your PR description
-- ✅ Manually test thoroughly on real devices
-- ✅ Have a violin teacher or experienced programmer review pedagogy changes
-- ✅ Never commit student data, secrets, or API keys
+“Changes aren’t showing up after deploy”
+	•	Service worker caching can keep older files.
+	•	Try:
+	1.	Hard refresh (desktop)
+	2.	On iOS: remove and re-add the Home Screen app
+	3.	Bump cache/version logic if your sw.js uses a cache name/version
 
----
+“ES module import errors”
+	•	Make sure you’re serving via http://localhost:... (not file://)
+	•	Check path casing (GitHub Pages is case-sensitive)
 
-## 📜 License
+⸻
 
-**MIT License** – See [LICENSE](LICENSE) file.
+🤝 Contributing
 
-**TL;DR:** You can use, modify, and distribute VMQ freely. Attribution appreciated but not required.
+Contributions are welcome.
 
----
+Content contributions
+	•	Bieler vocabulary + pedagogy notes
+	•	Interval/rhythm/key drill expansions
+	•	Repertoire tie-ins and teacher-friendly drill packs
 
-## 🙏 Acknowledgments
+Code contributions
+	1.	Open an issue / discussion
+	2.	Fork the repo and create a feature branch
+	3.	Keep changes focused
+	4.	Test on at least one mobile browser
+	5.	Submit a PR
 
-- **Ida Bieler** – For the Bieler Method: a systematic, evidence-based approach to violin technique
-- **Suzuki Method** – For structured, age-appropriate repertoire progression
-- **Learning Science** – Spaced repetition, retrieval practice, metacognition research
-- **Open Web Community** – Web Audio API, service workers, IndexedDB, accessible design standards
-- **Violin Teachers Everywhere** – For feedback, domain expertise, and real-world validation
+AI-assisted contributions
 
----
+You may use ChatGPT/Claude/etc., but:
+	•	Mention it in the PR description
+	•	Test thoroughly on real devices
+	•	Don’t commit any private student data, secrets, or keys
 
-## 📬 Contact & Support
+⸻
 
-- **Live App:** https://tstrembu.github.io/violin-mastery-quest/
-- **Issues:** [GitHub Issues](https://github.com/tstrembu/violin-mastery-quest/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/tstrembu/violin-mastery-quest/discussions)
-- **Author:** [@tstrembu](https://github.com/tstrembu)
+📜 License
 
----
+MIT License — see LICENSE￼.
 
-## 🗺️ Roadmap (Community Votes Welcome)
+⸻
 
-Potential v3.2+ features:
-- 🎤 Audio recording + pitch analysis (compare intonation)
-- 📚 More repertoire ties (specific Suzuki book + orchestra excerpt packs)
-- 🌍 Multi-language support (Spanish, German, French, Japanese)
-- 👥 Teacher dashboard (student cohort management, progress reports)
-- ☁️ Cloud sync (optional, opt-in only; no student data tracking)
-- 📈 Advanced analytics (regression trends, outlier detection, learning curves)
-- 🎼 AI-generated practice playlists (based on goals, difficulty, preferences)
-- 🎯 Custom practice sets from teachers (share drill packs via QR code)
-- 🏆 Community challenges (optional leaderboards, friendly competition)
+🙏 Acknowledgments
+	•	Ida Bieler (method influence and conceptual vocabulary)
+	•	Suzuki Method (repertoire-friendly progression inspiration)
+	•	Learning science research community (retrieval practice, spacing, metacognition)
+	•	The open web platform (Web Audio API, Service Workers, IndexedDB)
 
-**Vote in [Discussions](https://github.com/tstrembu/violin-mastery-quest/discussions)!**
+⸻
 
----
+📬 Contact & Support
+	•	Live App: https://tstrembu.github.io/violin-mastery-quest/
+	•	Issues: https://github.com/tstrembu/violin-mastery-quest/issues
+	•	Discussions: https://github.com/tstrembu/violin-mastery-quest/discussions
+	•	Author: https://github.com/tstrembu
 
-## 🎻 Built for Serious Young Violinists
+⸻
 
-*Who wish to practice smarter, not harder.*
+🗺️ Roadmap (Community Votes Welcome)
 
-**VMQ is not a game you "beat."** It's a practice companion that grows with you—from early Suzuki students learning hand frame and bow hold, through intermediate violinists developing vibrato and shifting, to advanced players refining spiccato and interpretation.
+Potential future features:
+	•	🎤 Recording + pitch analysis (intonation feedback)
+	•	📚 More repertoire packs (Suzuki + orchestra excerpt tie-ins)
+	•	🌍 Multi-language UI
+	•	👥 Teacher dashboard / cohorts
+	•	☁️ Optional cloud sync (explicit opt-in)
+	•	📈 Advanced analytics (learning curves, outlier detection)
+	•	🎼 Coach-generated practice playlists
+	•	🎯 Shareable drill packs (export/import)
+	•	🏆 Optional community challenges
 
-Every feature is designed with one goal: **help you understand violin better, remember more, and improve faster.**
+Vote and discuss in GitHub Discussions.
 
-Happy practicing! 🎻
+⸻
 
----
+🎻 Built for Serious Young Violinists
 
-**Last Updated:** December 2025 | **Version:** 3.1.0 | **Status:** Production
+VMQ isn’t a game you “beat.” It’s a practice companion that grows with you.
+
+Last Updated: December 2025 · Version: 3.0.6 · Status: Production
+
