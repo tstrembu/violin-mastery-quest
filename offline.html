@@ -1,210 +1,388 @@
 <!-- offline.html
-<!DOCTYPE html>
+========================================================
+VMQ Offline Fallback (Drop-in replacement)
+- Matches VMQ design system + dark mode + safe-area
+- “Retry” checks connectivity without breaking offline caching
+- Avoids auto-recursion / runaway retries
+- Works on iOS Safari + GitHub Pages
+========================================================
+-->
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#3a5ba0" />
+  <meta name="robots" content="noindex" />
   <title>VMQ - Offline</title>
+
   <style>
-    /* VMQ Design System - Offline Fallback */
     :root {
       --primary: #3a5ba0;
+      --primary-2: #2f4b7e;
       --bg: #f8fafc;
       --card: #ffffff;
       --text: #475569;
       --border: #e2e8f0;
       --radius: 12px;
-      --shadow: 0 10px 15px rgba(0,0,0,0.1);
+      --shadow: 0 10px 15px rgba(0,0,0,0.10);
+      --shadow-2: 0 6px 20px rgba(58, 91, 160, 0.35);
+      --muted: rgba(71, 85, 105, 0.85);
+      --ok: #10b981;
+      --warn: #f59e0b;
+      --danger: #ef4444;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    
-    body { 
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--bg); 
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+      background: var(--bg);
       color: var(--text);
-      display: flex; 
-      align-items: center; 
-      justify-content: center; 
-      min-height: 100vh; 
-      text-align: center; 
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      text-align: center;
       line-height: 1.6;
       padding: 1rem;
+      padding-bottom: max(1rem, env(safe-area-inset-bottom));
+      padding-top: max(1rem, env(safe-area-inset-top));
     }
 
-    .offline-card { 
-      background: var(--card); 
-      padding: clamp(2rem, 5vw, 3rem); 
+    .offline-card {
+      width: 100%;
+      max-width: min(92vw, 440px);
+      background: var(--card);
+      border: 1px solid var(--border);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
-      max-width: min(90vw, 400px);
-      border: 1px solid var(--border);
+      padding: clamp(1.75rem, 5vw, 3rem);
       animation: slideUp 0.5s ease-out;
     }
 
-    .logo { 
-      font-size: clamp(2rem, 8vw, 3.5rem); 
+    .logo {
+      font-size: clamp(2rem, 8vw, 3.5rem);
+      font-weight: 800;
+      letter-spacing: 0.02em;
       background: linear-gradient(135deg, var(--primary), #5a7bc0);
       -webkit-background-clip: text;
       background-clip: text;
       -webkit-text-fill-color: transparent;
-      margin-bottom: 1rem;
+      margin-bottom: 0.75rem;
+      user-select: none;
+    }
+
+    .icon { font-size: clamp(3rem, 12vw, 4rem); margin-bottom: 0.75rem; }
+    h1 {
+      color: var(--primary);
+      font-size: clamp(1.5rem, 6vw, 2rem);
+      margin-bottom: 0.75rem;
       font-weight: 700;
     }
 
-    .icon { 
-      font-size: clamp(3rem, 12vw, 4rem); 
-      margin-bottom: 1rem; 
-    }
+    p { margin-bottom: 0.9rem; opacity: 0.95; font-size: 1.05rem; color: var(--muted); }
 
-    h1 { 
-      color: var(--primary); 
-      font-size: clamp(1.5rem, 6vw, 2rem);
-      margin-bottom: 1rem;
-      font-weight: 600;
-    }
-
-    p { 
-      margin-bottom: 1.5rem; 
+    .hint {
+      font-size: 0.95rem;
       opacity: 0.9;
-      font-size: 1.1rem;
+      margin-bottom: 1.25rem;
     }
 
-    .btn-retry {
+    .btn-row {
+      display: flex;
+      gap: 0.75rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 0.25rem;
+    }
+
+    .btn {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 0.5rem;
-      padding: 0.875rem 2rem;
-      background: linear-gradient(135deg, var(--primary), #2f4b7e);
-      color: white;
-      border: none;
-      border-radius: 8px;
+      padding: 0.9rem 1.25rem;
+      border-radius: 10px;
+      border: 1px solid transparent;
       cursor: pointer;
       font-size: 1rem;
-      font-weight: 600;
-      transition: all 0.2s ease;
-      box-shadow: 0 4px 12px rgba(58, 91, 160, 0.3);
+      font-weight: 700;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+      min-width: 160px;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
     }
 
-    .btn-retry:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px rgba(58, 91, 160, 0.4);
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--primary-2));
+      color: white;
+      box-shadow: 0 4px 12px rgba(58, 91, 160, 0.28);
     }
 
-    .btn-retry:active {
-      transform: translateY(0);
+    .btn-secondary {
+      background: transparent;
+      color: var(--primary);
+      border-color: var(--border);
     }
+
+    .btn:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); }
+    .btn-primary:active { transform: translateY(0); }
 
     .status {
-      margin-top: 1.5rem;
-      padding: 0.75rem 1rem;
-      background: rgba(58, 91, 160, 0.1);
-      border-radius: 6px;
+      margin-top: 1.25rem;
+      padding: 0.85rem 1rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(58, 91, 160, 0.08);
+      font-size: 0.95rem;
+      opacity: 0.9;
+      text-align: left;
+    }
+
+    .status-line {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      margin: 0.25rem 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       font-size: 0.9rem;
-      opacity: 0.8;
     }
 
-    /* Animations */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.6);
+      font-weight: 700;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+
+    .badge.ok { color: var(--ok); }
+    .badge.warn { color: var(--warn); }
+    .badge.danger { color: var(--danger); }
+
     @keyframes slideUp {
-      from { 
-        opacity: 0; 
-        transform: translateY(20px); 
-      }
-      to { 
-        opacity: 1; 
-        transform: translateY(0); 
-      }
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
 
-    /* PWA Safe Area */
-    @supports (padding: max(0px)) {
-      body {
-        padding-bottom: env(safe-area-inset-bottom);
-        padding-top: env(safe-area-inset-top);
-      }
-    }
-
-    /* Dark mode support */
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #0f172a;
-        --card: #1e293b;
+        --card: #111c2e;
         --text: #e2e8f0;
-        --border: #334155;
+        --border: #24324a;
+        --muted: rgba(226, 232, 240, 0.85);
       }
+      .btn-secondary { border-color: var(--border); }
+      .badge { background: rgba(17, 28, 46, 0.75); }
+      .status { background: rgba(58, 91, 160, 0.16); }
     }
 
-    /* Print fallback */
     @media print {
       body { background: white; color: black; }
-      .offline-card { box-shadow: none; border: 1px solid #ccc; }
+      .offline-card { box-shadow: none; }
+      .btn-row { display: none; }
     }
   </style>
 </head>
+
 <body>
-  <div class="offline-card">
-    <div class="logo">VMQ</div>
-    <div class="icon">🎻</div>
-    <h1>You're Offline</h1>
-    <p>VMQ is fully cached for offline practice. All 50+ modules work without internet.</p>
-    <p style="font-size: 0.95em; opacity: 0.8;">
-      <strong>Progress syncs automatically</strong> when you reconnect.
-    </p>
-    
-    <button class="btn-retry" onclick="retryConnection()">
-      🔄 Retry Connection
-    </button>
-    
-    <div class="status">
-      💾 <strong>Cached:</strong> 8 Engines + 50+ Modules + Audio
+  <main class="offline-card" role="main" aria-live="polite">
+    <div class="logo" aria-hidden="true">VMQ</div>
+    <div class="icon" aria-hidden="true">🎻</div>
+    <h1>You’re Offline</h1>
+
+    <p>VMQ is designed for offline practice. Your progress stays on this device.</p>
+    <p class="hint"><strong>When you reconnect</strong>, VMQ will refresh automatically the next time the app loads.</p>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" id="retryBtn" type="button">
+        🔄 Retry Connection
+      </button>
+      <button class="btn btn-secondary" id="openHomeBtn" type="button">
+        🏠 Open VMQ Home
+      </button>
     </div>
-  </div>
+
+    <section class="status" aria-label="Offline status">
+      <div class="status-line">
+        <span>Network</span>
+        <span class="badge warn" id="netBadge">⚠️ offline</span>
+      </div>
+      <div class="status-line">
+        <span>Service Worker</span>
+        <span class="badge warn" id="swBadge">⚠️ unknown</span>
+      </div>
+      <div class="status-line">
+        <span>Cache</span>
+        <span class="badge warn" id="cacheBadge">⚠️ unknown</span>
+      </div>
+      <div style="margin-top:0.6rem; font-size:0.92rem; opacity:0.9;">
+        💾 Cached app assets should still load if you previously opened VMQ online.
+      </div>
+    </section>
+  </main>
 
   <script>
-    // 🎯 Smart retry logic
-    let retryCount = 0;
-    const MAX_RETRIES = 5;
+    (function () {
+      // ---- CONFIG (GitHub Pages repo base) ----
+      var BASE = '/violin-mastery-quest/';
 
-    async function retryConnection() {
-      retryCount++;
-      const btn = document.querySelector('.btn-retry');
-      btn.innerHTML = '⏳ Checking...';
-      btn.disabled = true;
-      
-      try {
-        // 1. Network check
-        await fetch('./manifest.json', { method: 'HEAD', cache: 'no-store' });
-        
-        // 2. Service Worker check
-        if (navigator.serviceWorker.controller) {
-          const channel = new MessageChannel();
-          const swResponse = new Promise(resolve => {
-            channel.port1.onmessage = (event) => {
-              if (event.data && event.data.type === 'CACHE_STATUS_REPLY') {
-                resolve(event.data);
-              }
-            };
-            setTimeout(() => resolve(null), 1000);
-          });
-          navigator.serviceWorker.controller.postMessage({ type: 'CACHE_STATUS' }, [channel.port2]);
-          await swResponse;
-        }
+      // ---- UI refs ----
+      var retryBtn = document.getElementById('retryBtn');
+      var openHomeBtn = document.getElementById('openHomeBtn');
+      var netBadge = document.getElementById('netBadge');
+      var swBadge = document.getElementById('swBadge');
+      var cacheBadge = document.getElementById('cacheBadge');
 
-        // Online + SW healthy → reload app
-        window.location.reload();
-      } catch (error) {
-        console.log('Retry failed:', error);
-        if (retryCount < MAX_RETRIES) {
-          btn.innerHTML = `🔄 Retry (${retryCount}/${MAX_RETRIES})`;
-          setTimeout(() => retryConnection(), 2000);
-        } else {
-          btn.innerHTML = '❌ Still Offline';
-          btn.onclick = () => window.location.reload();
-        }
-      } finally {
-        btn.disabled = false;
+      // ---- State ----
+      var retries = 0;
+      var MAX_RETRIES = 5;
+      var retryTimer = null;
+
+      function setBadge(el, state, text) {
+        el.classList.remove('ok', 'warn', 'danger');
+        el.classList.add(state);
+        el.textContent = text;
       }
-    }
+
+      function updateNetworkBadge() {
+        var online = navigator.onLine;
+        if (online) setBadge(netBadge, 'ok', '✅ online');
+        else setBadge(netBadge, 'warn', '⚠️ offline');
+      }
+
+      async function ping() {
+        // HEAD is nice, but not always supported by all hosting/CDNs consistently.
+        // Use a cache-busting GET to the app root (smallest stable target for GH Pages).
+        var url = BASE + '?ping=' + Date.now();
+        var ctrl = (window.AbortController) ? new AbortController() : null;
+        var timeout = setTimeout(function () { try { ctrl && ctrl.abort(); } catch(e) {} }, 2500);
+
+        try {
+          var res = await fetch(url, {
+            method: 'GET',
+            cache: 'no-store',
+            signal: ctrl ? ctrl.signal : undefined
+          });
+          return !!(res && (res.ok || res.type === 'opaque'));
+        } catch (e) {
+          return false;
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+
+      async function checkServiceWorker() {
+        try {
+          if (!('serviceWorker' in navigator)) {
+            setBadge(swBadge, 'danger', '❌ unsupported');
+            return false;
+          }
+
+          var reg = await navigator.serviceWorker.getRegistration(BASE);
+          var has = !!(reg || navigator.serviceWorker.controller);
+          if (has) setBadge(swBadge, 'ok', '✅ active');
+          else setBadge(swBadge, 'warn', '⚠️ not active');
+          return has;
+        } catch (e) {
+          setBadge(swBadge, 'warn', '⚠️ unknown');
+          return false;
+        }
+      }
+
+      async function checkCacheQuick() {
+        try {
+          if (!('caches' in window)) {
+            setBadge(cacheBadge, 'danger', '❌ unsupported');
+            return false;
+          }
+
+          // Best-effort: if any cache exists, we call it “present”.
+          // (Exact cache name may change by version — keep compatible.)
+          var keys = await caches.keys();
+          if (keys && keys.length) {
+            setBadge(cacheBadge, 'ok', '✅ present');
+            return true;
+          }
+          setBadge(cacheBadge, 'warn', '⚠️ empty');
+          return false;
+        } catch (e) {
+          setBadge(cacheBadge, 'warn', '⚠️ unknown');
+          return false;
+        }
+      }
+
+      function setBusy(isBusy) {
+        retryBtn.disabled = !!isBusy;
+        retryBtn.textContent = isBusy ? '⏳ Checking…' : '🔄 Retry Connection';
+      }
+
+      async function retryConnection() {
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+
+        retries += 1;
+        setBusy(true);
+
+        updateNetworkBadge();
+        await checkServiceWorker();
+        await checkCacheQuick();
+
+        // If the browser already thinks it is online, still verify with a real fetch.
+        var ok = await ping();
+
+        if (ok) {
+          // Online (or at least reachable) → reload to let the SPA boot
+          try { window.location.reload(); } catch (e) { window.location.href = BASE; }
+          return;
+        }
+
+        // Still offline/unreachable
+        updateNetworkBadge();
+        setBusy(false);
+
+        if (retries < MAX_RETRIES) {
+          retryBtn.textContent = '🔄 Retry (' + retries + '/' + MAX_RETRIES + ')';
+        } else {
+          retryBtn.textContent = '❌ Still Offline (Tap to reload)';
+          // Last resort: allow a straight reload attempt
+          retryBtn.onclick = function () { window.location.reload(); };
+        }
+      }
+
+      // ---- Events ----
+      retryBtn.addEventListener('click', retryConnection);
+      openHomeBtn.addEventListener('click', function () {
+        // Prefer SPA home; if router expects hash routes, this still lands at app root.
+        window.location.href = BASE;
+      });
+
+      window.addEventListener('online', function () {
+        updateNetworkBadge();
+        // Gentle auto-retry once, without looping
+        if (retries === 0) retryConnection();
+      });
+
+      window.addEventListener('offline', updateNetworkBadge);
+
+      // ---- Initial paint ----
+      updateNetworkBadge();
+      checkServiceWorker();
+      checkCacheQuick();
+    })();
   </script>
 </body>
 </html>
