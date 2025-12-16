@@ -1,23 +1,29 @@
+// js/components/Testers.js
 // ======================================
-// VMQ TESTERS v2.1.1 - Unified Adaptive Testing Framework
-// Powers: Key Signatures, Tempo, Time Signatures, Arpeggios, Scales
-// Integration: 6 Engines + Spaced Repetition + Analytics
+// VMQ TESTERS v2.4.2 - Unified Adaptive Testing Framework (Drop-in)
+// Powers: Key Signatures, Tempo, Time Signatures, Arpeggios/Chords, Scales
+// Integrations: Gamification + SessionTracker + DifficultyAdapter + Spaced Repetition + Keyboard/A11y
+// Notes:
+// - React UMD (no JSX)
+// - Uses namespace imports to avoid hard-failing on missing named exports
+// - Provides a default "Testers Hub" component + named tester exports
 // ======================================
 
 const { createElement: h, useState, useEffect, useCallback, useRef, useMemo } = React;
-import { KEY_SIGNATURES, INTERVALS, TIME_SIGNATURES, CHORD_TYPES, XP_VALUES } from '../config/constants.js';
-import { audioEngine } from '../engines/audioEngine.js';
-import { addXP, recordAnswer, getLevel } from '../engines/gamification.js';
-import { shuffle, getRandom, formatDuration, clamp } from '../utils/helpers.js';
+
+import * as C from '../config/constants.js';
+import * as Audio from '../engines/audioEngine.js';
+import * as G from '../engines/gamification.js';
+import * as H from '../utils/helpers.js';
 import { keyboard, a11y } from '../utils/keyboard.js';
 import { sessionTracker } from '../engines/sessionTracker.js';
-import { adjustDifficulty, getDifficultyConfig } from '../engines/difficultyAdapter.js';
-import { addSRSItem, getNextReviewItems } from '../engines/spacedRepetition.js';
-import { loadJSON, saveJSON, STORAGE_KEYS } from '../config/storage.js';
+import * as D from '../engines/difficultyAdapter.js';
+import * as SRS from '../engines/spacedRepetition.js';
+import * as Store from '../config/storage.js';
 
-// ======================================
-// CONFIGURATION
-// ======================================
+// --------------------------------------
+// CONFIG
+// --------------------------------------
 const TESTER_CONFIG = {
   MIN_OPTIONS: 3,
   MAX_OPTIONS: 6,
@@ -30,10 +36,146 @@ const TESTER_CONFIG = {
   HINT_PENALTY: 0.5
 };
 
-// ======================================
-// ENHANCED TESTER FACTORY
-// ======================================
-function createTester({
+const DEFAULT_XP_VALUES = {
+  CORRECT_ANSWER: 5
+};
+
+function safeToast(showToast, msg, type = 'info') {
+  try { if (typeof showToast === 'function') showToast(msg, type); } catch { /* noop */ }
+}
+
+function safeAnnounce(msg) {
+  try { a11y?.announce?.(msg); } catch { /* noop */ }
+}
+
+function clamp(n, lo, hi) {
+  const fn = H?.clamp;
+  if (typeof fn === 'function') return fn(n, lo, hi);
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function shuffle(arr) {
+  const fn = H?.shuffle;
+  if (typeof fn === 'function') return fn(arr);
+  // fallback Fisher–Yates
+  const a = Array.isArray(arr) ? arr.slice() : [];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function getRandom(arr) {
+  const fn = H?.getRandom;
+  if (typeof fn === 'function') return fn(arr);
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function formatDuration(ms) {
+  const fn = H?.formatDuration;
+  if (typeof fn === 'function') return fn(ms);
+  // fallback: mm:ss
+  const s = Math.max(0, Math.floor((ms || 0) / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+function nowISO() {
+  return new Date().toISOString();
+}
+
+function makeKey(...parts) {
+  return parts.filter(Boolean).join(':');
+}
+
+function loadJSONSafe(key, fallback) {
+  try {
+    if (typeof Store.loadJSON === 'function') return Store.loadJSON(key, fallback);
+  } catch { /* noop */ }
+  return fallback;
+}
+
+function saveJSONSafe(key, value) {
+  try {
+    if (typeof Store.saveJSON === 'function') Store.saveJSON(key, value);
+  } catch { /* noop */ }
+}
+
+function safeRegisterKey(keyName, fn, label) {
+  try { keyboard?.register?.(keyName, fn, label); } catch { /* noop */ }
+}
+function safeUnregisterKeys(keys) {
+  try {
+    // Some VMQ versions support keyboard.unregister(...keys)
+    if (typeof keyboard?.unregister === 'function') {
+      keyboard.unregister(...keys);
+      return;
+    }
+  } catch { /* noop */ }
+  // Fallback: attempt per-key unregister if supported
+  try {
+    if (typeof keyboard?.unregisterKey === 'function') {
+      keys.forEach(k => keyboard.unregisterKey(k));
+    }
+  } catch { /* noop */ }
+}
+
+function safeStartSession(activity) {
+  try { sessionTracker?.startSession?.(activity); } catch { /* noop */ }
+}
+function safeEndSession(entry) {
+  try { sessionTracker?.endSession?.(entry); } catch { /* noop */ }
+}
+
+function safeRecordAnswer(type, isCorrect, responseTime, meta = {}) {
+  try {
+    if (typeof G?.recordAnswer === 'function') {
+      G.recordAnswer(type, isCorrect, responseTime, meta);
+      return;
+    }
+  } catch { /* noop */ }
+}
+
+function safeAddXP(amount, source = 'tester', meta = {}) {
+  try {
+    if (typeof G?.addXP === 'function') {
+      G.addXP(amount, source, meta);
+      return;
+    }
+    if (typeof G?.awardXP === 'function') {
+      G.awardXP(amount, source, meta);
+      return;
+    }
+  } catch { /* noop */ }
+}
+
+function safeAddSRSItem(payload) {
+  try {
+    if (typeof SRS?.addSRSItem === 'function') return SRS.addSRSItem(payload);
+    if (typeof SRS?.addItem === 'function') return SRS.addItem(payload);
+  } catch { /* noop */ }
+  return null;
+}
+
+function safeGetNextReviewItems(type, n) {
+  try {
+    if (typeof SRS?.getNextReviewItems === 'function') return SRS.getNextReviewItems(type, n);
+    if (typeof SRS?.getDueItems === 'function') return SRS.getDueItems(type, n);
+  } catch { /* noop */ }
+  return [];
+}
+
+function midiToFreq(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+// --------------------------------------
+// FACTORY
+// --------------------------------------
+export function createTester({
   type,
   title,
   icon,
@@ -45,251 +187,451 @@ function createTester({
   enableHints = false,
   customValidation = null
 }) {
-  return function Tester({ onBack, showToast }) {
-    // ======================================
-    // STATE MANAGEMENT
-    // ======================================
+  return function Tester(props) {
+    const { onBack, navigate, showToast } = props || {};
+
+    const goBack = useCallback(() => {
+      if (typeof onBack === 'function') return onBack();
+      if (typeof navigate === 'function') return navigate('testers');
+      try { window.location.hash = '#testers'; } catch { /* noop */ }
+    }, [onBack, navigate]);
+
+    // ----- state -----
     const [question, setQuestion] = useState(null);
     const [options, setOptions] = useState([]);
     const [selected, setSelected] = useState(null);
     const [answered, setAnswered] = useState(false);
     const [showHint, setShowHint] = useState(false);
     const [usedHint, setUsedHint] = useState(false);
-    
-    // Stats & Progress
-    const [stats, setStats] = useState({ 
-      correct: 0, 
-      total: 0, 
+
+    const [difficulty, setDifficulty] = useState('intermediate');
+    const [autoDifficulty, setAutoDifficulty] = useState(true);
+    const [autoAdvance, setAutoAdvance] = useState(true);
+
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [showFeedback, setShowFeedback] = useState(false);
+    const [feedbackMessage, setFeedbackMessage] = useState('');
+
+    const [stats, setStats] = useState({
+      correct: 0,
+      total: 0,
       streak: 0,
       longestStreak: 0,
       perfectStreak: 0,
       avgResponseTime: 0,
       comboMultiplier: 1
     });
-    
-    const [difficulty, setDifficulty] = useState('intermediate');
-    const [autoDifficulty, setAutoDifficulty] = useState(true);
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [showFeedback, setShowFeedback] = useState(false);
-    const [feedbackMessage, setFeedbackMessage] = useState('');
-    
-    // Performance tracking
-    const [recentPerformance, setRecentPerformance] = useState([]);
-    const [sessionStartTime] = useState(Date.now());
-    const questionStartTime = useRef(null);
-    const consecutiveCorrect = useRef(0);
-    const consecutiveWrong = useRef(0);
-    
-    // Audio state
-    const audioQueue = useRef([]);
-    const isAudioPlaying = useRef(false);
 
-    // ======================================
-    // DATA & CONFIGURATION
-    // ======================================
-    const data = useMemo(() => {
-      const rawData = typeof getData === 'function' ? getData() : getData;
-      
-      // Support both object (with difficulty levels) and array formats
-      if (Array.isArray(rawData)) {
-        return {
-          beginner: rawData.slice(0, Math.ceil(rawData.length * 0.3)),
-          intermediate: rawData.slice(0, Math.ceil(rawData.length * 0.7)),
-          advanced: rawData
-        };
+    // refs to avoid stale closures
+    const statsRef = useRef(stats);
+    const perfRef = useRef([]);
+    const questionStartRef = useRef(null);
+    const consecutiveCorrectRef = useRef(0);
+    const consecutiveWrongRef = useRef(0);
+    const isAudioPlayingRef = useRef(false);
+    const advanceTimerRef = useRef(null);
+    const sessionStartRef = useRef(Date.now());
+
+    useEffect(() => { statsRef.current = stats; }, [stats]);
+
+    // ----- persistent settings (non-breaking) -----
+    const SETTINGS_KEY = useMemo(() => {
+      const base = Store?.STORAGE_KEYS?.TESTERS_SETTINGS || 'vmq_testers_settings';
+      return makeKey(base, type);
+    }, [type]);
+
+    useEffect(() => {
+      const saved = loadJSONSafe(SETTINGS_KEY, null);
+      if (saved && typeof saved === 'object') {
+        if (saved.difficulty && difficultyLevels.includes(saved.difficulty)) setDifficulty(saved.difficulty);
+        if (typeof saved.autoDifficulty === 'boolean') setAutoDifficulty(saved.autoDifficulty);
+        if (typeof saved.autoAdvance === 'boolean') setAutoAdvance(saved.autoAdvance);
       }
-      return rawData;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+      saveJSONSafe(SETTINGS_KEY, { difficulty, autoDifficulty, autoAdvance, updatedAt: nowISO() });
+    }, [SETTINGS_KEY, difficulty, autoDifficulty, autoAdvance]);
+
+    // ----- data normalization -----
+    const dataByDifficulty = useMemo(() => {
+      const raw = (typeof getData === 'function') ? getData() : getData;
+      if (Array.isArray(raw)) {
+        const n = raw.length;
+        const b = raw.slice(0, Math.max(1, Math.ceil(n * 0.35)));
+        const i = raw.slice(0, Math.max(1, Math.ceil(n * 0.75)));
+        return { beginner: b, intermediate: i, advanced: raw };
+      }
+      if (raw && typeof raw === 'object') return raw;
+      return { beginner: [], intermediate: [], advanced: [] };
     }, [getData]);
 
-    const difficultyConfig = useMemo(() => 
-      getDifficultyConfig(type, difficulty), 
-      [type, difficulty]
-    );
+    const difficultyConfig = useMemo(() => {
+      try {
+        if (typeof D?.getDifficultyConfig === 'function') return D.getDifficultyConfig(type, difficulty);
+      } catch { /* noop */ }
+      return { optionCount: 4, autoPlayAudio: false, preferSimilarDistractors: difficulty === 'advanced' };
+    }, [type, difficulty]);
 
-    // ======================================
-    // KEYBOARD SHORTCUTS
-    // ======================================
-    useEffect(() => {
-      if (audioPlay) {
-        keyboard.register('space', handlePlayAudio, `${title}: Play audio`);
-      }
-      keyboard.register('enter', () => {
-        if (!answered && selected) handleAnswer(selected);
-      }, 'Submit answer');
-      
-      keyboard.register('n', () => {
-        if (answered) nextQuestion();
-      }, 'Next question');
-      
-      keyboard.register('h', () => {
-        if (enableHints && !answered && !usedHint) toggleHint();
-      }, 'Show hint');
+    // ----- keyboard -----
+    const nextQuestionRef = useRef(null); // will be set after definition
 
-      // Number keys for quick selection (1-6)
-      for (let i = 1; i <= 6; i++) {
-        keyboard.register(i.toString(), () => {
-          if (!answered && options[i - 1]) {
-            handleAnswer(options[i - 1]);
-          }
-        }, `Select option ${i}`);
-      }
+    const handlePlayAudio = useCallback(() => {
+      if (!audioPlay || !question?.item || isAudioPlayingRef.current) return;
 
-      return () => {
-        keyboard.unregister('space', 'enter', 'n', 'h', '1', '2', '3', '4', '5', '6');
+      setIsPlaying(true);
+      isAudioPlayingRef.current = true;
+
+      const done = () => {
+        setIsPlaying(false);
+        isAudioPlayingRef.current = false;
       };
-    }, [question, answered, selected, options, usedHint]);
 
-    // ======================================
-    // QUESTION GENERATION (Enhanced)
-    // ======================================
+      try {
+        const maybePromise = audioPlay(question.item, done);
+        if (maybePromise && typeof maybePromise.then === 'function') {
+          maybePromise.then(done).catch((err) => {
+            console.error('[Tester] Audio playback failed:', err);
+            done();
+            safeToast(showToast, 'Audio playback failed', 'error');
+          });
+        }
+      } catch (err) {
+        console.error('[Tester] Audio playback failed:', err);
+        done();
+        safeToast(showToast, 'Audio playback failed', 'error');
+      }
+
+      safeAnnounce('Playing audio');
+    }, [audioPlay, question, showToast]);
+
+    // ----- helpers -----
+    const buildQuestionText = useCallback((qt, item) => {
+      const base = String(qt?.q || 'Identify');
+      const fallbackToken = (item?.name || item?.sig || item?.major || item?.minor || 'this');
+      // legacy "#" token
+      let s = base.includes('#') ? base.replaceAll('#', String(fallbackToken)) : base;
+
+      // optional richer tokens (safe; no requirement)
+      s = s
+        .replaceAll('{name}', String(item?.name ?? ''))
+        .replaceAll('{sig}', String(item?.sig ?? ''))
+        .replaceAll('{major}', String(item?.major ?? ''))
+        .replaceAll('{minor}', String(item?.minor ?? ''))
+        .replaceAll('{bpm}', String(item?.bpm ?? ''))
+        .replaceAll('{accidentals}', String(item?.accidentals ?? ''));
+
+      return s.trim();
+    }, []);
+
+    const resolveAnswer = useCallback((qt, item) => {
+      const a = qt?.a;
+      if (typeof a === 'function') return a(item);
+      return a;
+    }, []);
+
+    const calculateSimilarity = useCallback((item1, item2) => {
+      // key sigs
+      if (item1?.accidentals != null && item2?.accidentals != null) {
+        return 1 / (1 + Math.abs(item1.accidentals - item2.accidentals));
+      }
+      // intervals
+      if (item1?.semitones != null && item2?.semitones != null) {
+        return 1 / (1 + Math.abs(item1.semitones - item2.semitones));
+      }
+      // tempo
+      if (item1?.bpm != null && item2?.bpm != null) {
+        return 1 / (1 + Math.abs(item1.bpm - item2.bpm));
+      }
+      return 0.5;
+    }, []);
+
+    const generateDistractors = useCallback((poolItems, correctItem, correctAnswer, count) => {
+      const pool = (Array.isArray(poolItems) ? poolItems : []).filter(it => {
+        const ans = (it?.name ?? it?.sig ?? it?.major ?? it?.minor ?? '');
+        return String(ans) !== String(correctAnswer);
+      });
+
+      let candidates = shuffle(pool);
+
+      if (difficultyConfig?.preferSimilarDistractors) {
+        candidates = candidates.sort((a, b) => calculateSimilarity(b, correctItem) - calculateSimilarity(a, correctItem));
+      }
+
+      const out = [];
+      const seen = new Set([String(correctAnswer)]);
+
+      for (const it of candidates) {
+        if (out.length >= count) break;
+        const ans = (it?.name ?? it?.sig ?? it?.major ?? it?.minor ?? '');
+        const key = String(ans);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(key);
+      }
+
+      // fill if small pool
+      while (out.length < count && pool.length > 0) {
+        const it = getRandom(pool);
+        const ans = (it?.name ?? it?.sig ?? it?.major ?? it?.minor ?? '');
+        const key = String(ans);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(key);
+      }
+
+      return out;
+    }, [calculateSimilarity, difficultyConfig]);
+
+    const selectSRSWeightedItem = useCallback((levelData) => {
+      if (!enableSRS) return getRandom(levelData);
+      const due = safeGetNextReviewItems(type, 6);
+      // ~30% chance to serve a due review
+      if (Array.isArray(due) && due.length > 0 && Math.random() < 0.3) {
+        const dueItem = getRandom(due);
+        const target = dueItem?.content || dueItem?.ref || dueItem;
+        const match = (Array.isArray(levelData) ? levelData : []).find(it => {
+          return (
+            (it?.name && target?.name && String(it.name) === String(target.name)) ||
+            (it?.sig && target?.sig && String(it.sig) === String(target.sig))
+          );
+        });
+        if (match) return match;
+      }
+      return getRandom(levelData);
+    }, [enableSRS, type]);
+
+    // ----- question generation -----
     const nextQuestion = useCallback(() => {
-      // Get data for current difficulty
-      const levelData = data[difficulty] || data.intermediate || data;
-      if (!levelData || levelData.length === 0) {
-        console.error('[Tester] No data available for difficulty:', difficulty);
+      if (advanceTimerRef.current) {
+        clearTimeout(advanceTimerRef.current);
+        advanceTimerRef.current = null;
+      }
+
+      const levelData = dataByDifficulty?.[difficulty] || dataByDifficulty?.intermediate || [];
+      if (!Array.isArray(levelData) || levelData.length === 0) {
+        console.warn('[Tester] No data for', type, 'difficulty', difficulty);
+        setQuestion(null);
+        setOptions([]);
         return;
       }
 
-      // Select item (weighted by SRS if enabled)
-      const item = enableSRS 
-        ? selectSRSWeightedItem(levelData, type)
-        : getRandom(levelData);
+      const item = selectSRSWeightedItem(levelData);
+      if (!item) return;
 
-      // Generate question type
-      const qt = questionTypes.length > 0
-        ? generateQuestionType(questionTypes, item)
-        : { q: 'Identify', a: item.name || item.sig };
+      const qtRaw = (Array.isArray(questionTypes) && questionTypes.length > 0)
+        ? getRandom(questionTypes)
+        : { q: 'Identify', a: (item?.name ?? item?.sig ?? item?.major ?? item?.minor) };
 
-      // Generate distractors (wrong answers)
-      const numOptions = clamp(
-        difficultyConfig?.optionCount || 4,
+      const q = buildQuestionText(qtRaw, item);
+      const a = resolveAnswer(qtRaw, item);
+
+      const optionCount = clamp(
+        Number(difficultyConfig?.optionCount || 4),
         TESTER_CONFIG.MIN_OPTIONS,
         TESTER_CONFIG.MAX_OPTIONS
       );
 
-      const distractors = generateDistractors(
-        levelData,
-        item,
-        qt.a,
-        numOptions - 1,
-        difficultyConfig
-      );
+      const distractors = generateDistractors(levelData, item, a, optionCount - 1);
+      const allOptions = shuffle([String(a), ...distractors]);
 
-      const allOptions = shuffle([...distractors, qt.a]);
-
-      // Set state
       setQuestion({
-        ...qt,
-        item,
-        ref: item,
         id: `${type}-${Date.now()}`,
-        startTime: Date.now(),
-        difficulty
+        item,
+        q,
+        a: String(a),
+        difficulty,
+        startTime: Date.now()
       });
       setOptions(allOptions);
       setSelected(null);
       setAnswered(false);
       setShowHint(false);
       setUsedHint(false);
-      setIsPlaying(false);
       setShowFeedback(false);
-      questionStartTime.current = Date.now();
+      setFeedbackMessage('');
+      questionStartRef.current = Date.now();
 
-      // Auto-play audio for ear training (if configured)
+      safeAnnounce(`${title}. ${q}. ${allOptions.length} options.`);
       if (audioPlay && difficultyConfig?.autoPlayAudio) {
-        setTimeout(() => handlePlayAudio(), 300);
+        setTimeout(() => handlePlayAudio(), 250);
+      }
+    }, [
+      audioPlay,
+      buildQuestionText,
+      dataByDifficulty,
+      difficulty,
+      difficultyConfig,
+      generateDistractors,
+      handlePlayAudio,
+      questionTypes,
+      resolveAnswer,
+      selectSRSWeightedItem,
+      title,
+      type
+    ]);
+
+    nextQuestionRef.current = nextQuestion;
+
+    // ----- feedback -----
+    const showAnswerFeedback = useCallback((isCorrect, xp, responseTime, correctAnswer) => {
+      let msg = '';
+      if (isCorrect) {
+        const st = statsRef.current;
+        const nextStreak = st.streak + 1;
+
+        if (st.perfectStreak >= TESTER_CONFIG.PERFECT_STREAK_THRESHOLD) {
+          msg = `🌟 PERFECT STREAK! +${xp} XP`;
+        } else if (nextStreak >= 10) {
+          msg = `🔥 ${nextStreak} streak! +${xp} XP`;
+        } else if (responseTime < 2000) {
+          msg = `⚡ Fast! +${xp} XP`;
+        } else {
+          msg = `✅ Correct! +${xp} XP`;
+        }
+
+        safeToast(showToast, msg, 'success');
+        safeAnnounce(msg);
+      } else {
+        msg = `💡 Correct answer: ${correctAnswer}`;
+        if (consecutiveWrongRef.current >= 3) msg += ' • Consider lowering difficulty.';
+        safeToast(showToast, msg, 'error');
+        safeAnnounce(msg);
       }
 
-      // Accessibility
-      a11y.announce(`${title}: ${qt.q}. ${allOptions.length} options available.`);
-    }, [difficulty, data, questionTypes, audioPlay, difficultyConfig]);
+      setFeedbackMessage(msg);
+      setShowFeedback(true);
+    }, [showToast]);
 
-    // ======================================
-    // AUDIO PLAYBACK (Enhanced)
-    // ======================================
-    const handlePlayAudio = useCallback(() => {
-      if (!audioPlay || !question?.item || isAudioPlaying.current) return;
+    // ----- difficulty auto-adjust -----
+    const adjustDifficultyLevel = useCallback((nextPerf) => {
+      const perf = Array.isArray(nextPerf) ? nextPerf : perfRef.current;
+      const st = statsRef.current;
 
-      setIsPlaying(true);
-      isAudioPlaying.current = true;
+      const recent = perf.slice(-20);
+      const acc = recent.length ? (recent.filter(p => p.correct).length / recent.length) : 0.5;
+      const avgTime = st.avgResponseTime || 0;
 
-      // Call audio function with callback
-      const playbackPromise = audioPlay(question.item, () => {
-        setIsPlaying(false);
-        isAudioPlaying.current = false;
-      });
-
-      // Handle promise-based audio engines
-      if (playbackPromise && playbackPromise.then) {
-        playbackPromise
-          .then(() => {
-            setIsPlaying(false);
-            isAudioPlaying.current = false;
-          })
-          .catch(err => {
-            console.error('[Tester] Audio playback failed:', err);
-            setIsPlaying(false);
-            isAudioPlaying.current = false;
-            showToast?.('Audio playback failed', 'error');
-          });
+      // Move up
+      if (acc > 0.85 && avgTime > 0 && avgTime < 3500 && difficulty === 'beginner') {
+        setDifficulty('intermediate');
+        safeToast(showToast, '📈 Moving to Intermediate!', 'success');
+        return;
+      }
+      if (acc > 0.85 && avgTime > 0 && avgTime < 3000 && difficulty === 'intermediate') {
+        setDifficulty('advanced');
+        safeToast(showToast, '🚀 Moving to Advanced!', 'success');
+        return;
       }
 
-      a11y.announce('Playing audio');
-    }, [audioPlay, question]);
+      // Move down
+      if (acc < 0.5 && consecutiveWrongRef.current >= 5 && difficulty === 'advanced') {
+        setDifficulty('intermediate');
+        safeToast(showToast, '⚠️ Back to Intermediate', 'warning');
+        return;
+      }
+      if (acc < 0.4 && consecutiveWrongRef.current >= 5 && difficulty === 'intermediate') {
+        setDifficulty('beginner');
+        safeToast(showToast, '💪 Back to Beginner (build fundamentals)', 'info');
+        return;
+      }
+    }, [difficulty, showToast]);
 
-    // ======================================
-    // ANSWER HANDLING (Enhanced)
-    // ======================================
+    // ----- hint system -----
+    const toggleHint = useCallback(() => {
+      if (!enableHints || answered || usedHint) return;
+      setShowHint(v => !v);
+      setUsedHint(true);
+      safeToast(showToast, '💡 Hint shown (XP reduced)', 'info');
+      safeAnnounce('Hint revealed');
+    }, [enableHints, answered, usedHint, showToast]);
+
+    const generateHint = useCallback(() => {
+      if (!question?.item) return '';
+      const it = question.item;
+
+      if (type === 'keys') {
+        const a = Number(it.accidentals || 0);
+        if (a === 0) return 'No sharps/flats (C major / A minor family)';
+        return a > 0 ? `${a} sharps` : `${Math.abs(a)} flats`;
+      }
+      if (type === 'intervals') {
+        const s = Number(it.semitones || 0);
+        return `${s} semitones`;
+      }
+      if (type === 'tempo') {
+        const bpm = Number(it.bpm || 0);
+        if (!bpm) return 'Listen for the pulse speed';
+        return bpm > 140 ? 'Fast tempo' : bpm > 90 ? 'Medium tempo' : 'Slow tempo';
+      }
+      if (type === 'timesig') {
+        const sig = String(it.sig || '');
+        if (sig) return `Beat grouping hint: ${sig}`;
+      }
+      return 'Focus on the pattern / feel';
+    }, [question, type]);
+
+    // ----- answer handling -----
     const handleAnswer = useCallback((choice) => {
       if (answered || !question) return;
 
-      setSelected(choice);
+      const responseTime = Date.now() - (questionStartRef.current || Date.now());
+      const correctAnswer = String(question.a);
+      const chosen = String(choice);
+
+      const isCorrect = (typeof customValidation === 'function')
+        ? !!customValidation(chosen, correctAnswer, question)
+        : chosen === correctAnswer;
+
+      setSelected(chosen);
       setAnswered(true);
 
-      const responseTime = Date.now() - (questionStartTime.current || Date.now());
-      const isCorrect = customValidation 
-        ? customValidation(choice, question.a)
-        : choice === question.a;
-
-      // Calculate XP with bonuses
-      let xp = 0;
+      // update streak refs
       if (isCorrect) {
-        xp = XP_VALUES.CORRECT_ANSWER;
-        
-        // Streak bonus
-        if (stats.streak >= TESTER_CONFIG.STREAK_BONUS_THRESHOLD) {
-          xp += Math.floor(stats.streak * 0.5);
+        consecutiveCorrectRef.current += 1;
+        consecutiveWrongRef.current = 0;
+      } else {
+        consecutiveWrongRef.current += 1;
+        consecutiveCorrectRef.current = 0;
+      }
+
+      // XP calculation
+      const xpValues = C?.XP_VALUES || DEFAULT_XP_VALUES;
+      const baseXP = Number(xpValues?.CORRECT_ANSWER ?? DEFAULT_XP_VALUES.CORRECT_ANSWER);
+      let xp = 0;
+
+      if (isCorrect) {
+        const st = statsRef.current;
+        xp = baseXP;
+
+        if (st.streak >= TESTER_CONFIG.STREAK_BONUS_THRESHOLD) {
+          xp += Math.floor(st.streak * 0.5);
         }
-        
-        // Speed bonus
         if (responseTime < TESTER_CONFIG.RESPONSE_TIME_BONUS_MS) {
-          xp += Math.ceil(XP_VALUES.CORRECT_ANSWER * 0.3);
+          xp += Math.ceil(baseXP * 0.3);
         }
-        
-        // Combo multiplier
-        if (stats.comboMultiplier > 1) {
-          xp = Math.floor(xp * stats.comboMultiplier);
+        if (st.comboMultiplier > 1) {
+          xp = Math.floor(xp * st.comboMultiplier);
         }
-        
-        // Penalty for using hint
         if (usedHint) {
           xp = Math.floor(xp * TESTER_CONFIG.HINT_PENALTY);
         }
       }
 
-      // Update gamification engine
-      recordAnswer(type, isCorrect, responseTime);
-      if (xp > 0) addXP(xp);
+      // engines
+      safeRecordAnswer(type, isCorrect, responseTime, { difficulty, usedHint });
+      if (xp > 0) safeAddXP(xp, `tester:${type}`, { difficulty, usedHint });
 
-      // Update stats
+      // stats update (functional)
       setStats(prev => {
         const newStreak = isCorrect ? prev.streak + 1 : 0;
-        const newPerfectStreak = isCorrect && !usedHint ? prev.perfectStreak + 1 : 0;
-        const newCombo = isCorrect 
-          ? Math.min(TESTER_CONFIG.COMBO_MULTIPLIER_MAX, prev.comboMultiplier + 0.1)
+        const newPerfectStreak = (isCorrect && !usedHint) ? (prev.perfectStreak + 1) : 0;
+        const newCombo = isCorrect
+          ? Math.min(TESTER_CONFIG.COMBO_MULTIPLIER_MAX, (prev.comboMultiplier + 0.1))
           : 1;
 
-        const newAvgTime = prev.total === 0
+        const newAvgTime = (prev.total === 0)
           ? responseTime
           : Math.round((prev.avgResponseTime * prev.total + responseTime) / (prev.total + 1));
 
@@ -304,168 +646,127 @@ function createTester({
         };
       });
 
-      // Track performance
-      setRecentPerformance(prev => {
-        const newPerf = [...prev, { correct: isCorrect, time: responseTime }];
-        return newPerf.slice(-20); // Keep last 20
-      });
+      // performance tracking
+      const nextPerf = (perfRef.current || []).concat([{ correct: isCorrect, time: responseTime }]).slice(-20);
+      perfRef.current = nextPerf;
 
-      // Update counters for difficulty adjustment
-      if (isCorrect) {
-        consecutiveCorrect.current++;
-        consecutiveWrong.current = 0;
-      } else {
-        consecutiveWrong.current++;
-        consecutiveCorrect.current = 0;
+      // auto difficulty adjustment (every N questions)
+      const nextTotal = (statsRef.current.total || 0) + 1;
+      if (autoDifficulty && nextTotal > 0 && nextTotal % TESTER_CONFIG.DIFFICULTY_ADJUST_INTERVAL === 0) {
+        adjustDifficultyLevel(nextPerf);
+        try { D?.adjustDifficulty?.(type, { recentPerformance: nextPerf, difficulty }); } catch { /* noop */ }
       }
 
-      // Auto-adjust difficulty
-      if (autoDifficulty && stats.total > 0 && stats.total % TESTER_CONFIG.DIFFICULTY_ADJUST_INTERVAL === 0) {
-        adjustDifficultyLevel(isCorrect);
-      }
-
-      // SRS integration
+      // SRS
       if (enableSRS) {
-        addSRSItem({
+        safeAddSRSItem({
           type,
-          content: question.ref,
+          content: question.item,
           question: question.q,
-          answer: question.a,
+          answer: correctAnswer,
           correct: isCorrect,
-          responseTime
+          responseTime,
+          timestamp: Date.now()
         });
       }
 
-      // Feedback
-      showAnswerFeedback(isCorrect, xp, responseTime);
+      // feedback
+      showAnswerFeedback(isCorrect, xp, responseTime, correctAnswer);
 
-      // Auto-advance
-      setTimeout(() => {
-        setShowFeedback(false);
-        nextQuestion();
-      }, TESTER_CONFIG.AUTO_ADVANCE_DELAY);
-
-    }, [answered, question, stats, usedHint, autoDifficulty, enableSRS]);
-
-    // ======================================
-    // FEEDBACK SYSTEM
-    // ======================================
-    const showAnswerFeedback = useCallback((isCorrect, xp, responseTime) => {
-      let message = '';
-      let emoji = '';
-
-      if (isCorrect) {
-        // Positive feedback (varied based on performance)
-        if (stats.perfectStreak >= TESTER_CONFIG.PERFECT_STREAK_THRESHOLD) {
-          emoji = '🌟';
-          message = `PERFECT STREAK ${stats.perfectStreak}! Master!`;
-        } else if (stats.streak >= 5) {
-          emoji = '🔥';
-          message = `${stats.streak} STREAK! On fire!`;
-        } else if (responseTime < 2000) {
-          emoji = '⚡';
-          message = `Lightning fast! +${xp} XP`;
-        } else {
-          emoji = '✅';
-          message = `Correct! +${xp} XP`;
-        }
-
-        showToast?.(`${emoji} ${message}`, 'success');
-        a11y.announce(`Correct! ${message}`);
-      } else {
-        // Constructive feedback
-        emoji = '💡';
-        message = `The answer was: ${question.a}`;
-        
-        if (consecutiveWrong.current >= 3) {
-          message += ' - Try easier level?';
-        }
-
-        showToast?.(`${emoji} ${message}`, 'error');
-        a11y.announce(`Incorrect. ${message}`);
+      // auto-advance
+      if (autoAdvance) {
+        advanceTimerRef.current = setTimeout(() => {
+          setShowFeedback(false);
+          nextQuestionRef.current?.();
+        }, TESTER_CONFIG.AUTO_ADVANCE_DELAY);
       }
+    }, [
+      answered,
+      autoAdvance,
+      autoDifficulty,
+      customValidation,
+      difficulty,
+      enableSRS,
+      question,
+      showAnswerFeedback,
+      type,
+      usedHint,
+      adjustDifficultyLevel
+    ]);
 
-      setFeedbackMessage(message);
-      setShowFeedback(true);
-    }, [stats, question, consecutiveWrong]);
-
-    // ======================================
-    // DIFFICULTY ADJUSTMENT
-    // ======================================
-    const adjustDifficultyLevel = useCallback((lastCorrect) => {
-      const recentAccuracy = recentPerformance.length > 0
-        ? recentPerformance.filter(p => p.correct).length / recentPerformance.length
-        : 0.5;
-
-      const avgTime = stats.avgResponseTime;
-
-      // Auto-adjust rules
-      if (recentAccuracy > 0.85 && avgTime < 4000 && difficulty === 'beginner') {
-        setDifficulty('intermediate');
-        showToast?.('📈 Moving to Intermediate level!', 'success');
-      } else if (recentAccuracy > 0.85 && avgTime < 3000 && difficulty === 'intermediate') {
-        setDifficulty('advanced');
-        showToast?.('🚀 Moving to Advanced level!', 'success');
-      } else if (recentAccuracy < 0.5 && consecutiveWrong.current >= 5 && difficulty === 'advanced') {
-        setDifficulty('intermediate');
-        showToast?.('⚠️ Moving to Intermediate level', 'warning');
-      } else if (recentAccuracy < 0.4 && consecutiveWrong.current >= 5 && difficulty === 'intermediate') {
-        setDifficulty('beginner');
-        showToast?.('💪 Moving to Beginner level - practice makes perfect!', 'info');
-      }
-    }, [recentPerformance, stats, difficulty, consecutiveWrong]);
-
-    // ======================================
-    // HINT SYSTEM
-    // ======================================
-    const toggleHint = useCallback(() => {
-      if (!enableHints || answered || usedHint) return;
-      
-      setShowHint(prev => !prev);
-      setUsedHint(true);
-      
-      showToast?.('💡 Hint shown (50% XP penalty)', 'info');
-      a11y.announce('Hint revealed');
-    }, [enableHints, answered, usedHint]);
-
-    const generateHint = useCallback(() => {
-      if (!question) return '';
-
-      // Type-specific hints
-      if (type === 'keys') {
-        const accidentals = question.ref?.accidentals || 0;
-        return accidentals >= 0 
-          ? `Has ${accidentals} sharps`
-          : `Has ${Math.abs(accidentals)} flats`;
-      }
-      
-      if (type === 'intervals') {
-        const semitones = question.ref?.semitones || 0;
-        return `${semitones} semitones`;
-      }
-
-      if (type === 'tempo') {
-        const bpm = question.ref?.bpm || 0;
-        return bpm > 120 ? 'Fast tempo' : bpm > 80 ? 'Medium tempo' : 'Slow tempo';
-      }
-
-      return 'Think about the pattern...';
-    }, [question, type]);
-
-    // ======================================
-    // INITIALIZATION
-    // ======================================
+    // ----- init / lifecycle -----
     useEffect(() => {
+      safeStartSession(`tester:${type}`);
       nextQuestion();
+
+      return () => {
+        if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+        const elapsedMs = Date.now() - (sessionStartRef.current || Date.now());
+        safeEndSession({ activity: `tester:${type}`, elapsedMs, timestamp: Date.now() });
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // ======================================
-    // COMPUTED VALUES
-    // ======================================
-    const accuracy = useMemo(() => 
-      stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0,
-      [stats]
-    );
+    // ----- keyboard bindings -----
+    useEffect(() => {
+      // play audio
+      if (audioPlay) safeRegisterKey('space', handlePlayAudio, `${title}: Play audio`);
+
+      // submit (if selection made) — (kept for compatibility; selection auto-submits on click/key anyway)
+      safeRegisterKey('enter', () => {
+        if (!answered && selected != null) handleAnswer(selected);
+      }, `${title}: Submit`);
+
+      // next
+      safeRegisterKey('n', () => {
+        if (answered) {
+          setShowFeedback(false);
+          nextQuestionRef.current?.();
+        }
+      }, `${title}: Next`);
+
+      // hint
+      if (enableHints) safeRegisterKey('h', () => {
+        if (enableHints && !answered && !usedHint) toggleHint();
+      }, `${title}: Hint`);
+
+      // number keys for selection (1–6)
+      for (let i = 1; i <= 6; i++) {
+        safeRegisterKey(String(i), () => {
+          if (answered) return;
+          const opt = options[i - 1];
+          if (opt != null) handleAnswer(opt);
+        }, `${title}: Option ${i}`);
+      }
+
+      return () => {
+        safeUnregisterKeys(['space', 'enter', 'n', 'h', '1', '2', '3', '4', '5', '6']);
+      };
+    }, [
+      audioPlay,
+      answered,
+      enableHints,
+      handleAnswer,
+      handlePlayAudio,
+      options,
+      selected,
+      title,
+      toggleHint,
+      usedHint
+    ]);
+
+    // if difficulty changes, immediately serve a new question at that level
+    useEffect(() => {
+      if (!question) return;
+      // small delay to avoid clobbering mid-feedback
+      if (!answered) nextQuestionRef.current?.();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [difficulty]);
+
+    // ----- computed -----
+    const accuracy = useMemo(() => {
+      return stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0;
+    }, [stats]);
 
     const streakIcon = useMemo(() => {
       if (stats.streak >= 10) return '🌟';
@@ -474,7 +775,7 @@ function createTester({
       return '';
     }, [stats.streak]);
 
-    const gradeColor = useMemo(() => {
+    const gradeClass = useMemo(() => {
       if (accuracy >= 90) return 'grade-s';
       if (accuracy >= 80) return 'grade-a';
       if (accuracy >= 70) return 'grade-b';
@@ -482,351 +783,189 @@ function createTester({
       return 'grade-d';
     }, [accuracy]);
 
-    const sessionDuration = useMemo(() => 
-      formatDuration(Date.now() - sessionStartTime),
-      [sessionStartTime]
-    );
+    const sessionDuration = useMemo(() => {
+      return formatDuration(Date.now() - (sessionStartRef.current || Date.now()));
+    }, [stats.total]); // update occasionally
 
-    // ======================================
-    // RENDER
-    // ======================================
-    return h('div', { 
-      className: 'module-container tester',
-      'data-module': type,
-      role: 'main',
-      'aria-label': title
-    },
+    // ----- render -----
+    return h('div', { className: 'container tester', 'data-module': `tester:${type}`, role: 'main' },
       // Header
-      h('header', { className: 'module-header' },
-        h('button', { 
-          className: 'btn-back', 
-          onClick: onBack,
-          'aria-label': 'Go back'
-        }, '← Back'),
-        
-        h('h1', null, `${icon} ${title}`),
-        
-        h('div', { className: 'stats-bar' },
-          h('div', { className: 'stat-item' },
-            h('span', { className: 'stat-label' }, 'Score'),
-            h('span', { className: `stat-value ${gradeColor}` }, 
-              `${stats.correct}/${stats.total}`
-            )
-          ),
-          h('div', { className: 'stat-item' },
-            h('span', { className: 'stat-label' }, 'Accuracy'),
-            h('span', { className: 'stat-value' }, `${accuracy}%`)
-          ),
-          h('div', { className: 'stat-item streak-display' },
-            h('span', { className: 'stat-label' }, 'Streak'),
-            h('span', { className: 'stat-value streak' }, 
-              `${streakIcon} ${stats.streak}`
-            )
-          ),
-          h('div', { className: 'stat-item' },
-            h('span', { className: 'stat-label' }, 'Time'),
-            h('span', { className: 'stat-value' }, sessionDuration)
-          )
-        )
-      ),
-
-      // Progress indicator
-      h('div', { className: 'progress-indicator' },
-        h('div', { 
-          className: 'progress-bar',
-          role: 'progressbar',
-          'aria-valuenow': accuracy,
-          'aria-valuemin': 0,
-          'aria-valuemax': 100
-        },
-          h('div', { 
-            className: `progress-fill ${gradeColor}`,
-            style: { width: `${accuracy}%` }
-          })
+      h('div', { className: 'card', style: { marginBottom: '16px' } },
+        h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' } },
+          h('button', { className: 'btn-outline', onClick: goBack, type: 'button' }, '← Back'),
+          h('h2', { style: { margin: 0 } }, `${icon} ${title}`),
+          h('div', { className: 'small', style: { color: 'var(--muted, #6c757d)' } }, sessionDuration)
         ),
-        stats.comboMultiplier > 1 && h('div', { className: 'combo-badge' },
-          `${stats.comboMultiplier.toFixed(1)}x COMBO`
-        )
-      ),
 
-      // Question section
-      h('section', { 
-        className: 'question-section',
-        'aria-live': 'polite',
-        'aria-atomic': true
-      },
-        h('div', { className: 'question-card' },
-          h('div', { className: 'question-header' },
-            h('span', { className: 'question-number' }, 
-              `Question ${stats.total + 1}`
-            ),
-            h('span', { className: `difficulty-badge difficulty-${difficulty}` },
-              difficulty
-            )
-          ),
-          
-          h('h2', { className: 'question-text' }, question?.q || 'Loading...'),
-          
-          // Audio button
-          audioPlay && h('button', {
-            className: `btn-play ${isPlaying ? 'playing' : ''}`,
-            onClick: handlePlayAudio,
-            disabled: answered || isPlaying,
-            'aria-label': isPlaying ? 'Audio playing...' : 'Play audio example',
-            title: 'Play audio (Space)'
-          },
-            isPlaying 
-              ? h('span', { className: 'audio-wave' }, '🔊')
-              : h('span', null, '▶️ Play Audio')
-          ),
+        h('div', {
+          style: {
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+            gap: '10px',
+            marginTop: '12px'
+          }
+        },
+          h('div', null, h('div', { className: 'small' }, 'Score'), h('div', { className: `stat-value ${gradeClass}` }, `${stats.correct}/${stats.total}`)),
+          h('div', null, h('div', { className: 'small' }, 'Accuracy'), h('div', { className: 'stat-value' }, `${accuracy}%`)),
+          h('div', null, h('div', { className: 'small' }, 'Streak'), h('div', { className: 'stat-value' }, `${streakIcon} ${stats.streak}`)),
+          h('div', null, h('div', { className: 'small' }, 'Avg Time'), h('div', { className: 'stat-value' }, `${(stats.avgResponseTime / 1000).toFixed(1)}s`))
+        ),
 
-          // Hint button
-          enableHints && !answered && h('button', {
-            className: `btn-hint ${showHint ? 'active' : ''}`,
-            onClick: toggleHint,
-            disabled: usedHint,
-            title: 'Show hint (H) - 50% XP penalty'
-          }, showHint ? '💡 Hint shown' : '💡 Need a hint?'),
-
-          // Hint display
-          showHint && h('div', { className: 'hint-box' },
-            h('p', null, generateHint())
-          )
-        )
-      ),
-
-      // Options section
-      h('section', { 
-        className: 'options-section',
-        role: 'radiogroup',
-        'aria-label': 'Answer options'
-      },
-        options.map((opt, i) => {
-          const isCorrectAnswer = opt === question?.a;
-          const isSelected = opt === selected;
-          const showAsCorrect = answered && isCorrectAnswer;
-          const showAsWrong = answered && isSelected && !isCorrectAnswer;
-
-          return h('button', {
-            key: `${opt}-${i}`,
-            className: `option-btn ${
-              showAsCorrect ? 'correct' :
-              showAsWrong ? 'wrong' :
-              isSelected && !answered ? 'selected' : ''
-            }`,
-            onClick: () => !answered && handleAnswer(opt),
-            disabled: answered,
-            style: { '--animation-delay': `${i * 50}ms` },
-            role: 'radio',
-            'aria-checked': isSelected,
-            'aria-label': `Option ${i + 1}: ${opt}`,
-            title: `Press ${i + 1} to select`
-          },
-            h('span', { className: 'option-number' }, i + 1),
-            h('span', { className: 'option-text' }, opt),
-            showAsCorrect && h('span', { className: 'option-icon' }, '✓'),
-            showAsWrong && h('span', { className: 'option-icon' }, '✗')
-          );
-        })
-      ),
-
-      // Feedback overlay
-      showFeedback && h('div', { className: 'feedback-overlay' },
-        h('div', { className: 'feedback-content' },
-          h('p', null, feedbackMessage)
-        )
-      ),
-
-      // Controls section
-      h('div', { className: 'tester-controls' },
-        h('div', { className: 'difficulty-controls' },
-          h('label', null, 
+        h('div', { style: { marginTop: '12px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' } },
+          h('label', { className: 'small', style: { display: 'flex', gap: '8px', alignItems: 'center' } },
             h('input', {
               type: 'checkbox',
               checked: autoDifficulty,
-              onChange: (e) => setAutoDifficulty(e.target.checked)
+              onChange: (e) => setAutoDifficulty(!!e.target.checked)
             }),
-            h('span', null, 'Auto-adjust difficulty')
+            'Auto difficulty'
           ),
-          
-          !autoDifficulty && h('div', { className: 'difficulty-toggle' },
-            difficultyLevels.map(level =>
+          h('label', { className: 'small', style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+            h('input', {
+              type: 'checkbox',
+              checked: autoAdvance,
+              onChange: (e) => setAutoAdvance(!!e.target.checked)
+            }),
+            'Auto advance'
+          ),
+          !autoDifficulty && h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+            ...difficultyLevels.map(level =>
               h('button', {
                 key: level,
-                className: `btn-sm ${difficulty === level ? 'active' : ''}`,
+                type: 'button',
+                className: (difficulty === level) ? 'btn-primary' : 'btn-outline',
                 onClick: () => setDifficulty(level)
-              }, level.charAt(0).toUpperCase() + level.slice(1))
+              }, level)
             )
-          )
-        ),
-
-        h('div', { className: 'kbd-hints' },
-          h('div', { className: 'kbd-hint' },
-            h('kbd', null, 'Space'),
-            h('small', null, 'Play')
-          ),
-          h('div', { className: 'kbd-hint' },
-            h('kbd', null, '1-6'),
-            h('small', null, 'Select')
-          ),
-          h('div', { className: 'kbd-hint' },
-            h('kbd', null, 'Enter'),
-            h('small', null, 'Submit')
-          ),
-          enableHints && h('div', { className: 'kbd-hint' },
-            h('kbd', null, 'H'),
-            h('small', null, 'Hint')
           )
         )
       ),
 
-      // Session summary (if streak broken or session long)
-      stats.total > 0 && stats.total % 20 === 0 && h('div', { className: 'session-summary card' },
-        h('h3', null, '📊 Session Milestone'),
-        h('div', { className: 'summary-stats' },
-          h('div', null, `${stats.total} questions completed`),
-          h('div', null, `${accuracy}% accuracy`),
-          h('div', null, `Best streak: ${stats.longestStreak}`),
-          h('div', null, `Avg response: ${(stats.avgResponseTime / 1000).toFixed(1)}s`)
+      // Question Card
+      h('div', { className: 'card', style: { marginBottom: '16px' }, 'aria-live': 'polite' },
+        h('div', { className: 'small', style: { display: 'flex', justifyContent: 'space-between', color: 'var(--muted, #6c757d)' } },
+          h('span', null, `Difficulty: ${difficulty}`),
+          h('span', null, `Q${stats.total + 1}`)
         ),
-        h('button', { 
-          className: 'btn btn-outline',
-          onClick: () => onBack()
-        }, 'View Full Analytics')
+
+        h('h3', { style: { marginTop: '8px' } }, question?.q || 'Loading…'),
+
+        audioPlay && h('button', {
+          type: 'button',
+          className: 'btn-secondary',
+          onClick: handlePlayAudio,
+          disabled: isPlaying,
+          style: { marginTop: '8px' }
+        }, isPlaying ? '🔊 Playing…' : '▶️ Play (Space)'),
+
+        enableHints && !answered && h('button', {
+          type: 'button',
+          className: showHint ? 'btn-primary' : 'btn-outline',
+          onClick: toggleHint,
+          disabled: usedHint,
+          style: { marginTop: '8px', marginLeft: audioPlay ? '8px' : 0 }
+        }, showHint ? '💡 Hint shown' : '💡 Hint (H)'),
+
+        showHint && h('div', {
+          style: {
+            marginTop: '10px',
+            padding: '10px',
+            borderRadius: '10px',
+            border: '1px solid var(--border, #e5e7eb)',
+            background: 'var(--surface-2, #f8f9fa)'
+          }
+        }, h('div', { className: 'small' }, generateHint()))
+      ),
+
+      // Options
+      h('div', { className: 'card' },
+        options.map((opt, idx) => {
+          const optStr = String(opt);
+          const isCorrect = answered && question && optStr === String(question.a);
+          const isWrongPick = answered && selected != null && optStr === String(selected) && !isCorrect;
+
+          return h('button', {
+            key: `${optStr}-${idx}`,
+            type: 'button',
+            className: isCorrect ? 'btn-success' : isWrongPick ? 'btn-danger' : 'btn-outline',
+            onClick: () => { if (!answered) handleAnswer(optStr); },
+            disabled: answered,
+            style: { width: '100%', textAlign: 'left', marginBottom: '8px', display: 'flex', gap: '10px', alignItems: 'center' },
+            title: `Press ${idx + 1} to select`
+          },
+            h('span', { style: { minWidth: '22px', fontWeight: 700 } }, idx + 1),
+            h('span', { style: { flex: 1 } }, optStr),
+            isCorrect ? h('span', null, '✓') : isWrongPick ? h('span', null, '✗') : null
+          );
+        }),
+
+        showFeedback && h('div', { className: 'small', style: { marginTop: '10px', color: 'var(--muted, #6c757d)' } }, feedbackMessage),
+
+        h('div', { style: { marginTop: '12px', display: 'flex', gap: '10px', flexWrap: 'wrap' } },
+          h('button', {
+            type: 'button',
+            className: 'btn-secondary',
+            onClick: () => {
+              setShowFeedback(false);
+              nextQuestionRef.current?.();
+            }
+          }, 'Next (N)'),
+          answered && h('button', {
+            type: 'button',
+            className: 'btn-outline',
+            onClick: () => {
+              // replay audio after answer (useful for ear training)
+              handlePlayAudio();
+            }
+          }, audioPlay ? 'Replay Audio' : 'Review'),
+          h('button', {
+            type: 'button',
+            className: 'btn-outline',
+            onClick: goBack
+          }, 'Exit')
+        ),
+
+        h('div', { className: 'small', style: { marginTop: '10px', color: 'var(--muted, #6c757d)' } },
+          'Shortcuts: 1–6 select • Enter submit • N next • Space play • H hint'
+        )
       )
     );
   };
 }
 
-// ======================================
-// HELPER FUNCTIONS
-// ======================================
+// --------------------------------------
+// TESTER IMPLEMENTATIONS
+// --------------------------------------
 
-/**
- * Generate question with dynamic templates
- */
-function generateQuestionType(questionTypes, item) {
-  const qt = getRandom(questionTypes);
-  
-  // Support both string and function answers
-  const answer = typeof qt.a === 'function' ? qt.a(item) : qt.a;
-  
-  // Support dynamic questions with item substitution
-  const question = qt.q.replace('#', item.name || item.sig || '');
-  
-  return {
-    q: question,
-    a: answer
-  };
-}
-
-/**
- * Generate smart distractors (wrong answers)
- */
-function generateDistractors(allData, correctItem, correctAnswer, count, config) {
-  const distractors = [];
-  const pool = allData.filter(item => {
-    const itemAnswer = item.name || item.sig;
-    return itemAnswer !== correctAnswer;
-  });
-
-  // Shuffle and prioritize similar items for harder difficulty
-  const shuffled = shuffle(pool);
-  
-  // For harder difficulty, prefer items close to correct answer
-  if (config?.preferSimilarDistractors) {
-    shuffled.sort((a, b) => {
-      const aSimilarity = calculateSimilarity(a, correctItem);
-      const bSimilarity = calculateSimilarity(b, correctItem);
-      return bSimilarity - aSimilarity;
-    });
-  }
-
-  // Take required number of distractors
-  for (let i = 0; i < Math.min(count, shuffled.length); i++) {
-    distractors.push(shuffled[i].name || shuffled[i].sig);
-  }
-
-  return distractors;
-}
-
-/**
- * Calculate similarity between items (for difficult distractors)
- */
-function calculateSimilarity(item1, item2) {
-  // Key signatures: compare accidental count
-  if (item1.accidentals !== undefined && item2.accidentals !== undefined) {
-    return 1 / (1 + Math.abs(item1.accidentals - item2.accidentals));
-  }
-  
-  // Intervals: compare semitone distance
-  if (item1.semitones !== undefined && item2.semitones !== undefined) {
-    return 1 / (1 + Math.abs(item1.semitones - item2.semitones));
-  }
-  
-  // Tempo: compare BPM
-  if (item1.bpm !== undefined && item2.bpm !== undefined) {
-    return 1 / (1 + Math.abs(item1.bpm - item2.bpm));
-  }
-
-  return 0.5; // Default: random
-}
-
-/**
- * Select item weighted by SRS algorithm
- */
-function selectSRSWeightedItem(levelData, type) {
-  const dueItems = getNextReviewItems?.(type, 5);
-  
-  // 30% chance to prioritize due reviews
-  if (dueItems && dueItems.length > 0 && Math.random() < 0.3) {
-    const dueItem = getRandom(dueItems);
-    const matchingItem = levelData.find(item => 
-      item.name === dueItem.content.name || 
-      item.sig === dueItem.content.sig
-    );
-    
-    if (matchingItem) return matchingItem;
-  }
-
-  // Otherwise, random selection
-  return getRandom(levelData);
-}
-
-// ======================================
-// SPECIFIC TESTER IMPLEMENTATIONS
-// ======================================
-
-/**
- * Key Signature Tester - Enhanced with multiple question types
- */
+// --- Key Signature Tester ---
 export const KeyTester = createTester({
   type: 'keys',
   title: 'Key Signature Tester',
   icon: '🎹',
-  getData: () => ({
-    beginner: KEY_SIGNATURES.slice(0, 7),      // C, G, D, F, Bb majors + relatives
-    intermediate: KEY_SIGNATURES.slice(0, 12), // Up to 3 sharps/flats
-    advanced: KEY_SIGNATURES                    // All keys
-  }),
+  getData: () => {
+    const keys = Array.isArray(C?.KEY_SIGNATURES) ? C.KEY_SIGNATURES : [];
+    return {
+      beginner: keys.slice(0, 7),
+      intermediate: keys.slice(0, 12),
+      advanced: keys
+    };
+  },
   questionTypes: [
-    { q: 'What is the major key with # sharps/flats?', a: item => item.major },
-    { q: 'What is the relative minor of #?', a: item => item.minor },
-    { q: 'How many sharps/flats in #?', a: item => `${Math.abs(item.accidentals)}` },
-    { q: 'Which key signature is this?', a: item => item.sig }
+    { q: 'What is the major key for #?', a: (item) => item?.major ?? item?.name ?? item?.sig },
+    { q: 'What is the relative minor of #?', a: (item) => item?.minor ?? item?.name ?? item?.sig },
+    { q: 'How many sharps/flats in #?', a: (item) => String(Math.abs(Number(item?.accidentals || 0))) },
+    { q: 'Which key signature is this?', a: (item) => item?.sig ?? item?.name ?? item?.major }
   ],
   enableSRS: true,
   enableHints: true
 });
 
-/**
- * Tempo Tester - Audio-enabled with metronome
- */
+// --- Tempo Tester ---
 export const TempoTester = createTester({
   type: 'tempo',
   title: 'Tempo Recognition',
   icon: '⏱️',
-  getData: () => [
+  getData: () => ([
     { name: 'Largo (40 BPM)', bpm: 40 },
     { name: 'Adagio (60 BPM)', bpm: 60 },
     { name: 'Andante (76 BPM)', bpm: 76 },
@@ -834,25 +973,27 @@ export const TempoTester = createTester({
     { name: 'Allegro (132 BPM)', bpm: 132 },
     { name: 'Presto (168 BPM)', bpm: 168 },
     { name: 'Prestissimo (200 BPM)', bpm: 200 }
-  ],
-  audioPlay: (item, callback) => {
-    return audioEngine.playMetronome(item.bpm, 8, callback);
+  ]),
+  audioPlay: (item, done) => {
+    const bpm = Number(item?.bpm || 0);
+    const engine = Audio?.audioEngine;
+    try {
+      if (engine?.playMetronome) return engine.playMetronome(bpm, 8, done);
+    } catch { /* noop */ }
+    done?.();
+    return null;
   },
-  questionTypes: [
-    { q: 'What tempo is this?', a: item => item.name }
-  ],
+  questionTypes: [{ q: 'What tempo is this?', a: (item) => item?.name }],
   enableSRS: true,
   enableHints: true
 });
 
-/**
- * Time Signature Tester - Rhythm pattern recognition
- */
+// --- Time Signature Tester ---
 export const TimeSigTester = createTester({
   type: 'timesig',
   title: 'Time Signature Recognition',
   icon: '🎼',
-  getData: () => [
+  getData: () => ([
     { name: '2/4 (March)', sig: '2/4', pattern: [1, 0] },
     { name: '3/4 (Waltz)', sig: '3/4', pattern: [1, 0, 0] },
     { name: '4/4 (Common time)', sig: '4/4', pattern: [1, 0, 0.5, 0] },
@@ -860,25 +1001,26 @@ export const TimeSigTester = createTester({
     { name: '5/4 (Quintuple)', sig: '5/4', pattern: [1, 0, 0, 0.7, 0] },
     { name: '7/8 (Irregular)', sig: '7/8', pattern: [1, 0, 0.7, 0, 0.7, 0, 0] },
     { name: '9/8 (Compound triple)', sig: '9/8', pattern: [1, 0, 0, 0.7, 0, 0, 0.7, 0, 0] }
-  ],
-  audioPlay: (item, callback) => {
-    return audioEngine.playRhythmPattern?.(item.pattern, 120, callback);
+  ]),
+  audioPlay: (item, done) => {
+    const engine = Audio?.audioEngine;
+    try {
+      if (engine?.playRhythmPattern) return engine.playRhythmPattern(item?.pattern || [], 120, done);
+    } catch { /* noop */ }
+    done?.();
+    return null;
   },
-  questionTypes: [
-    { q: 'What time signature is this pattern?', a: item => item.name }
-  ],
+  questionTypes: [{ q: 'What time signature is this pattern?', a: (item) => item?.name }],
   enableSRS: true,
   enableHints: true
 });
 
-/**
- * Arpeggio/Chord Tester - Harmonic recognition
- */
+// --- Chord/Arpeggio Tester ---
 export const ArpeggioTester = createTester({
   type: 'arpeggio',
   title: 'Chord Recognition',
   icon: '🎵',
-  getData: () => [
+  getData: () => ([
     { name: 'Major Triad', id: 'major', intervals: [0, 4, 7] },
     { name: 'Minor Triad', id: 'minor', intervals: [0, 3, 7] },
     { name: 'Diminished Triad', id: 'dim', intervals: [0, 3, 6] },
@@ -887,66 +1029,121 @@ export const ArpeggioTester = createTester({
     { name: 'Major 7th', id: 'maj7', intervals: [0, 4, 7, 11] },
     { name: 'Minor 7th', id: 'min7', intervals: [0, 3, 7, 10] },
     { name: 'Half-Diminished 7th', id: 'hdim7', intervals: [0, 3, 6, 10] }
-  ],
-  audioPlay: (item, callback) => {
-    const root = 60; // Middle C
-    const freqs = item.intervals.map(i => midiToFreq(root + i));
-    return audioEngine.playArpeggio?.(freqs, callback);
+  ]),
+  audioPlay: (item, done) => {
+    const engine = Audio?.audioEngine;
+    try {
+      const root = 60; // middle C
+      const freqs = (item?.intervals || []).map(i => midiToFreq(root + i));
+      if (engine?.playArpeggio) return engine.playArpeggio(freqs, done);
+      if (engine?.playChord) return engine.playChord(freqs, done);
+    } catch { /* noop */ }
+    done?.();
+    return null;
   },
-  questionTypes: [
-    { q: 'What chord quality is this?', a: item => item.name }
-  ],
+  questionTypes: [{ q: 'What chord quality is this?', a: (item) => item?.name }],
   enableSRS: true,
-  enableHints: false,
-  difficultyLevels: ['beginner', 'intermediate', 'advanced']
+  enableHints: false
 });
 
-/**
- * Scale Tester - Scale recognition
- */
+// --- Scale Tester ---
 export const ScaleTester = createTester({
   type: 'scales',
   title: 'Scale Recognition',
   icon: '🎹',
-  getData: () => [
+  getData: () => ([
     { name: 'Major Scale', pattern: [2, 2, 1, 2, 2, 2, 1] },
     { name: 'Natural Minor', pattern: [2, 1, 2, 2, 1, 2, 2] },
     { name: 'Harmonic Minor', pattern: [2, 1, 2, 2, 1, 3, 1] },
     { name: 'Melodic Minor', pattern: [2, 1, 2, 2, 2, 2, 1] },
     { name: 'Dorian Mode', pattern: [2, 1, 2, 2, 2, 1, 2] },
     { name: 'Mixolydian Mode', pattern: [2, 2, 1, 2, 2, 1, 2] }
-  ],
-  audioPlay: (item, callback) => {
-    const root = 60;
-    const notes = [root];
-    item.pattern.reduce((acc, step) => {
-      const next = acc + step;
-      notes.push(next);
-      return next;
-    }, root);
-    
-    const freqs = notes.map(midiToFreq);
-    return audioEngine.playScale?.(freqs, callback);
+  ]),
+  audioPlay: (item, done) => {
+    const engine = Audio?.audioEngine;
+    try {
+      const root = 60;
+      const notes = [root];
+      (item?.pattern || []).reduce((acc, step) => {
+        const next = acc + step;
+        notes.push(next);
+        return next;
+      }, root);
+
+      const freqs = notes.map(midiToFreq);
+      if (engine?.playScale) return engine.playScale(freqs, done);
+      if (engine?.playMelody) return engine.playMelody(freqs, done);
+    } catch { /* noop */ }
+    done?.();
+    return null;
   },
-  questionTypes: [
-    { q: 'What scale is this?', a: item => item.name }
-  ],
+  questionTypes: [{ q: 'What scale is this?', a: (item) => item?.name }],
   enableSRS: true,
   enableHints: true
 });
 
-// ======================================
-// HELPER: MIDI to Frequency
-// ======================================
-function midiToFreq(midi) {
-  return 440 * Math.pow(2, (midi - 69) / 12);
-}
+// --------------------------------------
+// DEFAULT HUB COMPONENT (Route: "testers")
+// --------------------------------------
+export default function Testers({ navigate, showToast }) {
+  const [active, setActive] = useState(null);
 
-export default {
-  KeyTester,
-  TempoTester,
-  TimeSigTester,
-  ArpeggioTester,
-  ScaleTester,
-  createTester
-};
+  const items = useMemo(() => ([
+    { id: 'keys', title: 'Key Signatures', icon: '🎹', component: KeyTester, desc: 'Sharps/flats, relatives, recognition.' },
+    { id: 'tempo', title: 'Tempo', icon: '⏱️', component: TempoTester, desc: 'Metronome tempo recognition.' },
+    { id: 'timesig', title: 'Time Signatures', icon: '🎼', component: TimeSigTester, desc: 'Pattern-based meter recognition.' },
+    { id: 'arpeggio', title: 'Chords', icon: '🎵', component: ArpeggioTester, desc: 'Chord-quality ear training.' },
+    { id: 'scales', title: 'Scales', icon: '🎹', component: ScaleTester, desc: 'Scale-type recognition.' }
+  ]), []);
+
+  const go = useCallback((route) => {
+    try {
+      if (typeof navigate === 'function') return navigate(route);
+      window.location.hash = `#${route}`;
+    } catch {
+      try { window.location.hash = `#${route}`; } catch { /* noop */ }
+    }
+  }, [navigate]);
+
+  if (active) {
+    const entry = items.find(x => x.id === active);
+    const Comp = entry?.component;
+    if (!Comp) setActive(null);
+
+    return Comp
+      ? h(Comp, {
+          navigate,
+          showToast,
+          onBack: () => setActive(null)
+        })
+      : h('div', { className: 'container' }, 'Loading…');
+  }
+
+  return h('div', { className: 'container' },
+    h('h2', null, '🧪 Testers'),
+    h('p', null, 'Choose a tester. Difficulty and progress adapt as you practice.'),
+
+    h('div', { style: { display: 'grid', gap: '12px' } },
+      ...items.map(it =>
+        h('div', { key: it.id, className: 'card' },
+          h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' } },
+            h('div', null,
+              h('h3', { style: { margin: 0 } }, `${it.icon} ${it.title}`),
+              h('div', { className: 'small', style: { color: 'var(--muted, #6c757d)', marginTop: '6px' } }, it.desc)
+            ),
+            h('button', {
+              type: 'button',
+              className: 'btn-primary',
+              onClick: () => setActive(it.id)
+            }, 'Start')
+          )
+        )
+      )
+    ),
+
+    h('div', { style: { marginTop: '18px', display: 'flex', gap: '10px', flexWrap: 'wrap' } },
+      h('button', { type: 'button', className: 'btn-secondary', onClick: () => go('menu') }, 'Main Menu'),
+      h('button', { type: 'button', className: 'btn-outline', onClick: () => go('dashboard') }, 'Dashboard')
+    )
+  );
+}
