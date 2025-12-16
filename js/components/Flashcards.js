@@ -1,3 +1,4 @@
+// js/components/Flashcards.js
 // ======================================
 // FLASHCARDS v3.0 - ML-Adaptive Note Reading
 // SM-2 Enhanced • Confusion Detection • Position Mastery
