@@ -190,6 +190,17 @@
   animation: pulse 1.5s infinite;
 }
 
+/* -------------------- FINGERBOARD v3.x -------------------- */
+.btn-show-answer-v3, .btn-hide-answer-v3 {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(0,0,0,0.35);
+  color: white;
+  font-weight: 700;
+}
+.btn-show-answer-v3:hover { filter: brightness(1.1); }
+
 /* -------------------- ML DASHBOARD CARDS v3.0 -------------------- */
 .card {
   background: var(--card);
