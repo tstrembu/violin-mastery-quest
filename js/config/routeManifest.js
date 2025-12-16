@@ -1,7 +1,7 @@
 
 // js/config/routeManifest.js
 // ======================================
-// VMQ ROUTE MANIFEST v2.2.0 (Drop-in)
+// VMQ ROUTE MANIFEST v2.3.3 (Drop-in)
 // Goals:
 // - Keep existing exports + behavior (ROUTE_ALIASES, safeDecodeURIComponent,
 //   normalizeRouteSlug, ROUTE_TO_COMPONENT_FILE)
