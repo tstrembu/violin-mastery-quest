@@ -1,3 +1,4 @@
+// js/utils/statsVisualizer.js
 // ======================================
 // STATS VISUALIZER v2.0 - VMQ 6-Engine Charts
 // Analytics + SM-2 + Coach + 50+ modules
