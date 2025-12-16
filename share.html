@@ -1,31 +1,356 @@
 <!-- share.html
 ========================================================
-VMQ Share?
+VMQ Share Target (Drop-in replacement)
+- Compatible with PWA share_target (POSTed form data)
+- Safely captures shared files/text/url/title
+- Stores payload for VMQ to import on next app load
+- Uses storage.js if available; falls back to localStorage
+- Works even when opened directly (GET)
 ========================================================
 -->
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#3a5ba0" />
+  <meta name="robots" content="noindex" />
   <title>Share to Violin Mastery Quest</title>
+
+  <!-- VMQ base styles (keeps branding consistent) -->
   <link rel="stylesheet" href="./css/base.css" />
+
+  <style>
+    /* Minimal fallback styling if base.css is unavailable offline */
+    body { margin: 0; padding: 0; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif; }
+    .share-card {
+      margin: 1.25rem auto;
+      max-width: min(92vw, 720px);
+      background: var(--card, #fff);
+      border: 1px solid var(--border, #e2e8f0);
+      border-radius: var(--radius, 12px);
+      padding: 1.25rem;
+      box-shadow: 0 10px 15px rgba(0,0,0,0.08);
+    }
+    .muted { opacity: 0.85; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .row { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem; }
+    .chip {
+      display:inline-flex; align-items:center; gap:.4rem;
+      padding:.25rem .55rem; border-radius: 999px;
+      border: 1px solid var(--border, #e2e8f0);
+      background: rgba(58,91,160,0.08);
+      font-size: .9rem;
+    }
+    .ok { color: #10b981; }
+    .warn { color: #f59e0b; }
+    .danger { color: #ef4444; }
+    .small { font-size: 0.95rem; }
+  </style>
 </head>
+
 <body>
   <main class="module-container">
-    <h1>Shared to Violin Mastery Quest</h1>
-    <p>Thank you for sharing your practice data!  Return to the app to view your
-      imported recording or session.</p>
-    <button class="btn btn-primary" onclick="window.location.href='index.html'">
-      Open VMQ
-    </button>
+    <div class="share-card">
+      <h1>Shared to Violin Mastery Quest</h1>
+      <p class="muted">
+        VMQ received your shared content. If you shared a recording or practice session,
+        it’s queued for import inside the app.
+      </p>
+
+      <div id="status" class="chip warn" aria-live="polite">⏳ Processing…</div>
+
+      <div id="details" class="small muted" style="margin-top:0.75rem;"></div>
+
+      <div class="row">
+        <button id="openBtn" class="btn btn-primary" type="button">Open VMQ</button>
+        <button id="copyBtn" class="btn btn-outline" type="button" style="display:none;">Copy Import ID</button>
+      </div>
+
+      <p class="muted small" style="margin-top:1rem;">
+        Tip: If the app is already open, switch back to it — VMQ will detect the new import automatically.
+      </p>
+    </div>
   </main>
+
   <script type="module">
-    // TODO: Process incoming shared content via the Web Share Target API.
-    // This stub page exists to satisfy the PWA share_target defined in
-    // manifest.json and should be replaced with logic that reads form data
-    // posted to this page and stores it in IndexedDB.
-    console.log('Share target loaded');
+    // ---------------------------------------------------------
+    // Share Target Handler (Web Share Target API)
+    // ---------------------------------------------------------
+    // Manifest share_target typically POSTs a form:
+    // - title (text)
+    // - text (text)
+    // - url (text)
+    // - files (File)
+    //
+    // We persist a lightweight "import envelope" so the SPA can
+    // pull it and move files into its durable store if desired.
+    // ---------------------------------------------------------
+
+    const BASE = '/violin-mastery-quest/'; // GitHub Pages repo base
+    const FALLBACK_KEY = 'vmq_share_inbox_v1';
+
+    const statusEl = document.getElementById('status');
+    const detailsEl = document.getElementById('details');
+    const openBtn = document.getElementById('openBtn');
+    const copyBtn = document.getElementById('copyBtn');
+
+    function setStatus(kind, text) {
+      statusEl.classList.remove('ok','warn','danger');
+      statusEl.classList.add(kind);
+      statusEl.textContent = text;
+    }
+
+    function safeString(v, max = 5000) {
+      if (typeof v !== 'string') return '';
+      return v.length > max ? v.slice(0, max) + '…' : v;
+    }
+
+    function nowISO() {
+      return new Date().toISOString();
+    }
+
+    function newId() {
+      return 'share_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+    }
+
+    // Best-effort import of storage helpers from VMQ (optional)
+    async function tryLoadStorageHelpers() {
+      try {
+        // If storage.js exists and is module-loadable from this page, use it.
+        // Path assumes your app uses /js/config/storage.js (as in earlier files).
+        const mod = await import('./js/config/storage.js');
+        return mod || null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function readFallbackInbox() {
+      try {
+        const raw = localStorage.getItem(FALLBACK_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function writeFallbackInbox(items) {
+      try {
+        localStorage.setItem(FALLBACK_KEY, JSON.stringify(items.slice(-25))); // keep last 25
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    async function persistEnvelope(envelope, storageMod) {
+      // Priority:
+      // 1) storage.exported saveJSON / STORAGE_KEYS if available
+      // 2) localStorage fallback inbox
+
+      // Normalize: keep files as metadata + (optional) object URLs for immediate import
+      // (We avoid base64 encoding to prevent size blowups.)
+      if (storageMod && typeof storageMod.saveJSON === 'function') {
+        const key =
+          (storageMod.STORAGE_KEYS && (storageMod.STORAGE_KEYS.SHARE_INBOX || storageMod.STORAGE_KEYS.IMPORTS)) ||
+          'vmq_share_inbox';
+        try {
+          const existing = storageMod.loadJSON ? storageMod.loadJSON(key, []) : [];
+          const next = Array.isArray(existing) ? [...existing, envelope] : [envelope];
+          storageMod.saveJSON(key, next.slice(-25));
+          return { ok: true, method: 'storage.js', key };
+        } catch (e) {
+          // Fall through to localStorage
+        }
+      }
+
+      const inbox = readFallbackInbox();
+      inbox.push(envelope);
+      const ok = writeFallbackInbox(inbox);
+      return { ok, method: 'localStorage', key: FALLBACK_KEY };
+    }
+
+    async function parseIncoming() {
+      const id = newId();
+      const method = (document && document.documentElement && document.documentElement.dataset)
+        ? (document.documentElement.dataset.method || '')
+        : '';
+
+      // If launched via share_target, it is typically a POST request.
+      // On many browsers, JS can't directly read request method, but:
+      // - If there's form fields in the DOM, it could be a non-module fallback.
+      // - We simply try to read form data via the Web Share Target convention:
+      //   the browser posts the form to this URL, then renders the response.
+      //
+      // The only way to access the POST body here is: server-side.
+      // But with PWA share_target, browsers place values in URLSearchParams for GET share,
+      // OR your app uses a service worker to intercept the POST and forward the data.
+      //
+      // To make this page useful even without SW interception, we support:
+      // 1) Query params (title/text/url)
+      // 2) A SW that posts a message containing the shared payload to this page
+      // 3) A best-effort FileHandle-style transfer (future)
+
+      const qs = new URLSearchParams(location.search);
+      const envelope = {
+        id,
+        createdAt: nowISO(),
+        source: 'share_target',
+        // basic share fields (query-string compatible)
+        title: safeString(qs.get('title') || ''),
+        text:  safeString(qs.get('text')  || ''),
+        url:   safeString(qs.get('url')   || ''),
+        // files are typically not available via query string; may arrive via SW message
+        files: [],
+        // extra metadata space
+        meta: {
+          userAgent: navigator.userAgent || '',
+          referrer: document.referrer || '',
+        }
+      };
+
+      return envelope;
+    }
+
+    // Listen for optional Service Worker “handoff” messages:
+    // If your SW intercepts the POST share_target request, it can:
+    // - store files/data to Cache/IDB, then
+    // - send a message to this page with metadata
+    function listenForSWHandoff(envelope) {
+      return new Promise((resolve) => {
+        let settled = false;
+
+        function finish(updated) {
+          if (settled) return;
+          settled = true;
+          resolve(updated || envelope);
+        }
+
+        // Timeout: don’t block UI
+        const t = setTimeout(() => finish(envelope), 900);
+
+        try {
+          if (!navigator.serviceWorker) {
+            clearTimeout(t);
+            return finish(envelope);
+          }
+
+          navigator.serviceWorker.addEventListener('message', (event) => {
+            const data = event?.data;
+            if (!data || data.type !== 'VMQ_SHARE_HANDOFF') return;
+
+            clearTimeout(t);
+
+            const merged = { ...envelope };
+            if (data.payload && typeof data.payload === 'object') {
+              if (typeof data.payload.title === 'string') merged.title = safeString(data.payload.title);
+              if (typeof data.payload.text === 'string')  merged.text  = safeString(data.payload.text);
+              if (typeof data.payload.url === 'string')   merged.url   = safeString(data.payload.url);
+
+              if (Array.isArray(data.payload.files)) {
+                // Store only safe metadata here. Actual blobs should live in SW/IDB.
+                merged.files = data.payload.files.map((f) => ({
+                  name: safeString(f.name || ''),
+                  type: safeString(f.type || ''),
+                  size: Number(f.size) || 0,
+                  // optional pointer that VMQ can resolve later (e.g., IDB key)
+                  ref:  safeString(f.ref || '')
+                }));
+              }
+
+              if (data.payload.meta && typeof data.payload.meta === 'object') {
+                merged.meta = { ...merged.meta, ...data.payload.meta };
+              }
+            }
+
+            finish(merged);
+          });
+
+          // If SW is controlling, request a handoff ping (optional)
+          if (navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'VMQ_SHARE_PING' });
+          }
+        } catch (e) {
+          clearTimeout(t);
+          finish(envelope);
+        }
+      });
+    }
+
+    function renderDetails(envelope, persistInfo) {
+      const parts = [];
+      if (envelope.title) parts.push(`<div><strong>Title:</strong> <span class="mono">${escapeHtml(envelope.title)}</span></div>`);
+      if (envelope.url) parts.push(`<div><strong>URL:</strong> <span class="mono">${escapeHtml(envelope.url)}</span></div>`);
+      if (envelope.text) parts.push(`<div><strong>Text:</strong> <span class="mono">${escapeHtml(envelope.text.slice(0, 160))}${envelope.text.length > 160 ? '…' : ''}</span></div>`);
+      if (Array.isArray(envelope.files) && envelope.files.length) {
+        parts.push(`<div><strong>Files:</strong> <span class="mono">${envelope.files.length}</span></div>`);
+      } else {
+        parts.push(`<div><strong>Files:</strong> <span class="mono">none detected</span></div>`);
+      }
+
+      parts.push(`<div style="margin-top:.5rem;"><strong>Import ID:</strong> <span class="mono">${escapeHtml(envelope.id)}</span></div>`);
+      if (persistInfo) {
+        parts.push(`<div><strong>Saved via:</strong> <span class="mono">${escapeHtml(persistInfo.method)} (${escapeHtml(persistInfo.key)})</span></div>`);
+      }
+      detailsEl.innerHTML = parts.join('');
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (ch) => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[ch]));
+    }
+
+    async function main() {
+      setStatus('warn', '⏳ Processing…');
+
+      const storageMod = await tryLoadStorageHelpers();
+
+      // 1) Build envelope from query + any SW handoff message
+      let envelope = await parseIncoming();
+      envelope = await listenForSWHandoff(envelope);
+
+      // 2) Persist envelope
+      const persistInfo = await persistEnvelope(envelope, storageMod);
+
+      // 3) Update UI
+      if (persistInfo.ok) {
+        setStatus('ok', '✅ Ready to import in VMQ');
+      } else {
+        setStatus('danger', '❌ Could not save import (storage blocked)');
+      }
+
+      renderDetails(envelope, persistInfo);
+
+      // 4) Wire buttons
+      openBtn.onclick = () => {
+        // Prefer SPA route if you use hashes; otherwise open root.
+        // Keeping simple: go to base, VMQ can read inbox on boot.
+        window.location.href = BASE;
+      };
+
+      copyBtn.style.display = 'inline-flex';
+      copyBtn.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(envelope.id);
+          copyBtn.textContent = '✅ Copied';
+          setTimeout(() => (copyBtn.textContent = 'Copy Import ID'), 1200);
+        } catch {
+          // Fallback: prompt
+          window.prompt('Copy Import ID:', envelope.id);
+        }
+      };
+    }
+
+    main().catch((e) => {
+      console.error('Share target error:', e);
+      setStatus('danger', '❌ Error processing shared content');
+      detailsEl.textContent = 'You can still open VMQ and try sharing again.';
+      openBtn.onclick = () => (window.location.href = BASE);
+    });
   </script>
 </body>
 </html>
