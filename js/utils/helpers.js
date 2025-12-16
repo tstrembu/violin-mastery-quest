@@ -1,6 +1,6 @@
 // js/utils/helpers.js
 // ======================================
-// VMQ UTILITIES HELPERS v3.0.1
+// VMQ UTILITIES HELPERS v3.0.4
 // Music Theory + UX + Analytics + Safety
 // ======================================
 
