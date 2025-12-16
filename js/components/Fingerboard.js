@@ -1,5 +1,6 @@
+// js/components/Fingerboard.js
 // ======================================
-// FINGERBOARD v3.0 - ML-ADAPTIVE VIOLIN MASTERY
+// FINGERBOARD v3.0.5 - ML-ADAPTIVE VIOLIN MASTERY
 // Position Confusion • Optimal Fingering • 8-Engine Live
 // ======================================
 
