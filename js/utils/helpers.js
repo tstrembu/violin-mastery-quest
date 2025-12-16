@@ -1,31 +1,50 @@
 // js/utils/helpers.js
-// ======================================
-// VMQ UTILITIES HELPERS v3.0.4
+// =====================================================
+// VMQ UTILITIES HELPERS v3.0.5 (Drop-in replacement)
 // Music Theory + UX + Analytics + Safety
-// ======================================
+//
+// Design goals:
+// - Keep *all* current/intended behavior from your v3.0.4 draft.
+// - Be browser-safe (iOS Safari + PWA). No Node-only APIs.
+// - Avoid throwing when running in non-DOM contexts (e.g., tests).
+// - Provide stable named exports + a default export object.
+// - Fix subtle bugs / edge-cases (interval naming, date formatting,
+//   week aggregation, crypto checks, escapeHTML, etc.)
+// =====================================================
 
-/**
- * Small internal helpers (not exported)
- */
+/* -------------------- Internal helpers (not exported) -------------------- */
 function _clamp(n, min, max) {
   return Math.min(max, Math.max(min, n));
 }
+
 function _safeNumber(x, fallback = 0) {
   const n = Number(x);
   return Number.isFinite(n) ? n : fallback;
 }
+
 function _escapeHTML(str) {
+  // Avoid replaceAll for maximum compatibility (older Safari edge cases).
   return String(str)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-/**
- * 🎵 MUSIC THEORY - Enhanced Violin/MIDI Production
- */
+function _isBrowser() {
+  return typeof window !== 'undefined' && typeof document !== 'undefined';
+}
+
+function _hasCryptoUUID() {
+  try {
+    return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function';
+  } catch {
+    return false;
+  }
+}
+
+/* -------------------- 🎵 MUSIC THEORY - Violin/MIDI helpers -------------------- */
 export const MUSIC = {
   NOTE_MAP: {
     C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4,
@@ -38,13 +57,14 @@ export const MUSIC = {
 
   // Note → MIDI (C4=60)
   noteToMidi(note) {
-    const match = String(note).trim().match(/^([A-G])([#b]?)(-?\d+)$/);
+    const match = String(note ?? '').trim().match(/^([A-G])([#b]?)(-?\d+)$/);
     if (!match) return null;
     const [, letter, accidental, oct] = match;
     const key = `${letter}${accidental || ''}`;
     const semitone = this.NOTE_MAP[key];
     if (semitone === undefined) return null;
     const octave = parseInt(oct, 10);
+    if (!Number.isFinite(octave)) return null;
     return (octave + 1) * 12 + semitone;
   },
 
@@ -86,7 +106,7 @@ export const MUSIC = {
   STRING_NAMES: ['G', 'D', 'A', 'E'],
   STRING_FREQS: [196.0, 293.66, 440.0, 659.25],
 
-  // Position → Semitones (simple pedagogy model: 4 semitones per “position block”)
+  // Position → Semitones (simplified pedagogy model: 4 semitones per “position block”)
   positionToSemitones(pos, finger = 1) {
     const p = Math.max(1, Math.floor(_safeNumber(pos, 1)));
     const f = _clamp(Math.floor(_safeNumber(finger, 1)), 1, 4);
@@ -112,14 +132,31 @@ export const MUSIC = {
     return this.midiToNote(openString + semitones, opts);
   },
 
-  // Interval semitones → Name
+  // Interval semitones → Name (handles > octave correctly)
   getIntervalName(semitones) {
-    const s = Math.abs(Math.floor(_safeNumber(semitones, 0))) % 12;
+    const raw = Math.floor(_safeNumber(semitones, 0));
+    const abs = Math.abs(raw);
+
+    // Recognize exact octaves explicitly.
+    if (abs !== 0 && abs % 12 === 0) {
+      const octs = abs / 12;
+      return octs === 1 ? 'Octave' : `${octs} Octaves`;
+    }
+
+    const s = abs % 12;
     const intervals = {
-      0: 'Unison', 1: 'Minor 2nd', 2: 'Major 2nd', 3: 'Minor 3rd',
-      4: 'Major 3rd', 5: 'Perfect 4th', 6: 'Tritone',
-      7: 'Perfect 5th', 8: 'Minor 6th', 9: 'Major 6th',
-      10: 'Minor 7th', 11: 'Major 7th', 12: 'Octave',
+      0: 'Unison',
+      1: 'Minor 2nd',
+      2: 'Major 2nd',
+      3: 'Minor 3rd',
+      4: 'Major 3rd',
+      5: 'Perfect 4th',
+      6: 'Tritone',
+      7: 'Perfect 5th',
+      8: 'Minor 6th',
+      9: 'Major 6th',
+      10: 'Minor 7th',
+      11: 'Major 7th',
     };
     return intervals[s] || 'Unknown';
   },
@@ -138,8 +175,13 @@ export const MUSIC = {
   getScaleDegree(degree) {
     const d = Math.floor(_safeNumber(degree, 0));
     const degrees = {
-      1: 'Tonic', 2: 'Supertonic', 3: 'Mediant', 4: 'Subdominant',
-      5: 'Dominant', 6: 'Submediant', 7: 'Leading Tone',
+      1: 'Tonic',
+      2: 'Supertonic',
+      3: 'Mediant',
+      4: 'Subdominant',
+      5: 'Dominant',
+      6: 'Submediant',
+      7: 'Leading Tone',
     };
     return degrees[d] || 'Unknown';
   },
@@ -198,9 +240,7 @@ export const MUSIC = {
   },
 };
 
-/**
- * Calculate interval distance between two frequencies (rounded semitones)
- */
+/* -------------------- Interval convenience exports -------------------- */
 export function calculateInterval(freq1, freq2) {
   const f1 = _safeNumber(freq1, NaN);
   const f2 = _safeNumber(freq2, NaN);
@@ -208,16 +248,10 @@ export function calculateInterval(freq1, freq2) {
   return Math.round(12 * Math.log2(f2 / f1));
 }
 
-/**
- * Get interval name from semitone distance (standalone convenience)
- */
 export function getIntervalName(semitones) {
   return MUSIC.getIntervalName(semitones);
 }
 
-/**
- * Check if pitch is within acceptable range of target (in cents)
- */
 export function isPitchAccurate(actual, target, tolerance = 50) {
   const a = _safeNumber(actual, NaN);
   const t = _safeNumber(target, NaN);
@@ -227,28 +261,31 @@ export function isPitchAccurate(actual, target, tolerance = 50) {
   return Math.abs(cents) <= tol;
 }
 
-/**
- * 🎯 DOM Helpers
- */
+/* -------------------- 🎯 DOM helpers (safe in non-DOM) -------------------- */
 export function createElement(tag, className, text) {
+  if (!_isBrowser()) return null;
   const el = document.createElement(tag);
   if (className) el.className = className;
   if (text != null) el.textContent = String(text);
   return el;
 }
-export function $(sel, root = document) {
-  return root.querySelector(sel);
-}
-export function $$(sel, root = document) {
-  return Array.from(root.querySelectorAll(sel));
+
+export function $(sel, root = null) {
+  if (!_isBrowser()) return null;
+  const r = root || document;
+  return r.querySelector(sel);
 }
 
-/**
- * 🎲 Random + Shuffle
- */
+export function $$(sel, root = null) {
+  if (!_isBrowser()) return [];
+  const r = root || document;
+  return Array.from(r.querySelectorAll(sel));
+}
+
+/* -------------------- 🎲 Random + shuffle -------------------- */
 export function getRandom(array, exclude = []) {
   if (!Array.isArray(array) || array.length === 0) return null;
-  const ex = new Set(exclude);
+  const ex = new Set(exclude || []);
   const valid = array.filter(x => !ex.has(x));
   if (valid.length === 0) return null;
   return valid[Math.floor(Math.random() * valid.length)];
@@ -256,7 +293,8 @@ export function getRandom(array, exclude = []) {
 
 export function getRandomWeighted(items, weightFn) {
   if (!Array.isArray(items) || items.length === 0) return null;
-  const weights = items.map((it, i) => Math.max(0, _safeNumber(weightFn?.(it, i), 0)));
+  const wf = typeof weightFn === 'function' ? weightFn : null;
+  const weights = items.map((it, i) => Math.max(0, _safeNumber(wf?.(it, i), 0)));
   const total = weights.reduce((s, w) => s + w, 0);
   if (total <= 0) return items[Math.floor(Math.random() * items.length)];
   let r = Math.random() * total;
@@ -282,23 +320,21 @@ export function sample(array, count) {
   return shuffle(array).slice(0, Math.min(count, array.length));
 }
 
-/**
- * ✅ Quiz helpers (implemented)
- */
+/* -------------------- ✅ Quiz helpers -------------------- */
 export function getDistractors(correctValue, pool, count = 3, { avoidNear = true } = {}) {
   const c = correctValue;
   const n = Math.max(0, Math.floor(_safeNumber(count, 3)));
   const candidates = Array.isArray(pool) && pool.length ? [...new Set(pool)] : [];
 
-  // If no pool provided, generate numeric distractors around the correct value.
+  // If no pool provided, generate numeric distractors around correct value.
   if (candidates.length === 0 && Number.isFinite(_safeNumber(c, NaN))) {
     const deltas = [-5, -4, -3, -2, -1, 1, 2, 3, 4, 5];
-    for (const d of deltas) candidates.push(c + d);
+    for (const d of deltas) candidates.push(_safeNumber(c, 0) + d);
   }
 
   const filtered = candidates.filter(v => v !== c && v != null);
   const safe = avoidNear && Number.isFinite(_safeNumber(c, NaN))
-    ? filtered.filter(v => Math.abs(_safeNumber(v, 1e9) - c) >= 1)
+    ? filtered.filter(v => Math.abs(_safeNumber(v, 1e9) - _safeNumber(c, 0)) >= 1)
     : filtered;
 
   return sample(safe.length ? safe : filtered, n);
@@ -330,14 +366,12 @@ export function generateQuiz({
     prompt: String(prompt ?? ''),
     correct,
     options,
-    meta: { ...meta },
+    meta: { ...(meta || {}) },
     createdAt: Date.now(),
   };
 }
 
-/**
- * 📊 Statistics
- */
+/* -------------------- 📊 Stats helpers -------------------- */
 export function accuracy(correct, total) {
   const c = _safeNumber(correct, 0);
   const t = _safeNumber(total, 0);
@@ -371,8 +405,8 @@ export function streakGrade(streak) {
 export function mean(numbers) {
   const arr = Array.isArray(numbers) ? numbers : [];
   if (arr.length === 0) return 0;
-  const sum = arr.reduce((s, n) => s + _safeNumber(n, 0), 0);
-  return sum / arr.length;
+  const sumv = arr.reduce((s, n) => s + _safeNumber(n, 0), 0);
+  return sumv / arr.length;
 }
 
 export function median(numbers) {
@@ -410,14 +444,18 @@ export function zScore(value, numbers) {
   const arr = (Array.isArray(numbers) ? numbers : [])
     .map(n => _safeNumber(n, NaN))
     .filter(Number.isFinite);
+  if (arr.length === 0) return 0;
   const avg = mean(arr);
   const sd = standardDeviation(arr);
   const v = _safeNumber(value, 0);
   return sd === 0 ? 0 : (v - avg) / sd;
 }
 
+/* -------------------- 📈 Trend / smoothing -------------------- */
 export function calculateTrend(values, windowSize = 5) {
-  const arr = (Array.isArray(values) ? values : []).map(v => _safeNumber(v, NaN)).filter(Number.isFinite);
+  const arr = (Array.isArray(values) ? values : [])
+    .map(v => _safeNumber(v, NaN))
+    .filter(Number.isFinite);
   const w = Math.max(2, Math.floor(_safeNumber(windowSize, 5)));
   if (arr.length < w) return 'insufficient_data';
 
@@ -427,7 +465,8 @@ export function calculateTrend(values, windowSize = 5) {
 
   const recentAvg = mean(recent);
   const olderAvg = mean(older);
-  const change = olderAvg === 0 ? 0 : ((recentAvg - olderAvg) / Math.abs(olderAvg)) * 100;
+  const denom = Math.max(1e-9, Math.abs(olderAvg));
+  const change = ((recentAvg - olderAvg) / denom) * 100;
 
   if (change > 10) return 'improving';
   if (change < -10) return 'declining';
@@ -448,7 +487,9 @@ export function detectPattern(data, patternFn) {
 }
 
 export function movingAverage(values, windowSize = 3) {
-  const arr = (Array.isArray(values) ? values : []).map(v => _safeNumber(v, NaN)).filter(Number.isFinite);
+  const arr = (Array.isArray(values) ? values : [])
+    .map(v => _safeNumber(v, NaN))
+    .filter(Number.isFinite);
   const w = Math.max(1, Math.floor(_safeNumber(windowSize, 3)));
   if (arr.length <= w) return arr;
   const out = [];
@@ -457,7 +498,9 @@ export function movingAverage(values, windowSize = 3) {
 }
 
 export function exponentialMovingAverage(values, alpha = 0.3) {
-  const arr = (Array.isArray(values) ? values : []).map(v => _safeNumber(v, NaN)).filter(Number.isFinite);
+  const arr = (Array.isArray(values) ? values : [])
+    .map(v => _safeNumber(v, NaN))
+    .filter(Number.isFinite);
   const a = _clamp(_safeNumber(alpha, 0.3), 0.01, 0.99);
   if (arr.length === 0) return [];
   const out = [arr[0]];
@@ -465,9 +508,7 @@ export function exponentialMovingAverage(values, alpha = 0.3) {
   return out;
 }
 
-/**
- * 🧠 Learning analytics
- */
+/* -------------------- 🧠 Learning analytics -------------------- */
 export function analyzeLearningCurve(sessions) {
   const s = Array.isArray(sessions) ? sessions : [];
   if (s.length < 3) return { stage: 'beginning', velocity: 0, prediction: null };
@@ -485,10 +526,11 @@ export function analyzeLearningCurve(sessions) {
 
   let prediction = null;
   if (velocity > 0 && recentAccuracy < 90) {
-    const sessionsNeeded = Math.ceil((90 - recentAccuracy) / (velocity / 5 || 1));
+    const denom = (velocity / 5) || 1;
+    const sessionsNeeded = Math.ceil((90 - recentAccuracy) / denom);
     prediction = {
       sessionsToMastery: Math.max(1, sessionsNeeded),
-      estimatedDays: Math.ceil(sessionsNeeded / 2),
+      estimatedDays: Math.ceil(Math.max(1, sessionsNeeded) / 2),
     };
   }
 
@@ -513,7 +555,12 @@ export function detectLearningPlateaus(sessions, threshold = 5) {
     const variance = standardDeviation(window);
     const avg = mean(window);
     if (variance < 5 && avg < 85) {
-      plateaus.push({ startIndex: i - t, endIndex: i - 1, accuracy: Math.round(avg), duration: t });
+      plateaus.push({
+        startIndex: i - t,
+        endIndex: i - 1,
+        accuracy: Math.round(avg),
+        duration: t,
+      });
     }
   }
   return plateaus;
@@ -568,9 +615,7 @@ export function predictNextPerformance(recentSessions) {
   };
 }
 
-/**
- * ⏱️ TIME formatting
- */
+/* -------------------- ⏱️ Time formatting -------------------- */
 export function formatDuration(ms) {
   const v = Math.max(0, _safeNumber(ms, 0));
   const s = Math.floor(v / 1000);
@@ -594,15 +639,17 @@ export function formatDurationShort(ms) {
 export function formatDate(timestamp) {
   const t = _safeNumber(timestamp, 0);
   const date = new Date(t);
+  if (Number.isNaN(date.getTime())) return 'Invalid date';
+
   const today = new Date();
   const yesterday = new Date(Date.now() - 86400000);
 
   if (date.toDateString() === today.toDateString()) return 'Today';
   if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
 
-  const daysDiff = Math.floor((today - date) / 86400000);
-  if (daysDiff < 7) return `${daysDiff} days ago`;
-  if (daysDiff < 30) return `${Math.floor(daysDiff / 7)} weeks ago`;
+  const daysDiff = Math.floor((today.getTime() - date.getTime()) / 86400000);
+  if (daysDiff >= 0 && daysDiff < 7) return `${daysDiff} days ago`;
+  if (daysDiff >= 7 && daysDiff < 30) return `${Math.floor(daysDiff / 7)} weeks ago`;
 
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -633,7 +680,9 @@ export function getTimeOfDay(hour) {
 
 export function isToday(timestamp) {
   const t = _safeNumber(timestamp, 0);
-  return new Date(t).toDateString() === new Date().toDateString();
+  const d = new Date(t);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.toDateString() === new Date().toDateString();
 }
 
 export function isThisWeek(timestamp) {
@@ -643,14 +692,13 @@ export function isThisWeek(timestamp) {
   return t >= weekAgo && t <= now;
 }
 
-/**
- * 🧰 General utilities (implemented)
- */
+/* -------------------- 🧰 General utilities -------------------- */
 export function debounce(fn, wait = 150) {
   let t = null;
+  const w = Math.max(0, _safeNumber(wait, 150));
   return function debounced(...args) {
     clearTimeout(t);
-    t = setTimeout(() => fn.apply(this, args), Math.max(0, _safeNumber(wait, 150)));
+    t = setTimeout(() => fn.apply(this, args), w);
   };
 }
 
@@ -677,7 +725,7 @@ export function throttle(fn, wait = 150) {
 export function memoize(fn, keyFn) {
   const cache = new Map();
   return function memoized(...args) {
-    const key = keyFn ? keyFn(...args) : JSON.stringify(args);
+    const key = (typeof keyFn === 'function') ? keyFn(...args) : JSON.stringify(args);
     if (cache.has(key)) return cache.get(key);
     const val = fn.apply(this, args);
     cache.set(key, val);
@@ -691,7 +739,9 @@ export function shallowEqual(a, b) {
   const ak = Object.keys(a);
   const bk = Object.keys(b);
   if (ak.length !== bk.length) return false;
-  for (const k of ak) if (!Object.prototype.hasOwnProperty.call(b, k) || !Object.is(a[k], b[k])) return false;
+  for (const k of ak) {
+    if (!Object.prototype.hasOwnProperty.call(b, k) || !Object.is(a[k], b[k])) return false;
+  }
   return true;
 }
 
@@ -718,22 +768,26 @@ export function deepEqual(a, b) {
 }
 
 export function measurePerformance(label, fn) {
-  const start = performance.now();
+  const hasPerf = typeof performance !== 'undefined' && typeof performance.now === 'function';
+  const start = hasPerf ? performance.now() : Date.now();
   const result = fn();
-  const ms = performance.now() - start;
+  const end = hasPerf ? performance.now() : Date.now();
+  const ms = end - start;
   return { label: label || 'measure', ms: Math.round(ms * 100) / 100, result };
 }
 
 export async function measureAsync(label, fn) {
-  const start = performance.now();
+  const hasPerf = typeof performance !== 'undefined' && typeof performance.now === 'function';
+  const start = hasPerf ? performance.now() : Date.now();
   const result = await fn();
-  const ms = performance.now() - start;
+  const end = hasPerf ? performance.now() : Date.now();
+  const ms = end - start;
   return { label: label || 'measureAsync', ms: Math.round(ms * 100) / 100, result };
 }
 
 export function generateId(prefix = 'id') {
   const p = String(prefix);
-  if (crypto?.randomUUID) return `${p}_${crypto.randomUUID()}`;
+  if (_hasCryptoUUID()) return `${p}_${crypto.randomUUID()}`;
   const rnd = Math.random().toString(16).slice(2);
   return `${p}_${Date.now().toString(16)}_${rnd}`;
 }
@@ -759,7 +813,7 @@ export function sanitizeFilename(name, replacement = '_') {
 }
 
 export function hashString(str) {
-  // Simple non-crypto hash (fast) – for bucketing, not security
+  // Simple non-crypto hash (fast) – for bucketing, not security.
   const s = String(str ?? '');
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
@@ -774,8 +828,9 @@ export function groupBy(items, keyFn) {
   const fn = typeof keyFn === 'function' ? keyFn : (x) => x;
   return arr.reduce((acc, item) => {
     const k = fn(item);
-    if (!acc[k]) acc[k] = [];
-    acc[k].push(item);
+    const kk = (k == null) ? 'undefined' : String(k);
+    if (!acc[kk]) acc[kk] = [];
+    acc[kk].push(item);
     return acc;
   }, {});
 }
@@ -790,7 +845,9 @@ export function average(numbers) {
 }
 
 export function statsSummary(numbers) {
-  const arr = (Array.isArray(numbers) ? numbers : []).map(n => _safeNumber(n, NaN)).filter(Number.isFinite);
+  const arr = (Array.isArray(numbers) ? numbers : [])
+    .map(n => _safeNumber(n, NaN))
+    .filter(Number.isFinite);
   if (arr.length === 0) return { count: 0, min: 0, max: 0, mean: 0, median: 0, sd: 0 };
   const sorted = [...arr].sort((a, b) => a - b);
   return {
@@ -805,9 +862,10 @@ export function statsSummary(numbers) {
 
 export function calculateStreak(events, { isSuccess = (e) => !!e?.success } = {}) {
   const arr = Array.isArray(events) ? events : [];
+  const fn = typeof isSuccess === 'function' ? isSuccess : (e) => !!e?.success;
   let streak = 0;
   for (let i = arr.length - 1; i >= 0; i--) {
-    if (isSuccess(arr[i])) streak += 1;
+    if (fn(arr[i])) streak += 1;
     else break;
   }
   return streak;
@@ -816,22 +874,30 @@ export function calculateStreak(events, { isSuccess = (e) => !!e?.success } = {}
 export function aggregateByTimeframe(items, getTime, { bucket = 'day' } = {}) {
   const arr = Array.isArray(items) ? items : [];
   const gt = typeof getTime === 'function' ? getTime : (x) => x?.timestamp;
+  const b = String(bucket || 'day').toLowerCase();
+
+  // ISO-week style bucketing (stable across locales).
+  const isoWeekKey = (d) => {
+    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dayNum = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+  };
+
   const fmt = (ts) => {
     const d = new Date(_safeNumber(ts, 0));
-    if (bucket === 'week') {
-      const onejan = new Date(d.getFullYear(), 0, 1);
-      const week = Math.ceil((((d - onejan) / 86400000) + onejan.getDay() + 1) / 7);
-      return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
-    }
-    if (bucket === 'month') return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (Number.isNaN(d.getTime())) return 'Invalid';
+    if (b === 'week') return isoWeekKey(d);
+    if (b === 'month') return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
+
   return groupBy(arr, (x) => fmt(gt(x)));
 }
 
-/**
- * 🎻 Note helpers (implemented)
- */
+/* -------------------- 🎻 Note helpers -------------------- */
 export function getNoteName(midi, { preferFlats = false } = {}) {
   return MUSIC.midiToNote(midi, { preferFlats });
 }
@@ -849,17 +915,20 @@ export function findBestFingering(targetMidi, { preferredString = null, maxPosit
   const tm = Math.floor(_safeNumber(targetMidi, NaN));
   if (!Number.isFinite(tm)) return null;
 
+  const maxPos = Math.max(1, Math.floor(_safeNumber(maxPosition, 7)));
+  const pref = preferredString == null ? null : Math.floor(_safeNumber(preferredString, -1));
+
   const strings = [0, 1, 2, 3];
   const candidates = [];
 
   for (const si of strings) {
-    if (preferredString != null && si !== preferredString) continue;
+    if (pref != null && si !== pref) continue;
     const open = MUSIC.VIOLIN_STRINGS[si];
     const semis = tm - open;
     if (semis < 0) continue;
 
     const { position, finger } = MUSIC.semitonesToPosition(semis);
-    if (position > Math.max(1, Math.floor(_safeNumber(maxPosition, 7)))) continue;
+    if (position > maxPos) continue;
 
     candidates.push({
       stringIdx: si,
@@ -875,9 +944,7 @@ export function findBestFingering(targetMidi, { preferredString = null, maxPosit
   return candidates[0];
 }
 
-/**
- * Async + resilience helpers
- */
+/* -------------------- Async + resilience helpers -------------------- */
 export function sleep(ms = 0) {
   return new Promise(resolve => setTimeout(resolve, Math.max(0, _safeNumber(ms, 0))));
 }
@@ -888,10 +955,14 @@ export async function retry(fn, { retries = 2, delayMs = 150 } = {}) {
   let lastErr = null;
   for (let i = 0; i <= r; i++) {
     try {
+      // eslint-disable-next-line no-await-in-loop
       return await fn(i);
     } catch (e) {
       lastErr = e;
-      if (i < r) await sleep(d * (i + 1));
+      if (i < r) {
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(d * (i + 1));
+      }
     }
   }
   throw lastErr;
@@ -914,15 +985,17 @@ export async function batchProcess(items, fn, { batchSize = 25, delayMs = 0 } = 
     // eslint-disable-next-line no-await-in-loop
     const res = await Promise.all(chunk.map((x, idx) => fn(x, i + idx)));
     out.push(...res);
-    if (delayMs > 0) await sleep(delayMs);
+    if (_safeNumber(delayMs, 0) > 0) {
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(delayMs);
+    }
   }
   return out;
 }
 
-/**
- * Download / clipboard / file helpers
- */
+/* -------------------- Download / clipboard / file helpers -------------------- */
 export function downloadJSON(filename, data) {
+  if (!_isBrowser()) return;
   const name = sanitizeFilename(filename || 'data.json');
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -936,9 +1009,15 @@ export function downloadJSON(filename, data) {
 }
 
 export function downloadCSV(filename, rows) {
+  if (!_isBrowser()) return;
   const name = sanitizeFilename(filename || 'data.csv');
   const arr = Array.isArray(rows) ? rows : [];
-  const csv = arr.map(r => Array.isArray(r) ? r.map(x => `"${String(x ?? '').replaceAll('"', '""')}"`).join(',') : '').join('\n');
+  const csv = arr
+    .map(r => Array.isArray(r)
+      ? r.map(x => `"${String(x ?? '').replace(/"/g, '""')}"`).join(',')
+      : ''
+    )
+    .join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -951,6 +1030,7 @@ export function downloadCSV(filename, rows) {
 }
 
 export async function copyToClipboard(text) {
+  if (!_isBrowser()) return false;
   const t = String(text ?? '');
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(t);
@@ -970,6 +1050,7 @@ export async function copyToClipboard(text) {
 
 export function readJSONFile(file) {
   return new Promise((resolve, reject) => {
+    if (!_isBrowser()) return reject(new Error('readJSONFile: not in browser'));
     if (!(file instanceof File)) return reject(new Error('readJSONFile: expected File'));
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error || new Error('File read failed'));
@@ -984,9 +1065,7 @@ export function readJSONFile(file) {
   });
 }
 
-/**
- * String helpers
- */
+/* -------------------- String helpers -------------------- */
 export function pluralize(n, singular, plural = null) {
   const num = _safeNumber(n, 0);
   return num === 1 ? singular : (plural ?? `${singular}s`);
@@ -1011,27 +1090,26 @@ export function slugify(str) {
     .replace(/^-+|-+$/g, '');
 }
 
-/**
- * URL / routing helpers
- */
-export function getQueryParam(key, url = window.location.href) {
+/* -------------------- URL / routing helpers -------------------- */
+export function getQueryParam(key, url = null) {
   try {
-    return new URL(url).searchParams.get(key);
+    const u = new URL(url || (typeof window !== 'undefined' ? window.location.href : 'http://localhost'));
+    return u.searchParams.get(key);
   } catch {
     return null;
   }
 }
 
-export function setQueryParam(key, value, url = window.location.href) {
-  const u = new URL(url);
+export function setQueryParam(key, value, url = null) {
+  const u = new URL(url || (typeof window !== 'undefined' ? window.location.href : 'http://localhost'));
   if (value == null) u.searchParams.delete(key);
   else u.searchParams.set(key, String(value));
   return u.toString();
 }
 
-export function getAllQueryParams(url = window.location.href) {
+export function getAllQueryParams(url = null) {
   try {
-    const u = new URL(url);
+    const u = new URL(url || (typeof window !== 'undefined' ? window.location.href : 'http://localhost'));
     return Object.fromEntries(u.searchParams.entries());
   } catch {
     return {};
@@ -1039,39 +1117,45 @@ export function getAllQueryParams(url = window.location.href) {
 }
 
 export function getHashRoute() {
+  if (typeof window === 'undefined') return '';
   const h = window.location.hash || '';
   return h.startsWith('#') ? h.slice(1) : h;
 }
 
 export function setHashRoute(route) {
+  if (typeof window === 'undefined') return;
   const r = String(route ?? '');
   window.location.hash = r.startsWith('#') ? r : `#${r}`;
 }
 
-/**
- * XP helpers (works with any XP_VALUES shape)
- */
+/* -------------------- XP helpers -------------------- */
 export function xpToLevel(xp, thresholds = [0, 100, 250, 450, 700, 1000, 1400, 1900]) {
   const x = Math.max(0, Math.floor(_safeNumber(xp, 0)));
+  const th = Array.isArray(thresholds) && thresholds.length ? thresholds : [0, 100];
   let lvl = 1;
-  for (let i = 0; i < thresholds.length; i++) {
-    if (x >= thresholds[i]) lvl = i + 1;
-  }
+  for (let i = 0; i < th.length; i++) if (x >= _safeNumber(th[i], 0)) lvl = i + 1;
   return lvl;
 }
 
 export function levelToXP(level, thresholds = [0, 100, 250, 450, 700, 1000, 1400, 1900]) {
   const l = Math.max(1, Math.floor(_safeNumber(level, 1)));
-  return thresholds[_clamp(l - 1, 0, thresholds.length - 1)];
+  const th = Array.isArray(thresholds) && thresholds.length ? thresholds : [0, 100];
+  return th[_clamp(l - 1, 0, th.length - 1)];
 }
 
 export function levelProgress(xp, thresholds = [0, 100, 250, 450, 700, 1000, 1400, 1900]) {
+  const th = Array.isArray(thresholds) && thresholds.length ? thresholds : [0, 100];
   const x = Math.max(0, Math.floor(_safeNumber(xp, 0)));
-  const lvl = xpToLevel(x, thresholds);
-  const cur = levelToXP(lvl, thresholds);
-  const next = levelToXP(lvl + 1, thresholds);
+  const lvl = xpToLevel(x, th);
+  const cur = levelToXP(lvl, th);
+  const next = levelToXP(lvl + 1, th);
   const denom = Math.max(1, next - cur);
-  return { level: lvl, withinLevel: x - cur, needed: next - x, pct: _clamp(((x - cur) / denom) * 100, 0, 100) };
+  return {
+    level: lvl,
+    withinLevel: x - cur,
+    needed: next - x,
+    pct: _clamp(((x - cur) / denom) * 100, 0, 100),
+  };
 }
 
 export function calculateXPReward({ correct = false, speedMs = null, streak = 0 } = {}, XP_VALUES = null) {
@@ -1089,6 +1173,7 @@ export function calculateXPReward({ correct = false, speedMs = null, streak = 0 
   return Math.max(0, Math.floor(xp));
 }
 
+/* -------------------- Colors / validation / sanitization -------------------- */
 export function getGradeColor(letter) {
   const g = String(letter ?? '').toUpperCase();
   if (g.startsWith('S')) return '#7c3aed';
@@ -1103,7 +1188,11 @@ export function interpolateColor(a, b, t) {
   const tt = _clamp(_safeNumber(t, 0), 0, 1);
   const parse = (hex) => {
     const h = String(hex ?? '').replace('#', '').padEnd(6, '0').slice(0, 6);
-    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    return [
+      parseInt(h.slice(0, 2), 16) || 0,
+      parseInt(h.slice(2, 4), 16) || 0,
+      parseInt(h.slice(4, 6), 16) || 0,
+    ];
   };
   const [r1, g1, b1] = parse(a);
   const [r2, g2, b2] = parse(b);
@@ -1133,22 +1222,20 @@ export function sanitizeHTML(input) {
   return _escapeHTML(input);
 }
 
-/**
- * Device info (safe, always defined)
- */
+/* -------------------- Device info (safe, always defined) -------------------- */
 export const DEVICE = (() => {
-  const ua = navigator.userAgent || '';
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
   const isIOS = /iPad|iPhone|iPod/.test(ua);
   const isAndroid = /Android/.test(ua);
   const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
-  const isStandalone = window.matchMedia?.('(display-mode: standalone)')?.matches
-    || (navigator.standalone === true);
+  const isStandalone =
+    (!!(typeof window !== 'undefined' && window.matchMedia?.('(display-mode: standalone)')?.matches)) ||
+    (typeof navigator !== 'undefined' && navigator.standalone === true);
+
   return { ua, isIOS, isAndroid, isSafari, isStandalone };
 })();
 
-/**
- * Default export (kept for older imports)
- */
+/* -------------------- Default export (kept for older imports) -------------------- */
 export default {
   MUSIC,
 
