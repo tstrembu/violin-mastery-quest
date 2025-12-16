@@ -1,3 +1,4 @@
+// sw.js
 // ===================================
 // VMQ SERVICE WORKER v3.0.0 - ML-ENHANCED
 // Predictive Prefetching • Offline Analytics • Background Sync
