@@ -1,7 +1,11 @@
 /* components.css */
 /* ======================================
-   VMQ COMPONENTS CSS v3.0.4 - 50+ Module ML System
-   Music Notation • PWA Gestures • 8-Engine Live
+   VMQ COMPONENTS CSS v3.0.4 (Drop-in replacement)
+   Layout • Buttons • Cards • Charts • Toasts • Responsive
+   Notes:
+   - Fixes missing keyframes (toastSlideUp).
+   - Avoids variable collisions with base.css by keeping class behavior consistent.
+   - Keeps all classnames you referenced intact.
    ====================================== */
 
 /* -------------------- APP LAYOUT - Music Stand Optimized -------------------- */
@@ -24,6 +28,11 @@
   gap: clamp(var(--space-lg), 4vh, var(--space-xl));
 }
 
+/* Optional: common grids used across modules (safe fallbacks) */
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-lg); }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-lg); }
+.grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-lg); }
+
 /* -------------------- BUTTON SYSTEM v3.0 - Haptic Ready -------------------- */
 .btn {
   --ripple-origin: 50% 50%;
@@ -35,10 +44,13 @@
   font-size: clamp(var(--font-size-sm), 3.5vw, var(--font-size-base));
   font-weight: 700;
   font-family: inherit;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all var(--motion-duration-base);
+  transition: transform var(--motion-duration-base) var(--motion-easing),
+              box-shadow var(--motion-duration-base) var(--motion-easing),
+              background var(--motion-duration-base) var(--motion-easing),
+              filter var(--motion-duration-base) var(--motion-easing);
   text-decoration: none;
   min-height: 48px;
   min-width: 48px;
@@ -51,7 +63,6 @@
   overflow: hidden;
   background: var(--surface);
   color: var(--ink);
-  border: 1px solid var(--border);
 }
 
 .btn::before {
@@ -61,7 +72,7 @@
   background: linear-gradient(
     45deg,
     transparent 30%,
-    rgba(255,255,255,0.1) 50%,
+    rgb(255 255 255 / 0.12) 50%,
     transparent 70%
   );
   transform: scale(0);
@@ -69,26 +80,32 @@
   z-index: 1;
 }
 
+.btn > * { position: relative; z-index: 2; } /* keep text/icons above sheen */
+
 .btn:not(:disabled):active::before {
   transform: scale(2);
 }
 
-.btn:disabled {
+.btn:disabled,
+.btn[aria-disabled="true"] {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none !important;
+  box-shadow: none !important;
+  filter: none !important;
 }
 
 /* 🎯 ML-AWARE BUTTON STATES */
 .btn-primary {
   background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-  color: white;
-  border-color: var(--primary);
+  color: #fff;
+  border-color: color-mix(in srgb, var(--primary) 70%, black 30%);
   box-shadow: var(--shadow-sm);
 }
 
 .btn-primary[data-mastered="true"] {
   background: linear-gradient(135deg, var(--perfect), #059669);
+  border-color: color-mix(in srgb, var(--perfect) 70%, black 30%);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -105,6 +122,7 @@
 .btn-secondary:hover:not(:disabled) {
   border-color: var(--primary);
   background: var(--surface);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 🎯 BUTTON SIZING - Music Touch Targets */
@@ -124,26 +142,27 @@
   align-items: center;
   gap: var(--space-md);
   padding: var(--space-md) var(--space-lg);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 80%, transparent 20%);
   color: var(--ink-light);
   border: 2px solid var(--border);
   font-size: var(--font-size-sm);
   min-height: auto;
   border-radius: var(--radius-md);
   position: sticky;
-  top: env(safe-area-inset-top);
+  top: max(env(safe-area-inset-top), 0px);
   z-index: 20;
   backdrop-filter: blur(20px);
 }
 
 .btn-back:hover {
   border-color: var(--primary);
-  background: var(--primary-light);
+  background: color-mix(in srgb, var(--primary-light) 55%, var(--surface) 45%);
   color: var(--primary-dark);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn-play {
-  --play-glow: #10b981;
+  --play-glow: var(--perfect);
   position: relative;
   overflow: visible;
 }
@@ -155,7 +174,7 @@
   background: radial-gradient(circle, var(--play-glow) 0%, transparent 70%);
   border-radius: inherit;
   opacity: 0;
-  transition: opacity var(--motion-duration-base);
+  transition: opacity var(--motion-duration-base) var(--motion-easing);
   z-index: -1;
 }
 
@@ -166,7 +185,8 @@
 
 .btn-play.playing {
   background: var(--perfect);
-  color: white;
+  color: #fff;
+  border-color: color-mix(in srgb, var(--perfect) 70%, black 30%);
   animation: pulse 1.5s infinite;
 }
 
@@ -178,23 +198,22 @@
   box-shadow: var(--shadow-md);
   margin-bottom: clamp(var(--space-xl), 6vh, var(--space-2xl));
   border: 1px solid var(--border);
-  transition: all var(--motion-duration-base);
+  transition: transform var(--motion-duration-base) var(--motion-easing),
+              box-shadow var(--motion-duration-base) var(--motion-easing),
+              border-color var(--motion-duration-base) var(--motion-easing);
   position: relative;
   overflow: hidden;
   backdrop-filter: blur(20px);
 }
 
 .card[data-live="true"] {
-  box-shadow: var(--shadow-lg), 0 0 20px rgba(16, 185, 129, 0.3);
+  box-shadow: var(--shadow-lg), 0 0 20px rgb(16 185 129 / 0.3);
   animation: pulse-live 3s infinite;
 }
 
 .card[data-mastered="true"] {
   border-color: var(--perfect);
-  background: linear-gradient(135deg, 
-    rgba(16, 185, 129, 0.03), 
-    transparent
-  );
+  background: linear-gradient(135deg, rgb(16 185 129 / 0.04), transparent);
 }
 
 .card.elevated { 
@@ -208,10 +227,7 @@
 
 .card-live { 
   border-left: 5px solid var(--primary);
-  background: linear-gradient(90deg, 
-    rgba(59, 130, 246, 0.05) 0%, 
-    transparent 100%
-  );
+  background: linear-gradient(90deg, rgb(59 130 246 / 0.05) 0%, transparent 100%);
 }
 
 /* 🎯 ML INSIGHT CARDS */
@@ -220,7 +236,8 @@
   background: var(--surface);
   border-radius: var(--radius-lg);
   border-left: 5px solid var(--primary);
-  transition: all var(--motion-duration-base);
+  transition: transform var(--motion-duration-base) var(--motion-easing),
+              box-shadow var(--motion-duration-base) var(--motion-easing);
   cursor: pointer;
   position: relative;
   overflow: hidden;
@@ -228,11 +245,8 @@
 
 .insight[data-priority="urgent"] {
   border-left-color: var(--danger);
-  background: linear-gradient(135deg, 
-    rgba(239, 68, 68, 0.1), 
-    transparent
-  );
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.15);
+  background: linear-gradient(135deg, rgb(239 68 68 / 0.12), transparent);
+  box-shadow: 0 4px 12px rgb(239 68 68 / 0.15);
 }
 
 .insight[data-priority="high"] {
@@ -263,7 +277,7 @@
 }
 
 .insight[data-priority="urgent"] .insight-icon {
-  background: rgba(239, 68, 68, 0.2);
+  background: rgb(239 68 68 / 0.2);
   color: var(--danger);
 }
 
@@ -286,22 +300,21 @@
   background: var(--card);
   border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all var(--motion-duration-base);
+  transition: transform var(--motion-duration-base) var(--motion-easing),
+              box-shadow var(--motion-duration-base) var(--motion-easing),
+              border-color var(--motion-duration-base) var(--motion-easing);
   border: 1px solid var(--border);
   position: relative;
 }
 
 .module-performance-item[data-mastered="true"] {
   border-color: var(--perfect);
-  background: linear-gradient(135deg, 
-    rgba(16, 185, 129, 0.08), 
-    transparent
-  );
+  background: linear-gradient(135deg, rgb(16 185 129 / 0.08), transparent);
 }
 
 .module-performance-item[data-breakthrough="true"] {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.2);
   animation: breakthrough-glow 2s infinite;
 }
 
@@ -340,20 +353,9 @@
   letter-spacing: 0.05em;
 }
 
-.badge-success { 
-  background: rgba(16, 185, 129, 0.2);
-  color: var(--perfect);
-}
-
-.badge-primary { 
-  background: rgba(59, 130, 246, 0.2);
-  color: var(--primary);
-}
-
-.badge-warning { 
-  background: rgba(245, 158, 11, 0.2);
-  color: var(--warning);
-}
+.badge-success { background: rgb(16 185 129 / 0.2); color: var(--perfect); }
+.badge-primary { background: rgb(59 130 246 / 0.2); color: var(--primary); }
+.badge-warning { background: rgb(245 158 11 / 0.2); color: var(--warning); }
 
 .module-meta {
   display: flex;
@@ -371,20 +373,9 @@
   text-transform: uppercase;
 }
 
-.difficulty-easy { 
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--perfect);
-}
-
-.difficulty-medium { 
-  background: rgba(245, 158, 11, 0.15);
-  color: var(--warning);
-}
-
-.difficulty-hard { 
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--danger);
-}
+.difficulty-easy   { background: rgb(16 185 129 / 0.15); color: var(--perfect); }
+.difficulty-medium { background: rgb(245 158 11 / 0.15); color: var(--warning); }
+.difficulty-hard   { background: rgb(239 68 68 / 0.15); color: var(--danger); }
 
 .module-stats {
   display: flex;
@@ -425,8 +416,8 @@
   height: 40px;
   border-radius: var(--radius-full);
   background: var(--primary);
-  color: white;
-  transition: all var(--motion-duration-sm);
+  color: #fff;
+  transition: transform var(--motion-duration-sm) var(--motion-easing);
 }
 
 .module-action:hover {
@@ -435,30 +426,24 @@
 
 /* -------------------- ML BREAKTHROUGH STATES -------------------- */
 @keyframes breakthrough-glow {
-  0%, 100% { 
-    box-shadow: 0 0 20px rgba(59, 130, 246, 0.4); 
-  }
-  50% { 
-    box-shadow: 0 0 40px rgba(59, 130, 246, 0.6); 
-  }
+  0%, 100% { box-shadow: 0 0 20px rgb(59 130 246 / 0.4); }
+  50%      { box-shadow: 0 0 40px rgb(59 130 246 / 0.6); }
 }
 
 @keyframes pulse-live {
-  0%, 100% { 
-    box-shadow: var(--shadow-md), 0 0 20px rgba(16, 185, 129, 0.3); 
-  }
-  50% { 
-    box-shadow: var(--shadow-lg), 0 0 40px rgba(16, 185, 129, 0.5); 
-  }
+  0%, 100% { box-shadow: var(--shadow-md), 0 0 20px rgb(16 185 129 / 0.3); }
+  50%      { box-shadow: var(--shadow-lg), 0 0 40px rgb(16 185 129 / 0.5); }
 }
 
 @keyframes pulse-warning {
-  0%, 100% { 
-    box-shadow: var(--shadow-md), 0 0 10px rgba(245, 158, 11, 0.3); 
-  }
-  50% { 
-    box-shadow: var(--shadow-lg), 0 0 20px rgba(245, 158, 11, 0.5); 
-  }
+  0%, 100% { box-shadow: var(--shadow-md), 0 0 10px rgb(245 158 11 / 0.3); }
+  50%      { box-shadow: var(--shadow-lg), 0 0 20px rgb(245 158 11 / 0.5); }
+}
+
+/* ✅ Missing in your original snippet: toast entrance animation */
+@keyframes toastSlideUp {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* -------------------- WEEKLY ACTIVITY CHART -------------------- */
@@ -479,11 +464,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, 
-    transparent 0%, 
-    rgba(59, 130, 246, 0.03) 50%, 
-    transparent 100%
-  );
+  background: linear-gradient(90deg, transparent 0%, rgb(59 130 246 / 0.03) 50%, transparent 100%);
   pointer-events: none;
 }
 
@@ -500,10 +481,16 @@
   width: 100%;
   min-height: 6px;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  transition: all var(--motion-duration-base);
+  transition: transform var(--motion-duration-base) var(--motion-easing),
+              filter var(--motion-duration-base) var(--motion-easing);
   cursor: pointer;
   position: relative;
   overflow: hidden;
+}
+
+.day-bar:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.05);
 }
 
 .day-bar::after {
@@ -517,7 +504,7 @@
   color: var(--ink-light);
   white-space: nowrap;
   opacity: 0;
-  transition: opacity var(--motion-duration-sm);
+  transition: opacity var(--motion-duration-sm) var(--motion-easing);
 }
 
 .day-column:hover .day-bar::after {
@@ -557,8 +544,9 @@
   line-height: 1;
   background: linear-gradient(135deg, var(--primary), var(--success));
   -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
   background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .retention-breakdown {
@@ -566,6 +554,8 @@
   gap: var(--space-xl);
   font-size: var(--font-size-sm);
   color: var(--ink-light);
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 /* -------------------- SESSION LIST v3.0 -------------------- */
@@ -617,23 +607,34 @@
   font-weight: 800;
   font-size: clamp(var(--font-size-sm), 4vw, var(--font-size-base));
   cursor: pointer;
-  transition: all var(--motion-duration-base);
+  transition: transform var(--motion-duration-base) var(--motion-easing),
+              box-shadow var(--motion-duration-base) var(--motion-easing),
+              background var(--motion-duration-base) var(--motion-easing),
+              border-color var(--motion-duration-base) var(--motion-easing);
   position: relative;
   border: 3px solid var(--border);
+  background: var(--card);
+  color: var(--ink);
+}
+
+.circle-key:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--border) 40%);
 }
 
 .circle-key.active {
   background: var(--primary);
-  color: white;
+  color: #fff;
   border-color: var(--primary-dark);
   transform: scale(1.2);
-  box-shadow: var(--shadow-xl), 0 0 20px rgba(59, 130, 246, 0.5);
+  box-shadow: var(--shadow-xl), 0 0 20px rgb(59 130 246 / 0.5);
   z-index: 10;
 }
 
 .circle-key.mastered {
   background: linear-gradient(135deg, var(--perfect), #059669);
-  color: white;
+  color: #fff;
   border-color: var(--perfect);
 }
 
@@ -653,17 +654,14 @@
   overflow: hidden;
   margin: clamp(var(--space-sm), 2vh, var(--space-md)) 0;
   position: relative;
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 0.05);
 }
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, 
-    var(--primary) 0%, 
-    var(--perfect) 70%, 
-    var(--success) 100%
-  );
-  transition: width var(--motion-duration-lg) cubic-bezier(0.4, 0, 0.2, 1);
+  width: var(--width, 0%); /* allows base shell + JS to drive width */
+  background: linear-gradient(90deg, var(--primary) 0%, var(--perfect) 70%, var(--success) 100%);
+  transition: width var(--motion-duration-lg) var(--motion-easing);
   position: relative;
   overflow: hidden;
 }
@@ -672,12 +670,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255,255,255,0.4) 50%,
-    transparent 100%
-  );
+  background: linear-gradient(90deg, transparent 0%, rgb(255 255 255 / 0.4) 50%, transparent 100%);
   animation: shimmer 2s infinite linear;
 }
 
@@ -699,17 +692,17 @@
 .toast {
   padding: clamp(16px, 3vw, 20px) clamp(24px, 5vw, 32px);
   border-radius: var(--radius-xl);
-  color: white;
+  color: #fff;
   font-weight: 700;
   font-size: clamp(var(--font-size-sm), 3.5vw, var(--font-size-base));
   box-shadow: var(--shadow-xl);
   backdrop-filter: blur(32px);
-  border: 1px solid rgba(255,255,255,0.2);
+  border: 1px solid rgb(255 255 255 / 0.2);
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: var(--space-lg);
-  animation: toastSlideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: toastSlideUp 0.4s var(--motion-easing);
   pointer-events: all;
   position: relative;
   overflow: hidden;
@@ -719,11 +712,11 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, 
-    transparent 0%, 
-    rgba(255,255,255,0.1) 100%
-  );
+  background: linear-gradient(135deg, transparent 0%, rgb(255 255 255 / 0.1) 100%);
+  pointer-events: none;
 }
+
+.toast > * { position: relative; z-index: 1; }
 
 .toast-icon {
   font-size: clamp(var(--font-size-lg), 6vw, var(--font-size-xl));
@@ -737,24 +730,24 @@
 }
 
 .toast.success {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.95));
+  background: linear-gradient(135deg, rgb(16 185 129 / 0.95), rgb(5 150 105 / 0.95));
 }
 
 .toast.error {
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.95), rgba(220, 38, 38, 0.95));
+  background: linear-gradient(135deg, rgb(239 68 68 / 0.95), rgb(220 38 38 / 0.95));
 }
 
 .toast-progress {
   height: 4px;
   margin-top: var(--space-sm);
-  background: rgba(255,255,255,0.3);
+  background: rgb(255 255 255 / 0.3);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .toast-progress-fill {
   height: 100%;
-  background: rgba(255,255,255,0.9);
+  background: rgb(255 255 255 / 0.9);
   border-radius: 2px;
   transition: width 100ms linear;
 }
@@ -765,50 +758,51 @@
     grid-template-columns: 1fr auto;
     gap: var(--space-md);
   }
-  
+
   .module-stats {
     flex-direction: row;
+    align-items: center;
     gap: var(--space-lg);
   }
 }
 
 @media (max-width: 768px) {
-  .app-wrapper {
-    padding: var(--space-lg);
-  }
-  
+  .app-wrapper { padding: var(--space-lg); }
+
   .module-header {
+    display: flex;
     flex-direction: column;
     align-items: stretch;
     gap: var(--space-lg);
     text-align: center;
   }
-  
+
   .stats-live {
+    display: flex;
     justify-content: center;
     flex-wrap: wrap;
+    gap: var(--space-md);
   }
-  
+
   .grid-2, .grid-3, .grid-4 {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
-  
+
   .answer-grid {
+    display: grid;
     grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
     gap: var(--space-md);
   }
 }
 
 @media (max-width: 480px) {
-  .module-container {
-    padding: 0 var(--space-md);
-  }
-  
+  .module-container { padding: 0 var(--space-md); }
+
   .card {
     margin-bottom: var(--space-lg);
     padding: var(--space-lg);
   }
-  
+
   .weekly-chart {
     height: clamp(100px, 20vh, 120px);
   }
@@ -816,20 +810,25 @@
 
 /* -------------------- PRINT - Sheet Music Export -------------------- */
 @media print {
-  .no-print, .toast-container, .btn:not(.btn-print) { display: none !important; }
-  .card { 
-    box-shadow: none !important; 
-    border: 1px solid #ddd; 
+  .no-print,
+  .toast-container,
+  .btn:not(.btn-print) { display: none !important; }
+
+  .card {
+    box-shadow: none !important;
+    border: 1px solid #ddd;
     page-break-inside: avoid;
     margin-bottom: 1.5cm;
-    background: white !important;
+    background: #fff !important;
   }
-  .module-container { 
-    max-width: none; 
+
+  .module-container {
+    max-width: none;
     gap: 2cm;
   }
-  h1, h2, h3 { 
-    color: black !important; 
+
+  h1, h2, h3 {
+    color: #000 !important;
     page-break-after: avoid;
   }
 }
