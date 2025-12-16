@@ -1,17 +1,70 @@
-<!DOCTYPE html>
+<!-- 404.html
+========================================================
+VMQ SPA 404 Redirect for GitHub Pages (Drop-in)
+- Preserves deep links and query strings
+- Works with /violin-mastery-quest/ base path
+- Avoids redirect loops
+- Encodes the original route into the hash so the SPA router can read it
+========================================================
+-->
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Redirecting...</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Redirecting…</title>
+  <meta name="robots" content="noindex" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 24px; }
+    code { background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 6px; }
+  </style>
   <script>
-    // Redirect to root with original path preserved as hash
-    // GitHub Pages serves this for any 404, so we redirect to the SPA
-    const path = window.location.pathname.replace('/violin-mastery-quest/', '');
-    const hash = window.location.hash;
-    window.location.replace('/violin-mastery-quest/' + (hash || ''));
+    (function () {
+      // ---- CONFIG: GitHub Pages repo base ----
+      var BASE = '/violin-mastery-quest/';
+
+      try {
+        var loc = window.location;
+
+        // Normalize base (ensure leading and trailing slash)
+        if (BASE.charAt(0) !== '/') BASE = '/' + BASE;
+        if (BASE.charAt(BASE.length - 1) !== '/') BASE = BASE + '/';
+
+        // If we're not under BASE, just go to BASE (safe fallback)
+        var path = loc.pathname || '/';
+        var search = loc.search || '';
+        var hash = loc.hash || '';
+
+        // Avoid loops: if already on base root, do nothing
+        if (path === BASE || path === BASE.slice(0, -1)) {
+          return;
+        }
+
+        // Strip base prefix if present
+        var relPath = path.indexOf(BASE) === 0 ? path.slice(BASE.length) : path.replace(/^\//, '');
+
+        // Preserve the entire intended route (path + query + hash) inside a single hash route.
+        // If the user already has a hash, keep it as part of the encoded route.
+        // Example: /violin-mastery-quest/scales?mode=major#tips
+        // becomes: /violin-mastery-quest/#/scales?mode=major#tips
+        var intended = '/' + relPath + search + hash;
+
+        // If the request was for a static file (has a dot segment), you MAY prefer to not redirect.
+        // For VMQ, we still redirect because SWAs often use dotted routes. Keep behavior consistent.
+        var target = BASE + '#'+ intended;
+
+        // Use replace to avoid polluting browser history
+        loc.replace(target);
+      } catch (e) {
+        // Ultra-safe fallback
+        window.location.replace('/violin-mastery-quest/');
+      }
+    })();
   </script>
 </head>
 <body>
-  <p>Redirecting to Violin Mastery Quest...</p>
+  <p>Redirecting to <strong>Violin Mastery Quest</strong>…</p>
+  <p style="opacity:.75">If you are not redirected automatically, <a href="/violin-mastery-quest/">tap here</a>.</p>
+  <p style="opacity:.55;font-size:.9em">Deep link recovery via <code>404.html</code> for GitHub Pages.</p>
 </body>
 </html>
