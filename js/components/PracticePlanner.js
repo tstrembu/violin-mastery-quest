@@ -1,3 +1,4 @@
+/* js/components/PracticePlanner.js
 /**
  * Practice Planner Component
  * Comprehensive practice session planning with Bieler technique tasks
