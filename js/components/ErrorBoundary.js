@@ -1,3 +1,4 @@
+// js/components/ErrorBoundary.js
 // ErrorBoundary – Browser-safe version (no React import, no JSX)
 const { Component, createElement: h } = React;
 
