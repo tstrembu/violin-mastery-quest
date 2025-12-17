@@ -1,524 +1,716 @@
 // js/components/DataManager.js
 
 /* =========================================================
-   VMQ DataManager.js
+   VMQ — DataManager.js (Drop-in)
    Purpose:
-   - Central storage + import/export for VMQ (dependency-free)
-   - Works in GitHub Pages, offline mode, and standard browsers
-   - Provides stable API so modules can depend on it safely
+   - UI + utilities to export/import/clear VMQ app data
+   - Works in plain ESM + React UMD (no JSX)
+   - Safe defaults for GitHub Pages + iOS Safari
+   - Provides BOTH:
+       1) a route component (default export)
+       2) export class DataManager (for programmatic use)
 
-   Design goals:
-   - Do NOT throw on missing/invalid data
-   - Validate/guard storage operations
-   - Support migrations via schemaVersion
-   - Support import/export with merge/overwrite
-
-   Usage:
-   import dataManager, { DataManager } from './DataManager.js'
-   const profile = dataManager.getProfile()
-   dataManager.setProfile({ level:'intermediate' })
+   Notes:
+   - VMQ appears to store much in localStorage (e.g., "vmq-profile").
+   - This manager:
+       • exports selected keys (default: VMQ-ish keys)
+       • imports JSON backup (merge or replace)
+       • clears selected keys
+       • shows approximate storage footprint
    ========================================================= */
 
-const DEFAULT_NAMESPACE = 'vmq';
-const CURRENT_SCHEMA_VERSION = 1;
-
-/** Safely detect if localStorage is available (Safari private mode can be weird). */
-function canUseLocalStorage() {
-  try {
-    const k = '__vmq_ls_test__';
-    window.localStorage.setItem(k, '1');
-    window.localStorage.removeItem(k);
-    return true;
-  } catch {
-    return false;
-  }
+const ReactGlobal = (typeof React !== 'undefined') ? React : null;
+if (!ReactGlobal) {
+  // Fail loudly but safely if someone opens this route without React loaded
+  throw new Error('VMQ DataManager requires React (UMD) to be loaded before this module.');
 }
 
-/** Safe JSON parse */
-function safeParseJSON(text, fallback) {
-  try {
-    if (typeof text !== 'string') return fallback;
-    return JSON.parse(text);
-  } catch {
-    return fallback;
-  }
+const {
+  createElement: h,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback
+} = ReactGlobal;
+
+/* ---------------------------------------------------------
+   Small helpers
+--------------------------------------------------------- */
+function nowISO() {
+  try { return new Date().toISOString(); } catch { return String(Date.now()); }
 }
 
-/** Safe JSON stringify */
-function safeStringifyJSON(value, fallback = '{}') {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return fallback;
-  }
+function safeJSONParse(text) {
+  try { return { ok: true, value: JSON.parse(text) }; }
+  catch (e) { return { ok: false, error: e }; }
 }
 
-/** Shallow object check */
-function isPlainObject(x) {
-  return !!x && typeof x === 'object' && (x.constructor === Object || Object.getPrototypeOf(x) === Object.prototype);
+function safeJSONStringify(obj, space = 2) {
+  try { return { ok: true, value: JSON.stringify(obj, null, space) }; }
+  catch (e) { return { ok: false, error: e }; }
 }
 
-/** Deep-ish merge (objects only). Arrays are replaced, not merged. */
-function deepMerge(target, source) {
-  if (!isPlainObject(target) || !isPlainObject(source)) return source;
-  const out = { ...target };
-  for (const [k, v] of Object.entries(source)) {
-    if (isPlainObject(v) && isPlainObject(out[k])) out[k] = deepMerge(out[k], v);
-    else out[k] = v;
-  }
-  return out;
+function approxBytes(str) {
+  // Rough byte estimate for UTF-16 in JS strings (2 bytes per char)
+  if (!str) return 0;
+  return str.length * 2;
 }
 
-/** Date stamp for backups */
-function isoNow() {
-  return new Date().toISOString();
+function humanBytes(bytes) {
+  const b = Number(bytes) || 0;
+  if (b < 1024) return `${b} B`;
+  const kb = b / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(2)} MB`;
+  const gb = mb / 1024;
+  return `${gb.toFixed(2)} GB`;
 }
 
-/** YYYY-MM-DD for filenames */
-function dateStamp() {
-  const d = new Date();
-  const yyyy = String(d.getFullYear());
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-/** Download helper (export backups) */
 function downloadTextFile(filename, text, mime = 'application/json') {
-  try {
-    const blob = new Blob([text], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function copyToClipboard(text) {
+  // iOS Safari can be finicky; try modern API then fallback
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
     return true;
+  }
+  // Fallback: hidden textarea
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'absolute';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  ta.remove();
+  return ok;
+}
+
+function getLocalStorageKeys() {
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k) keys.push(k);
+    }
+    keys.sort((a, b) => a.localeCompare(b));
+    return keys;
   } catch {
-    return false;
+    return [];
   }
 }
 
+function readLocalStorageKey(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function writeLocalStorageKey(key, value) {
+  try { localStorage.setItem(key, value); return true; } catch { return false; }
+}
+
+function removeLocalStorageKey(key) {
+  try { localStorage.removeItem(key); return true; } catch { return false; }
+}
+
+/* ---------------------------------------------------------
+   Heuristics: “VMQ-ish keys”
+   (You can expand these safely later.)
+--------------------------------------------------------- */
+const DEFAULT_KEY_PREFIXES = [
+  'vmq',        // vmq-profile, vmq-*, etc.
+  'VMQ',        // sometimes apps use caps
+  'sm2',        // spaced repetition
+  'sr',         // spaced repetition
+  'spaced',     // spaced repetition
+  'difficulty', // difficulty adapter
+  'analytics',  // analytics engine
+  'session',    // session tracker
+  'practice',   // practice plans/journal
+  'journal'     // journal
+];
+
+function isLikelyVMQKey(key) {
+  const k = String(key || '');
+  const lower = k.toLowerCase();
+  // Strong signal: starts with vmq
+  if (lower.startsWith('vmq')) return true;
+  // Common “engine” buckets
+  return DEFAULT_KEY_PREFIXES.some((p) => lower.startsWith(String(p).toLowerCase()));
+}
+
+/* =========================================================
+   DataManager (programmatic API)
+   ========================================================= */
 export class DataManager {
   /**
    * @param {Object} [opts]
-   * @param {string} [opts.namespace] - prefix for keys (default: 'vmq')
-   * @param {Storage|null} [opts.storage] - override storage (must match Storage API)
-   * @param {number} [opts.schemaVersion] - current schema version
+   * @param {string} [opts.namespace] - used in metadata only
    */
   constructor(opts = {}) {
-    this.namespace = String(opts.namespace || DEFAULT_NAMESPACE);
-    this.schemaVersion = Number.isFinite(opts.schemaVersion) ? opts.schemaVersion : CURRENT_SCHEMA_VERSION;
-
-    // Storage selection: localStorage if possible, otherwise in-memory fallback
-    const wantsStorage = opts.storage ?? (canUseLocalStorage() ? window.localStorage : null);
-    this._storage = wantsStorage || null;
-
-    // In-memory fallback store (only used if localStorage unavailable)
-    this._mem = new Map();
-
-    // Subscribers
-    this._listeners = new Set();
-
-    // Define “known keys” used across VMQ. This prevents imports from injecting random keys.
-    this.KEYS = Object.freeze({
-      PROFILE:        `${this.namespace}-profile`,
-      SETTINGS:       `${this.namespace}-settings`,
-      PROGRESS:       `${this.namespace}-progress`,
-      SR:             `${this.namespace}-sr`,          // spaced repetition
-      ANALYTICS:      `${this.namespace}-analytics`,
-      SESSIONS:       `${this.namespace}-sessions`,
-      FEATURE_FLAGS:  `${this.namespace}-features`,
-      LAST_BACKUP:    `${this.namespace}-last-backup`,
-      SCHEMA_META:    `${this.namespace}-schema-meta`
-    });
+    this.namespace = opts.namespace || 'vmq';
   }
 
-  /* ---------------------------------------------------------
-     Low-level storage primitives
-     --------------------------------------------------------- */
-
-  _fullKey(key) {
-    // If caller passes a full key already, keep it.
-    // Otherwise, namespace it safely.
-    if (typeof key !== 'string') return '';
-    if (key.startsWith(`${this.namespace}-`)) return key;
-    return `${this.namespace}-${key}`;
+  listKeys() {
+    return getLocalStorageKeys();
   }
 
-  _getRaw(key) {
-    const k = this._fullKey(key);
-    if (!k) return null;
-
-    if (this._storage) {
-      try { return this._storage.getItem(k); } catch { return null; }
-    }
-    return this._mem.has(k) ? this._mem.get(k) : null;
+  listLikelyVMQKeys() {
+    return this.listKeys().filter(isLikelyVMQKey);
   }
-
-  _setRaw(key, value) {
-    const k = this._fullKey(key);
-    if (!k) return false;
-
-    if (this._storage) {
-      try { this._storage.setItem(k, String(value)); return true; } catch { return false; }
-    }
-    this._mem.set(k, String(value));
-    return true;
-  }
-
-  _removeRaw(key) {
-    const k = this._fullKey(key);
-    if (!k) return false;
-
-    if (this._storage) {
-      try { this._storage.removeItem(k); return true; } catch { return false; }
-    }
-    return this._mem.delete(k);
-  }
-
-  /** Read JSON from storage */
-  getJSON(key, fallback = null) {
-    const raw = this._getRaw(key);
-    if (raw == null) return fallback;
-    return safeParseJSON(raw, fallback);
-  }
-
-  /** Write JSON to storage */
-  setJSON(key, value) {
-    const ok = this._setRaw(key, safeStringifyJSON(value, 'null'));
-    if (ok) this._emitChange(key, value);
-    return ok;
-  }
-
-  /** Update JSON atomically: updater(prev) => next */
-  updateJSON(key, updater, fallback = null) {
-    const prev = this.getJSON(key, fallback);
-    let next = prev;
-    try {
-      next = updater(prev);
-    } catch (e) {
-      // fail closed: do nothing
-      return { ok: false, prev, next: prev, error: e };
-    }
-    const ok = this.setJSON(key, next);
-    return { ok, prev, next };
-  }
-
-  /** Merge partial object into existing object (objects only) */
-  mergeJSON(key, partial, fallback = {}) {
-    if (!isPlainObject(partial)) {
-      // If it isn't a plain object, treat it as overwrite for safety.
-      const ok = this.setJSON(key, partial);
-      return { ok, next: partial };
-    }
-    return this.updateJSON(
-      key,
-      (prev) => deepMerge(isPlainObject(prev) ? prev : fallback, partial),
-      fallback
-    );
-  }
-
-  remove(key) {
-    const ok = this._removeRaw(key);
-    if (ok) this._emitChange(key, null);
-    return ok;
-  }
-
-  /* ---------------------------------------------------------
-     VMQ convenience APIs (common keys)
-     --------------------------------------------------------- */
-
-  getProfile(fallback = { level: 'beginner' }) {
-    return this.getJSON(this.KEYS.PROFILE, fallback);
-  }
-  setProfile(profile) {
-    return this.setJSON(this.KEYS.PROFILE, isPlainObject(profile) ? profile : { level: 'beginner' });
-  }
-  patchProfile(partial) {
-    return this.mergeJSON(this.KEYS.PROFILE, partial, { level: 'beginner' });
-  }
-
-  getSettings(fallback = {}) {
-    return this.getJSON(this.KEYS.SETTINGS, fallback);
-  }
-  setSettings(settings) {
-    return this.setJSON(this.KEYS.SETTINGS, isPlainObject(settings) ? settings : {});
-  }
-  patchSettings(partial) {
-    return this.mergeJSON(this.KEYS.SETTINGS, partial, {});
-  }
-
-  getProgress(fallback = {}) {
-    return this.getJSON(this.KEYS.PROGRESS, fallback);
-  }
-  setProgress(progress) {
-    return this.setJSON(this.KEYS.PROGRESS, isPlainObject(progress) ? progress : {});
-  }
-  patchProgress(partial) {
-    return this.mergeJSON(this.KEYS.PROGRESS, partial, {});
-  }
-
-  getSpacedRepetition(fallback = { items: {} }) {
-    return this.getJSON(this.KEYS.SR, fallback);
-  }
-  setSpacedRepetition(sr) {
-    return this.setJSON(this.KEYS.SR, isPlainObject(sr) ? sr : { items: {} });
-  }
-  patchSpacedRepetition(partial) {
-    return this.mergeJSON(this.KEYS.SR, partial, { items: {} });
-  }
-
-  getAnalytics(fallback = {}) {
-    return this.getJSON(this.KEYS.ANALYTICS, fallback);
-  }
-  setAnalytics(analytics) {
-    return this.setJSON(this.KEYS.ANALYTICS, isPlainObject(analytics) ? analytics : {});
-  }
-  patchAnalytics(partial) {
-    return this.mergeJSON(this.KEYS.ANALYTICS, partial, {});
-  }
-
-  getSessions(fallback = []) {
-    const v = this.getJSON(this.KEYS.SESSIONS, fallback);
-    return Array.isArray(v) ? v : fallback;
-  }
-  setSessions(sessions) {
-    return this.setJSON(this.KEYS.SESSIONS, Array.isArray(sessions) ? sessions : []);
-  }
-  appendSession(sessionObj) {
-    return this.updateJSON(
-      this.KEYS.SESSIONS,
-      (prev) => {
-        const arr = Array.isArray(prev) ? prev.slice() : [];
-        arr.push({ ...sessionObj, ts: sessionObj?.ts || Date.now() });
-        // keep last N (avoid unbounded growth)
-        const MAX = 500;
-        if (arr.length > MAX) arr.splice(0, arr.length - MAX);
-        return arr;
-      },
-      []
-    );
-  }
-
-  getFeatureFlags(fallback = {}) {
-    return this.getJSON(this.KEYS.FEATURE_FLAGS, fallback);
-  }
-  setFeatureFlags(flags) {
-    return this.setJSON(this.KEYS.FEATURE_FLAGS, isPlainObject(flags) ? flags : {});
-  }
-  patchFeatureFlags(partial) {
-    return this.mergeJSON(this.KEYS.FEATURE_FLAGS, partial, {});
-  }
-
-  /* ---------------------------------------------------------
-     Import / Export
-     --------------------------------------------------------- */
 
   /**
-   * Export all VMQ data as one object.
-   * You can store this in a file or share it via share.html.
+   * Export selected keys to a VMQ backup object.
+   * @param {string[]} keys
+   * @param {Object} [metaExtras]
    */
-  exportAll() {
+  export(keys, metaExtras = {}) {
+    const selected = Array.isArray(keys) ? keys : [];
     const data = {};
-    for (const k of Object.values(this.KEYS)) {
-      data[k] = this.getJSON(k, null);
-    }
+    let bytes = 0;
 
-    const payload = {
-      app: 'Violin Mastery Quest',
-      namespace: this.namespace,
-      schemaVersion: this.schemaVersion,
-      exportedAt: isoNow(),
+    selected.forEach((k) => {
+      const v = readLocalStorageKey(k);
+      if (v !== null && v !== undefined) {
+        data[k] = v;
+        bytes += approxBytes(v) + approxBytes(k);
+      }
+    });
+
+    return {
+      meta: {
+        app: 'VMQ',
+        namespace: this.namespace,
+        exportedAt: nowISO(),
+        keyCount: Object.keys(data).length,
+        approxBytes: bytes,
+        ...metaExtras
+      },
       data
     };
-
-    // Store metadata
-    this.setJSON(this.KEYS.LAST_BACKUP, { exportedAt: payload.exportedAt });
-
-    return payload;
   }
 
   /**
-   * Download export as a file from the browser.
+   * Import a VMQ backup object.
+   * @param {Object} backupObj - expects {meta, data}
+   * @param {"merge"|"replace"} mode
+   * @returns {{ok:boolean, written:number, removed:number, errors:string[]}}
    */
-  downloadBackup(filename = `vmq-backup-${dateStamp()}.json`) {
-    const payload = this.exportAll();
-    const text = safeStringifyJSON(payload, '{}');
-    return downloadTextFile(filename, text);
-  }
+  import(backupObj, mode = 'merge') {
+    const errors = [];
+    const data = backupObj?.data;
 
-  /**
-   * Validate import payload shape.
-   */
-  _validateImportPayload(payload) {
-    if (!payload || typeof payload !== 'object') return { ok: false, reason: 'Payload is not an object' };
-    if (payload.app && payload.app !== 'Violin Mastery Quest') {
-      // fail-open: allow if missing, but warn if different
-    }
-    if (!payload.data || typeof payload.data !== 'object') return { ok: false, reason: 'Missing data object' };
-    return { ok: true };
-  }
-
-  /**
-   * Optional migration hook (expand later if you introduce schema v2+).
-   * For now, returns payload as-is.
-   */
-  _migratePayload(payload) {
-    const v = Number(payload.schemaVersion || 0);
-
-    // Example future pattern:
-    // if (v === 0) { ...convert...; payload.schemaVersion = 1; }
-
-    if (!Number.isFinite(v) || v <= 0) {
-      // Fail-open: treat unknown as current but do not crash
-      payload.schemaVersion = this.schemaVersion;
-    }
-    return payload;
-  }
-
-  /**
-   * Import VMQ backup.
-   * @param {object|string} input - parsed object OR JSON string
-   * @param {object} [opts]
-   * @param {boolean} [opts.merge=true] - merge into existing objects where possible
-   * @param {boolean} [opts.overwrite=false] - overwrite keys entirely (wins over merge)
-   * @param {boolean} [opts.emitEvents=true] - emit change events per key
-   */
-  importAll(input, opts = {}) {
-    const options = {
-      merge: opts.merge !== false,
-      overwrite: opts.overwrite === true,
-      emitEvents: opts.emitEvents !== false
-    };
-
-    const payload = typeof input === 'string' ? safeParseJSON(input, null) : input;
-    const valid = this._validateImportPayload(payload);
-    if (!valid.ok) {
-      return { ok: false, error: valid.reason };
+    if (!data || typeof data !== 'object') {
+      return { ok: false, written: 0, removed: 0, errors: ['Invalid backup: missing "data" object.'] };
     }
 
-    const migrated = this._migratePayload(payload);
-    const incoming = migrated.data || {};
+    const incomingKeys = Object.keys(data);
+    let removed = 0;
+    let written = 0;
 
-    // Only accept keys we know about (prevents random storage injection)
-    const allowedKeys = new Set(Object.values(this.KEYS));
+    if (mode === 'replace') {
+      // Only remove keys that look like VMQ keys by default,
+      // *unless* the backup explicitly includes broader keys.
+      const toRemove = new Set(this.listLikelyVMQKeys());
+      incomingKeys.forEach((k) => toRemove.add(k));
 
-    const result = { ok: true, applied: [], skipped: [], warnings: [] };
-
-    for (const [key, value] of Object.entries(incoming)) {
-      if (!allowedKeys.has(key)) {
-        result.skipped.push(key);
-        continue;
-      }
-
-      if (options.overwrite) {
-        const ok = this._setRaw(key, safeStringifyJSON(value, 'null'));
-        if (ok) result.applied.push(key);
-        else result.skipped.push(key);
-        if (ok && options.emitEvents) this._emitChange(key, value);
-        continue;
-      }
-
-      if (options.merge && isPlainObject(value)) {
-        const prev = this.getJSON(key, {});
-        const next = deepMerge(isPlainObject(prev) ? prev : {}, value);
-        const ok = this._setRaw(key, safeStringifyJSON(next, 'null'));
-        if (ok) result.applied.push(key);
-        else result.skipped.push(key);
-        if (ok && options.emitEvents) this._emitChange(key, next);
-      } else {
-        const ok = this._setRaw(key, safeStringifyJSON(value, 'null'));
-        if (ok) result.applied.push(key);
-        else result.skipped.push(key);
-        if (ok && options.emitEvents) this._emitChange(key, value);
-      }
-    }
-
-    // Save schema meta
-    this.setJSON(this.KEYS.SCHEMA_META, {
-      importedAt: isoNow(),
-      schemaVersion: migrated.schemaVersion,
-      namespace: migrated.namespace || this.namespace
-    });
-
-    return result;
-  }
-
-  /* ---------------------------------------------------------
-     Events / subscriptions
-     --------------------------------------------------------- */
-
-  _emitChange(key, value) {
-    // 1) internal subscribers
-    for (const fn of this._listeners) {
-      try { fn({ key, value }); } catch {}
-    }
-
-    // 2) window event (lets UI listen without tight coupling)
-    try {
-      window.dispatchEvent(new CustomEvent('vmq-data-changed', {
-        detail: { key, value, ts: Date.now() }
-      }));
-    } catch {}
-  }
-
-  /**
-   * Subscribe to changes.
-   * @param {(evt:{key:string,value:any})=>void} handler
-   * @returns {()=>void} unsubscribe
-   */
-  onChange(handler) {
-    if (typeof handler !== 'function') return () => {};
-    this._listeners.add(handler);
-    return () => this._listeners.delete(handler);
-  }
-
-  /* ---------------------------------------------------------
-     Diagnostics / maintenance
-     --------------------------------------------------------- */
-
-  /**
-   * Returns a snapshot of what keys exist + sizes.
-   */
-  inspect() {
-    const report = { namespace: this.namespace, schemaVersion: this.schemaVersion, keys: [] };
-
-    for (const k of Object.values(this.KEYS)) {
-      const raw = this._getRaw(k);
-      report.keys.push({
-        key: k,
-        exists: raw != null,
-        bytes: raw ? raw.length : 0
+      toRemove.forEach((k) => {
+        const ok = removeLocalStorageKey(k);
+        if (ok) removed++;
       });
     }
-    return report;
+
+    incomingKeys.forEach((k) => {
+      const v = data[k];
+      // Backup stores values as strings (localStorage values), but accept objects too.
+      let toStore = v;
+      if (typeof v !== 'string') {
+        const s = safeJSONStringify(v);
+        if (!s.ok) {
+          errors.push(`Could not stringify value for key "${k}".`);
+          return;
+        }
+        toStore = s.value;
+      }
+      const ok = writeLocalStorageKey(k, toStore);
+      if (ok) written++;
+      else errors.push(`Failed to write key "${k}" (storage quota or blocked).`);
+    });
+
+    return { ok: errors.length === 0, written, removed, errors };
   }
 
   /**
-   * Clear all VMQ keys (only those in KEYS). Safe reset.
+   * Clear selected keys.
+   * @param {string[]} keys
    */
-  clearAll() {
-    const cleared = [];
-    for (const k of Object.values(this.KEYS)) {
-      const ok = this._removeRaw(k);
-      if (ok) cleared.push(k);
-    }
-    // Emit one broad event
-    try {
-      window.dispatchEvent(new CustomEvent('vmq-data-cleared', {
-        detail: { keys: cleared, ts: Date.now() }
-      }));
-    } catch {}
-    return { ok: true, cleared };
+  clear(keys) {
+    const selected = Array.isArray(keys) ? keys : [];
+    let removed = 0;
+    const errors = [];
+    selected.forEach((k) => {
+      const ok = removeLocalStorageKey(k);
+      if (ok) removed++;
+      else errors.push(`Failed to remove "${k}".`);
+    });
+    return { ok: errors.length === 0, removed, errors };
+  }
+
+  /**
+   * Quick storage report.
+   */
+  report(keys = null) {
+    const list = (Array.isArray(keys) && keys.length) ? keys : this.listKeys();
+    const rows = list.map((k) => {
+      const v = readLocalStorageKey(k) || '';
+      return { key: k, bytes: approxBytes(v) + approxBytes(k) };
+    });
+    const total = rows.reduce((sum, r) => sum + r.bytes, 0);
+    return {
+      totalBytes: total,
+      totalHuman: humanBytes(total),
+      items: rows.sort((a, b) => b.bytes - a.bytes)
+    };
   }
 }
 
-/** Singleton instance (most modules prefer this) */
-const dataManager = new DataManager();
+/* =========================================================
+   UI Component (Route Page)
+   ========================================================= */
 
-/** Default export for convenience */
-export default dataManager;
+function StatusBar({ kind, text }) {
+  const cls = `status ${kind || 'muted'} small`;
+  return h('div', { className: cls, role: 'status', 'aria-live': 'polite' }, text || '');
+}
+
+function SectionTitle({ children }) {
+  return h('h2', { style: { margin: '0 0 0.5rem 0' } }, children);
+}
+
+function MonoBlock({ value, rows = 10, onChange, placeholder }) {
+  return h('textarea', {
+    className: 'mono',
+    value: value || '',
+    placeholder: placeholder || '',
+    rows,
+    style: {
+      width: '100%',
+      padding: '0.75rem',
+      borderRadius: '12px',
+      resize: 'vertical'
+    },
+    onChange: (e) => onChange?.(e.target.value)
+  });
+}
+
+function KeyRow({ k, sizeHuman, checked, onToggle }) {
+  return h('label', {
+    className: 'row',
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '0.75rem',
+      padding: '0.5rem 0'
+    }
+  }, [
+    h('span', { style: { display: 'flex', alignItems: 'center', gap: '0.6rem' } }, [
+      h('input', {
+        type: 'checkbox',
+        checked: !!checked,
+        onChange: () => onToggle?.(k),
+        style: { transform: 'scale(1.15)' }
+      }),
+      h('span', { className: 'mono', style: { fontSize: '0.95rem' } }, k)
+    ]),
+    h('span', { className: 'muted small', style: { whiteSpace: 'nowrap' } }, sizeHuman)
+  ]);
+}
+
+function getVMQVersionGuess() {
+  // Best-effort. Some apps set window.VMQ.version or similar.
+  const v = (window.VMQ?.version || window.VMQ?.VERSION || window.__VMQ_VERSION__);
+  return v ? String(v) : 'unknown';
+}
+
+function buildDefaultFilename() {
+  const date = nowISO().replace(/[:.]/g, '-');
+  return `vmq-backup-${date}.json`;
+}
+
+function DataManagerRoute() {
+  const dmRef = useRef(null);
+  if (!dmRef.current) dmRef.current = new DataManager({ namespace: 'vmq' });
+
+  const [allKeys, setAllKeys] = useState([]);
+  const [onlyVMQ, setOnlyVMQ] = useState(true);
+
+  const [selected, setSelected] = useState(() => new Set());
+  const [status, setStatus] = useState({ kind: 'muted', text: 'Ready.' });
+
+  const [mode, setMode] = useState('merge'); // merge | replace
+  const [backupText, setBackupText] = useState('');
+  const [lastExport, setLastExport] = useState(null);
+
+  const [search, setSearch] = useState('');
+
+  const refreshKeys = useCallback(() => {
+    const keys = getLocalStorageKeys();
+    setAllKeys(keys);
+  }, []);
+
+  useEffect(() => {
+    refreshKeys();
+  }, [refreshKeys]);
+
+  const visibleKeys = useMemo(() => {
+    const base = onlyVMQ ? allKeys.filter(isLikelyVMQKey) : allKeys.slice();
+    const q = search.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((k) => String(k).toLowerCase().includes(q));
+  }, [allKeys, onlyVMQ, search]);
+
+  const keySizes = useMemo(() => {
+    const map = new Map();
+    visibleKeys.forEach((k) => {
+      const v = readLocalStorageKey(k) || '';
+      const b = approxBytes(v) + approxBytes(k);
+      map.set(k, { bytes: b, human: humanBytes(b) });
+    });
+    return map;
+  }, [visibleKeys]);
+
+  const report = useMemo(() => {
+    const keys = Array.from(selected);
+    const r = dmRef.current.report(keys.length ? keys : (onlyVMQ ? dmRef.current.listLikelyVMQKeys() : dmRef.current.listKeys()));
+    return r;
+  }, [selected, onlyVMQ]);
+
+  const selectedCount = selected.size;
+
+  const toggleKey = useCallback((k) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  }, []);
+
+  const selectAllVisible = useCallback(() => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      visibleKeys.forEach((k) => next.add(k));
+      return next;
+    });
+    setStatus({ kind: 'ok', text: `Selected ${visibleKeys.length} keys.` });
+  }, [visibleKeys]);
+
+  const clearSelection = useCallback(() => {
+    setSelected(new Set());
+    setStatus({ kind: 'muted', text: 'Selection cleared.' });
+  }, []);
+
+  const exportSelected = useCallback(() => {
+    const keys = Array.from(selected);
+    if (!keys.length) {
+      setStatus({ kind: 'warn', text: 'Select at least one key to export.' });
+      return;
+    }
+    const backup = dmRef.current.export(keys, {
+      version: getVMQVersionGuess(),
+      exportedFrom: window.location.href
+    });
+
+    const s = safeJSONStringify(backup, 2);
+    if (!s.ok) {
+      setStatus({ kind: 'danger', text: 'Export failed: could not serialize backup.' });
+      return;
+    }
+
+    setLastExport(backup);
+    setBackupText(s.value);
+    setStatus({ kind: 'ok', text: `Exported ${backup.meta.keyCount} keys (${humanBytes(backup.meta.approxBytes)}).` });
+
+    // Let the app know something happened (harmless if nobody listens)
+    window.dispatchEvent(new CustomEvent('vmq-data-exported', { detail: backup.meta }));
+  }, [selected]);
+
+  const downloadBackup = useCallback(() => {
+    if (!backupText.trim()) {
+      setStatus({ kind: 'warn', text: 'Nothing to download yet. Export first.' });
+      return;
+    }
+    downloadTextFile(buildDefaultFilename(), backupText, 'application/json');
+    setStatus({ kind: 'ok', text: 'Backup downloaded.' });
+  }, [backupText]);
+
+  const copyBackup = useCallback(async () => {
+    if (!backupText.trim()) {
+      setStatus({ kind: 'warn', text: 'Nothing to copy yet. Export first.' });
+      return;
+    }
+    try {
+      const ok = await copyToClipboard(backupText);
+      setStatus({ kind: ok ? 'ok' : 'warn', text: ok ? 'Backup copied to clipboard.' : 'Copy failed (browser restriction).' });
+    } catch (e) {
+      setStatus({ kind: 'warn', text: `Copy failed: ${String(e?.message || e)}` });
+    }
+  }, [backupText]);
+
+  const importFromText = useCallback(() => {
+    const raw = backupText.trim();
+    if (!raw) {
+      setStatus({ kind: 'warn', text: 'Paste a backup JSON first.' });
+      return;
+    }
+
+    const parsed = safeJSONParse(raw);
+    if (!parsed.ok) {
+      setStatus({ kind: 'danger', text: 'Invalid JSON. Paste a valid VMQ backup.' });
+      return;
+    }
+
+    const result = dmRef.current.import(parsed.value, mode);
+    if (!result.ok) {
+      setStatus({ kind: 'warn', text: `Import completed with issues. Written: ${result.written}. Errors: ${result.errors.length}` });
+    } else {
+      setStatus({ kind: 'ok', text: `Import successful. Written: ${result.written}${mode === 'replace' ? `, removed: ${result.removed}` : ''}.` });
+    }
+
+    refreshKeys();
+    window.dispatchEvent(new CustomEvent('vmq-data-imported', { detail: { mode, ...result } }));
+  }, [backupText, mode, refreshKeys]);
+
+  const clearSelected = useCallback(() => {
+    const keys = Array.from(selected);
+    if (!keys.length) {
+      setStatus({ kind: 'warn', text: 'Select at least one key to clear.' });
+      return;
+    }
+    const confirmMsg = `Delete ${keys.length} selected key(s) from this device? This cannot be undone.`;
+    // iOS-friendly confirm
+    if (!window.confirm(confirmMsg)) return;
+
+    const res = dmRef.current.clear(keys);
+    if (res.ok) setStatus({ kind: 'ok', text: `Removed ${res.removed} key(s).` });
+    else setStatus({ kind: 'warn', text: `Removed ${res.removed} key(s) with issues: ${res.errors.length} error(s).` });
+
+    setSelected(new Set());
+    refreshKeys();
+    window.dispatchEvent(new CustomEvent('vmq-data-cleared', { detail: res }));
+  }, [selected, refreshKeys]);
+
+  const handleFilePick = useCallback((file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || '');
+      setBackupText(text);
+      setStatus({ kind: 'ok', text: `Loaded file "${file.name}" (${humanBytes(approxBytes(text))}). Ready to import.` });
+    };
+    reader.onerror = () => {
+      setStatus({ kind: 'danger', text: 'Could not read file.' });
+    };
+    reader.readAsText(file);
+  }, []);
+
+  return h('main', { className: 'module-container' }, [
+
+    h('div', { className: 'module-header elevated' }, [
+      h('div', { style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' } }, [
+        h('div', null, [
+          h('h1', { style: { margin: 0 } }, 'Data Manager'),
+          h('p', { className: 'muted', style: { margin: '0.25rem 0 0 0' } },
+            'Export, backup, import, and clear VMQ data stored on this device.'
+          )
+        ]),
+        h('div', { style: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } }, [
+          h('button', { className: 'btn btn-secondary', type: 'button', onClick: refreshKeys }, 'Refresh'),
+          h('button', { className: 'btn btn-secondary', type: 'button', onClick: () => window.history.back() }, 'Back')
+        ])
+      ])
+    ]),
+
+    h('div', { className: 'card elevated', style: { marginTop: '1rem' } }, [
+      SectionTitle({ children: 'Key Discovery' }),
+
+      h('div', { className: 'row', style: { display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' } }, [
+        h('label', { style: { display: 'flex', alignItems: 'center', gap: '0.5rem' } }, [
+          h('input', {
+            type: 'checkbox',
+            checked: onlyVMQ,
+            onChange: (e) => setOnlyVMQ(!!e.target.checked)
+          }),
+          h('span', null, 'Show VMQ keys only (recommended)')
+        ]),
+        h('div', { style: { flex: '1 1 240px' } }, [
+          h('input', {
+            type: 'text',
+            value: search,
+            onChange: (e) => setSearch(e.target.value),
+            placeholder: 'Filter keys (type to search)…',
+            className: 'note-input',
+            style: { width: '100%' }
+          })
+        ])
+      ]),
+
+      h('p', { className: 'muted small', style: { marginTop: '0.75rem' } },
+        `Visible keys: ${visibleKeys.length} • Selected: ${selectedCount} • Approx size (selected or VMQ default): ${report.totalHuman}`
+      ),
+
+      h('div', { className: 'row', style: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' } }, [
+        h('button', { className: 'btn btn-primary', type: 'button', onClick: selectAllVisible }, 'Select All Visible'),
+        h('button', { className: 'btn btn-secondary', type: 'button', onClick: clearSelection }, 'Clear Selection'),
+        h('button', { className: 'btn btn-secondary', type: 'button', onClick: clearSelected }, 'Delete Selected')
+      ]),
+
+      h('hr', { style: { margin: '1rem 0', opacity: 0.25 } }),
+
+      h('div', {
+        style: {
+          maxHeight: '38vh',
+          overflow: 'auto',
+          paddingRight: '0.25rem'
+        }
+      }, visibleKeys.length ? (
+        visibleKeys.map((k) =>
+          KeyRow({
+            k,
+            sizeHuman: keySizes.get(k)?.human || '',
+            checked: selected.has(k),
+            onToggle: toggleKey
+          })
+        )
+      ) : h('p', { className: 'muted' }, 'No keys found (try turning off “VMQ keys only”).')),
+
+      StatusBar({ kind: status.kind, text: status.text })
+    ]),
+
+    h('div', { className: 'card elevated', style: { marginTop: '1rem' } }, [
+      SectionTitle({ children: 'Export / Backup' }),
+
+      h('p', { className: 'muted small' },
+        'Export the selected keys into a JSON backup. You can download it, copy it, or paste it into a safe note.'
+      ),
+
+      h('div', { className: 'row', style: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } }, [
+        h('button', { className: 'btn btn-primary', type: 'button', onClick: exportSelected }, 'Export Selected'),
+        h('button', { className: 'btn btn-secondary', type: 'button', onClick: downloadBackup }, 'Download JSON'),
+        h('button', { className: 'btn btn-secondary', type: 'button', onClick: copyBackup }, 'Copy JSON')
+      ]),
+
+      lastExport ? h('p', { className: 'muted small', style: { marginTop: '0.75rem' } },
+        `Last export: ${lastExport.meta.keyCount} key(s), ${humanBytes(lastExport.meta.approxBytes)} • version: ${String(lastExport.meta.version || 'unknown')}`
+      ) : null,
+
+      h('div', { style: { marginTop: '0.75rem' } }, [
+        MonoBlock({
+          value: backupText,
+          onChange: setBackupText,
+          rows: 10,
+          placeholder: 'Exported backup JSON will appear here…'
+        })
+      ])
+    ]),
+
+    h('div', { className: 'card elevated', style: { marginTop: '1rem' } }, [
+      SectionTitle({ children: 'Import / Restore' }),
+
+      h('p', { className: 'muted small' },
+        'Paste a VMQ backup JSON above, or load a JSON file, then choose merge or replace and import.'
+      ),
+
+      h('div', { className: 'row', style: { display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' } }, [
+        h('label', { className: 'muted small' }, 'Import mode:'),
+        h('select', {
+          value: mode,
+          onChange: (e) => setMode(e.target.value),
+          className: 'note-input',
+          style: { maxWidth: '220px' }
+        }, [
+          h('option', { value: 'merge' }, 'Merge (recommended)'),
+          h('option', { value: 'replace' }, 'Replace VMQ keys (destructive)')
+        ]),
+
+        h('label', { className: 'btn btn-secondary', style: { display: 'inline-flex', alignItems: 'center', gap: '0.5rem' } }, [
+          h('input', {
+            type: 'file',
+            accept: 'application/json,.json',
+            style: { display: 'none' },
+            onChange: (e) => handleFilePick(e.target.files?.[0] || null)
+          }),
+          'Load JSON File…'
+        ]),
+
+        h('button', { className: 'btn btn-primary', type: 'button', onClick: importFromText }, 'Import Now')
+      ]),
+
+      h('details', { style: { marginTop: '0.75rem' } }, [
+        h('summary', { className: 'muted' }, 'Import tips (iPhone-friendly)'),
+        h('div', { className: 'muted small', style: { marginTop: '0.5rem', lineHeight: 1.4 } }, [
+          h('p', null, '• If clipboard paste is flaky, use “Load JSON File…” from Files app.'),
+          h('p', null, '• Use Merge unless you truly want to wipe VMQ keys and replace them.'),
+          h('p', null, '• After importing, go back to Home and refresh/reload the app if you don’t see changes immediately.')
+        ])
+      ])
+    ]),
+
+    h('div', { className: 'card elevated', style: { marginTop: '1rem', marginBottom: '2rem' } }, [
+      SectionTitle({ children: 'Storage Summary' }),
+
+      h('p', { className: 'muted small' },
+        'This is an approximate footprint based on localStorage string sizes.'
+      ),
+
+      h('div', { className: 'row', style: { display: 'flex', gap: '1rem', flexWrap: 'wrap' } }, [
+        h('div', { className: 'chip warn', style: { padding: '0.5rem 0.75rem' } },
+          `Approx size: ${report.totalHuman}`
+        ),
+        h('div', { className: 'chip', style: { padding: '0.5rem 0.75rem' } },
+          `Visible keys: ${visibleKeys.length}`
+        ),
+        h('div', { className: 'chip', style: { padding: '0.5rem 0.75rem' } },
+          `Selected keys: ${selectedCount}`
+        )
+      ]),
+
+      h('details', { style: { marginTop: '0.75rem' } }, [
+        h('summary', { className: 'muted' }, 'Largest items'),
+        h('div', { style: { marginTop: '0.5rem' } }, (
+          dmRef.current.report(onlyVMQ ? dmRef.current.listLikelyVMQKeys() : dmRef.current.listKeys())
+            .items.slice(0, 10)
+            .map((it) =>
+              h('div', { className: 'row', style: { display: 'flex', justifyContent: 'space-between', gap: '0.75rem' } }, [
+                h('span', { className: 'mono', style: { fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis' } }, it.key),
+                h('span', { className: 'muted small', style: { whiteSpace: 'nowrap' } }, humanBytes(it.bytes))
+              ])
+            )
+        ))
+      ])
+    ])
+  ]);
+}
+
+/* ---------------------------------------------------------
+   Exports for router compatibility
+   - Default export: component
+   - Named exports: DataManagerRoute + DataManager (class already exported)
+--------------------------------------------------------- */
+export default DataManagerRoute;
+export { DataManagerRoute };
