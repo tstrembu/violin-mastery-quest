@@ -1,17 +1,23 @@
 // sw.js
 // ===================================
-// VMQ SERVICE WORKER v3.0.4 (Drop-in replacement)
+// VMQ SERVICE WORKER v3.0.6 (Drop-in replacement)
 // Offline-first • Stale-While-Revalidate • Safe Prefetching (best-effort)
 // Base-path derived from registration.scope (no hardcoding)
+//
+// HARD FIXES:
+// ✅ offline.html is ONLY used for NAVIGATION requests
+// ✅ NEVER return HTML for destination: "script" / "style" / "worker"
+//     (prevents "Importing a module script failed" due to HTML cache poisoning)
+// ✅ SPA-safe navigation fallback (index.html) without serving HTML to JS/CSS/worker requests
 // ===================================
 
 /* global self, caches, indexedDB */
 
-const VMQ_VERSION = '3.0.4';
+const VMQ_VERSION = '3.0.6';
 
-const SCOPE_URL = new URL(self.registration.scope);      // e.g. https://host/violin-mastery-quest/
-const BASE_URL  = SCOPE_URL.href;                        // must end with "/"
-const BASE_PATH = SCOPE_URL.pathname;                    // e.g. "/violin-mastery-quest/"
+const SCOPE_URL = new URL(self.registration.scope); // e.g. https://host/violin-mastery-quest/
+const BASE_URL  = SCOPE_URL.href;                   // must end with "/"
+const BASE_PATH = SCOPE_URL.pathname;               // e.g. "/violin-mastery-quest/"
 const ORIGIN    = self.location.origin;
 
 const CACHE_CORE    = `vmq-core-v${VMQ_VERSION}`;
@@ -102,6 +108,7 @@ const CORE_FILES = [
   new URL('./icons/icon-192.png', BASE_URL).href,
   new URL('./icons/icon-512.png', BASE_URL).href,
 
+  // UMD externals (opaque ok)
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js'
 ];
@@ -175,13 +182,43 @@ function isSameOrigin(url) {
 }
 
 function isCacheableResponse(response) {
-  return response && response.ok && (response.type === 'basic' || response.type === 'default' || response.type === 'cors');
+  return response && response.ok && (response.type === 'basic' || response.type === 'default' || response.type === 'cors' || response.type === 'opaque');
+}
+
+function contentType(res) {
+  try { return (res.headers.get('content-type') || '').toLowerCase(); } catch { return ''; }
+}
+
+function isHtmlResponse(res) {
+  const ct = contentType(res);
+  return ct.includes('text/html');
+}
+
+function isBlockedHtmlDestination(request) {
+  // Hard requirement: never return HTML for these
+  const d = request.destination || '';
+  return d === 'script' || d === 'style' || d === 'worker';
 }
 
 function shouldCacheRuntime(request, response) {
   if (request.method !== 'GET') return false;
   if (!isCacheableResponse(response)) return false;
-  return isSameOrigin(request.url);
+  if (!isSameOrigin(request.url)) return false;
+
+  // Never cache HTML as a "module asset" response to avoid poisoning
+  // (Nav HTML is handled separately via INDEX_URL runtime)
+  if (isHtmlResponse(response) && !isNavigationRequest(request)) return false;
+
+  return true;
+}
+
+function isNavigationRequest(request) {
+  if (!request) return false;
+  if (request.mode === 'navigate') return true;
+
+  // Some browsers: destination === 'document' with HTML accept header
+  const accept = (request.headers.get('accept') || '').toLowerCase();
+  return request.destination === 'document' && accept.includes('text/html');
 }
 
 async function matchAnyCache(request) {
@@ -271,6 +308,7 @@ function resolvePrefetchURL(routeOrUrl) {
   if (/^https?:\/\//i.test(raw)) return raw;
   if (raw.startsWith('/')) return `${ORIGIN}${raw}`;
 
+  // Allow explicit JS file prefetch
   if (raw.endsWith('.js')) {
     const cleaned = raw.replace(/^\.\//, '');
     return new URL(`./${cleaned}`, BASE_URL).href;
@@ -289,6 +327,8 @@ async function prefetchURLs(urls) {
     if (!url) continue;
 
     const req = new Request(url, { method: 'GET', mode: 'cors', credentials: 'omit' });
+
+    // Search across caches to avoid duplicates
     const existing = await caches.match(req);
     if (existing) continue;
 
@@ -345,11 +385,17 @@ self.addEventListener('install', (event) => {
 
   event.waitUntil((async () => {
     try { await openIDB(); } catch {}
+
     const cache = await caches.open(CACHE_CORE);
 
+    // Add individually so one failure doesn't break install
     await Promise.all(CORE_FILES.map(async (url) => {
       try { await cache.add(url); } catch {}
     }));
+
+    // Ensure offline + index are always present
+    try { await cache.add(OFFLINE_URL); } catch {}
+    try { await cache.add(INDEX_URL); } catch {}
   })());
 });
 
@@ -379,44 +425,86 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
 
-  const isNav =
-    request.mode === 'navigate' ||
-    (request.destination === 'document' && request.headers.get('accept')?.includes('text/html'));
+  const url = new URL(request.url);
 
-  if (isNav) {
+  // Do not interfere outside our scope/origin for runtime logic
+  // (still allows cached UMD externals to be served if requested)
+  const inScope = url.href.startsWith(BASE_URL) || url.origin !== ORIGIN ? true : (url.pathname.startsWith(BASE_PATH));
+
+  // --- NAVIGATION (documents) ---
+  if (isNavigationRequest(request)) {
     event.respondWith((async () => {
+      // Network-first for navigations (fresh when online)
       try {
         const net = await fetch(request);
         mlState.isOnline = true;
 
-        if (net && net.ok) {
-          const runtime = await caches.open(CACHE_RUNTIME);
-          runtime.put(INDEX_URL, net.clone()).catch(() => {});
+        // Only accept HTML as a navigation response
+        if (net && net.ok && isHtmlResponse(net)) {
+          // Update cached INDEX_URL (SPA shell) so offline works reliably
+          try {
+            const runtime = await caches.open(CACHE_RUNTIME);
+            await runtime.put(INDEX_URL, net.clone());
+          } catch {}
           return net;
         }
       } catch {
         mlState.isOnline = false;
       }
 
+      // Offline fallback: serve cached INDEX_URL first (SPA shell)
       const cachedIndex = await caches.match(INDEX_URL);
       if (cachedIndex) return cachedIndex;
 
+      // Final fallback for nav only
       const offline = await caches.match(OFFLINE_URL);
       return offline || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
     })());
     return;
   }
 
+  // --- NON-NAV (assets / modules) ---
   event.respondWith((async () => {
+    // If not in scope and not a known cached external, just pass through
+    if (!inScope && url.origin === ORIGIN) {
+      try { return await fetch(request); } catch {
+        return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
+      }
+    }
+
+    // Cache-first
     const { response: cached, cacheName } = await matchAnyCache(request);
+
+    // HARD GUARANTEE: never return HTML for script/style/worker
+    if (cached && isBlockedHtmlDestination(request) && isHtmlResponse(cached)) {
+      // Treat as poisoned cache: ignore cached HTML and go to network
+      try {
+        const net = await fetch(request);
+        mlState.isOnline = true;
+        if (shouldCacheRuntime(request, net)) {
+          const runtime = await caches.open(CACHE_RUNTIME);
+          runtime.put(request, net.clone()).catch(() => {});
+        }
+        return net;
+      } catch {
+        mlState.isOnline = false;
+        return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
+      }
+    }
+
     if (cached) {
       recordHit(cacheName === CACHE_ML);
 
+      // SWR background update for same-origin assets
       if (isSameOrigin(request.url)) {
         event.waitUntil((async () => {
           try {
             const net = await fetch(request);
             mlState.isOnline = true;
+
+            // Do not poison caches with HTML for JS/CSS/worker
+            if (isBlockedHtmlDestination(request) && isHtmlResponse(net)) return;
+
             if (shouldCacheRuntime(request, net)) {
               const runtime = await caches.open(CACHE_RUNTIME);
               await runtime.put(request, net.clone());
@@ -430,11 +518,20 @@ self.addEventListener('fetch', (event) => {
       return cached;
     }
 
+    // Cache miss → network
     recordMiss();
 
     try {
       const net = await fetch(request);
       mlState.isOnline = true;
+
+      // Never accept HTML as response for script/style/worker
+      if (isBlockedHtmlDestination(request) && isHtmlResponse(net)) {
+        return new Response('Module load blocked (HTML returned for asset request)', {
+          status: 502,
+          headers: { 'Content-Type': 'text/plain' }
+        });
+      }
 
       if (shouldCacheRuntime(request, net)) {
         const runtime = await caches.open(CACHE_RUNTIME);
@@ -445,11 +542,7 @@ self.addEventListener('fetch', (event) => {
     } catch {
       mlState.isOnline = false;
 
-      if (request.destination === 'document') {
-        const offline = await caches.match(OFFLINE_URL);
-        return offline || new Response('Offline', { status: 503 });
-      }
-
+      // For non-nav requests, NEVER return offline.html (hard requirement)
       return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
     }
   })());
@@ -491,6 +584,7 @@ self.addEventListener('message', (event) => {
     event.waitUntil((async () => {
       await updateNavigationHistory(route);
       const preds = await predictNextRoutes(String(route || ''));
+      // Best-effort (kept intentionally conservative)
       await prefetchURLs(preds.map(p => p.route));
     })());
     return;
