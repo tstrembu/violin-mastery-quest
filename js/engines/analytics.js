@@ -1651,6 +1651,11 @@ export function exportAnalytics() {
   };
 }
 
+export function getModuleProgress(moduleKey) {
+  const stats = JSON.parse(localStorage.getItem('vmq-stats') || '{"byModule":{}}');
+  return stats?.byModule?.[moduleKey] || null;
+}
+
 // ======================================
 // Default export (keeps prior API shape)
 // ======================================
