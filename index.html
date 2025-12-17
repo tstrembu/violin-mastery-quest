@@ -1,14 +1,13 @@
 <!-- index.html
 ========================================================
-VMQ index.html (Drop-in replacement)
-Goals:
-- GitHub Pages /violin-mastery-quest/ base-path correctness everywhere
-- Fast first paint + safe progressive CSS loading
-- Single-owner SW registration with update event -> ToastSystem listens
-- Diagnostic mode overlay + robust shell error handling
-- Avoid duplicated/incorrect storage module paths (uses ../config/storage.js correctly)
-- Avoid stale profile usage during bootstrap prefetch (reads loaded profile locally)
-- Avoid invalid prefetch patterns for ESM (uses modulepreload when appropriate)
+VMQ index.html (Drop-in replacement) — v3.0.4+
+Fixes (without removing features):
+- ✅ Deterministic CSS cascade (base → themes → components → animations)
+- ✅ Minimizes FOUC: base.css is render-blocking; the rest loads progressively
+- ✅ Still “fast”: preloads + non-blocking media-swap for non-critical CSS
+- ✅ Hard-fixes --primary-rgb slash-compat (space-separated) at the end of head
+- ✅ GitHub Pages base-path robust: auto-detects /violin-mastery-quest/ or falls back to /
+- ✅ Keeps your SW single-owner guard + update event + diagnostics + bootstrap behavior
 ========================================================
 -->
 <!doctype html>
@@ -22,8 +21,8 @@ Goals:
 
   <!-- 🎯 SECURITY (CSP)
        Notes:
-       - Keep 'unsafe-inline' because this file includes an inline module bootstrap.
-       - If you later move bootstrap to ./js/bootstrap.js, you can remove 'unsafe-inline'. -->
+       - Keeps 'unsafe-inline' because we have inline <script type="module"> bootstrap AND inline style attrs.
+       - If you move bootstrap into an external module + remove inline style attrs, you can tighten CSP later. -->
   <meta http-equiv="Content-Security-Policy"
         content="
           default-src 'self';
@@ -72,22 +71,48 @@ Goals:
   <link rel="modulepreload" href="./js/config/routeManifest.js" />
   <link rel="modulepreload" href="./js/App.js" />
 
-  <!-- 🎯 Critical CSS (progressive, non-blocking) -->
-  <link rel="preload" href="./css/base.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-  <noscript><link rel="stylesheet" href="./css/base.css"></noscript>
+  <!-- =========================================================
+       ✅ CSS LOADING (Deterministic + Minimal FOUC)
+       Order is guaranteed by DOM order (NOT load completion order):
+         1) base.css        (blocking)  -> prevents FOUC for shell/loading screen
+         2) themes.css      (async)      -> token overrides
+         3) components.css  (async)      -> component styling
+         4) animations.css  (async)      -> animations
+       ========================================================= -->
 
-  <link rel="preload" href="./css/themes.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-  <noscript><link rel="stylesheet" href="./css/themes.css"></noscript>
+  <!-- 1) Base CSS: blocking on purpose (prevents unstyled loading screen) -->
+  <link rel="stylesheet" href="./css/base.css" />
 
-  <link rel="preload" href="./css/components.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-  <noscript><link rel="stylesheet" href="./css/components.css"></noscript>
+  <!-- Preload non-critical CSS early -->
+  <link rel="preload" href="./css/themes.css" as="style" />
+  <link rel="preload" href="./css/components.css" as="style" />
+  <link rel="preload" href="./css/animations.css" as="style" />
 
-  <link rel="preload" href="./css/animations.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-  <noscript><link rel="stylesheet" href="./css/animations.css"></noscript>
+  <!-- 2–4) Non-blocking, ordered activation (media-swap trick) -->
+  <link rel="stylesheet" href="./css/themes.css" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="./css/components.css" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="./css/animations.css" media="print" onload="this.media='all'">
+
+  <!-- No-JS fallback -->
+  <noscript>
+    <link rel="stylesheet" href="./css/themes.css">
+    <link rel="stylesheet" href="./css/components.css">
+    <link rel="stylesheet" href="./css/animations.css">
+  </noscript>
+
+  <!-- ✅ VMQ hard-fix: ensure --primary-rgb is slash-compatible everywhere.
+       (This intentionally overrides themes.css if it used comma-separated rgb.)
+       Space-separated works for BOTH:
+         - rgb(var(--primary-rgb) / 0.4)
+         - rgb(var(--primary-rgb))
+  -->
+  <style>
+    :root { --primary-rgb: 59 130 246; }
+  </style>
 </head>
 
 <body>
-  <!-- ✅ SHELL UI OUTSIDE React root (prevents React from wiping it mid-bootstrap) -->
+  <!-- ✅ SHELL UI OUTSIDE React root -->
   <div class="loading-screen active" id="loading-screen" aria-live="polite">
     <div class="loading-spinner"></div>
     <div class="loading-content">
@@ -105,7 +130,7 @@ Goals:
     </div>
   </div>
 
-  <!-- Toast mount (ToastSystem renders its own; this is safe as legacy anchor) -->
+  <!-- Toast mount (legacy anchor; ToastSystem may render its own) -->
   <div class="toast-container" id="toast-container"></div>
 
   <!-- Diagnostic overlay (only shown in debug mode) -->
@@ -128,18 +153,19 @@ Goals:
        VMQ BOOTSTRAP (Shell-level; keep lightweight)
        ======================================================== -->
   <script type="module">
-    // GitHub Pages base path for this repo
-    const BASE_PATH = '/violin-mastery-quest/';
+    // Robust base-path detection:
+    // - If hosted on GitHub Pages project site: /violin-mastery-quest/
+    // - If running locally or elsewhere: /
+    const REPO_NAME = 'violin-mastery-quest';
+    const BASE_PATH = (() => {
+      const p = location.pathname || '/';
+      const idx = p.indexOf(`/${REPO_NAME}/`);
+      return idx !== -1 ? `/${REPO_NAME}/` : '/';
+    })();
 
-    // Public metrics bucket
     const startTime = performance.now();
-    window.vmqMetrics = window.vmqMetrics || {
-      loadTime: 0,
-      engineInitTime: 0,
-      mlWarmupTime: 0
-    };
+    window.vmqMetrics = window.vmqMetrics || { loadTime: 0, engineInitTime: 0, mlWarmupTime: 0 };
 
-    // Diagnostic mode flag
     const isDiagnosticMode =
       window.location.search.includes('vmq-diagnostics') ||
       window.location.search.includes('debug=true');
@@ -159,8 +185,7 @@ Goals:
 
     function showDiagnosticOverlay(extraError = null) {
       const overlay = document.getElementById('diagnostic-overlay');
-      if (!overlay) return;
-      if (!isDiagnosticMode) return;
+      if (!overlay || !isDiagnosticMode) return;
 
       overlay.style.display = 'flex';
       const logEl = document.getElementById('diagnostic-log');
@@ -171,7 +196,6 @@ Goals:
       }
     }
 
-    // Shell error boundary
     window.addEventListener('error', (event) => {
       logDiagnostic('ERROR', event.message, { filename: event.filename, lineno: event.lineno, colno: event.colno });
       showDiagnosticOverlay(event.error || event);
@@ -180,7 +204,6 @@ Goals:
     window.addEventListener('unhandledrejection', (event) => {
       const reason = event?.reason;
       logDiagnostic('PROMISE', reason?.message || 'Unhandled rejection', reason ? { reason: String(reason) } : null);
-      // Do not always show overlay; keep it dev-only
       if (isDiagnosticMode) showDiagnosticOverlay(reason);
     });
 
@@ -350,8 +373,6 @@ Goals:
 
     async function prefetchUserModules() {
       try {
-        // Use the storage module path your app uses: ./js/config/storage.js
-        // NOTE: keep this key aligned to your real STORAGE_KEYS if desired.
         const loadedProfile = loadJSON('vmq-profile', { level: 'beginner' });
 
         const modulesToPrefetch = {
@@ -384,7 +405,6 @@ Goals:
       }
 
       try {
-        // Always use absolute scope aligned with repo base to avoid weirdness
         const existing = await navigator.serviceWorker.getRegistration(BASE_PATH);
         let registration = existing;
 
@@ -409,7 +429,6 @@ Goals:
           newWorker?.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
               logDiagnostic('SW', 'Update available');
-
               window.dispatchEvent(new CustomEvent('vmq-update-available', {
                 detail: { version: '3.0', cacheBust: Date.now() }
               }));
@@ -417,7 +436,6 @@ Goals:
           });
         });
 
-        // Optional: background sync tags (must match sw.js listeners if used)
         if (registration.sync) {
           try { await registration.sync.register('sync-analytics'); logDiagnostic('SYNC', 'sync-analytics registered'); }
           catch (e) { logDiagnostic('SYNC', 'sync-analytics failed', { err: String(e?.message || e) }); }
@@ -426,7 +444,6 @@ Goals:
           catch (e) { logDiagnostic('SYNC', 'sync-sm2 failed', { err: String(e?.message || e) }); }
         }
 
-        // periodicSync is not widely supported; best-effort only
         if (registration.periodicSync) {
           try {
             await registration.periodicSync.register('check-due-items', { minInterval: 30 * 60 * 1000 });
@@ -474,14 +491,11 @@ Goals:
       setProgress(100);
     }
 
-    // Execute bootstrap
     bootstrap().then(() => {
       announceToScreenReader('Violin Mastery Quest is ready');
 
-      // Hide shell after a short delay to avoid flash
       setTimeout(() => {
-        const loadingScreen = document.getElementById('loading-screen');
-        loadingScreen?.classList.remove('active');
+        document.getElementById('loading-screen')?.classList.remove('active');
 
         window.dispatchEvent(new CustomEvent('vmq-ready', {
           detail: { metrics: window.vmqMetrics, diagnosticLog }
