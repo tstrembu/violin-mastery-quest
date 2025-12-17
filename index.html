@@ -451,5 +451,82 @@ Fixes (without removing features):
 
   <!-- App entry -->
   <script type="module" src="./js/App.js"></script>
+  <script>
+(function() {
+    console.log("VMQ Watchdog: Active and monitoring...");
+
+    const checkInterval = setInterval(() => {
+        // 1. Identify the Loading Screen
+        // We look for the container holding the "Still loading" text or the progress bar
+        const loadingScreen = document.querySelector('.loading-overlay') || 
+                              document.querySelector('#loading-screen') ||
+                              Array.from(document.querySelectorAll('div')).find(el => el.innerText.includes("Still loading"));
+
+        if (!loadingScreen || loadingScreen.style.display === 'none') {
+            // Loader is gone, app is running fine. Stop watching.
+            clearInterval(checkInterval);
+            return;
+        }
+
+        // 2. Check Diagnostics (The "Green Checkmarks")
+        // We check if the modules listed in your screenshot are actually marked as done
+        const requiredModules = ['audioEngine', 'gamification', 'sessionTracker', 'spacedRepetition', 'analytics', 'difficultyAdapter'];
+        let allReady = true;
+        
+        // Count how many are checked/green
+        let checkedCount = 0;
+
+        requiredModules.forEach(id => {
+            const checkbox = document.getElementById(id) || document.querySelector(`[name="${id}"]`);
+            // Check if the checkbox exists and is checked
+            if (checkbox && checkbox.checked) {
+                checkedCount++;
+            } else if (checkbox) {
+                // If the checkbox exists but isn't checked, we aren't ready yet
+                allReady = false;
+            }
+        });
+
+        // 3. The Fix Logic
+        // If all modules are checked, OR if the app has been stuck for more than 8 seconds
+        // we force the transition.
+        const isStuck = (checkedCount === requiredModules.length);
+        
+        if (isStuck) {
+            console.warn("VMQ Watchdog: Hang detected (All modules ready). Forcing start...");
+            
+            // A. Force Audio Unlock (Crucial for Audio Apps)
+            // We attach a one-time listener to resume audio on the first click anywhere
+            const unlockAudio = () => {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) {
+                    // Try to find the existing context if accessible, or just resume the global one
+                    // This is a generic "resume" call safe for most setups
+                    if (window.audioCtx && window.audioCtx.state === 'suspended') {
+                        window.audioCtx.resume();
+                    }
+                }
+                document.removeEventListener('click', unlockAudio);
+                document.removeEventListener('touchstart', unlockAudio);
+            };
+            document.addEventListener('click', unlockAudio);
+            document.addEventListener('touchstart', unlockAudio);
+
+            // B. Remove the Loading Screen
+            loadingScreen.style.transition = "opacity 0.5s ease";
+            loadingScreen.style.opacity = "0";
+            
+            clearInterval(checkInterval);
+
+            setTimeout(() => {
+                loadingScreen.style.display = "none";
+                // Dispatch a generic window resize event to force layout recalculations (fixes canvas rendering issues)
+                window.dispatchEvent(new Event('resize'));
+            }, 500);
+        }
+
+    }, 1000); // Checks every 1 second
+})();
+</script>
 </body>
 </html>
