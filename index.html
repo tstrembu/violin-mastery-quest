@@ -157,12 +157,22 @@ Fixes (without removing features):
     window.addEventListener('error', (event) => {
       logDiagnostic('ERROR', event.message, { filename: event.filename, lineno: event.lineno, colno: event.colno });
       showDiagnosticOverlay(event.error || event);
+    window.__VMQ_LAST_ERROR__ = {
+      message: event.message,
+      stack: event?.error?.stack || '',
+      failingUrl: event.filename || extractUrl(event.message) || null
+      };
     });
 
     window.addEventListener('unhandledrejection', (event) => {
       const reason = event?.reason;
       logDiagnostic('PROMISE', reason?.message || 'Unhandled rejection', reason ? { reason: String(reason) } : null);
       if (isDiagnosticMode) showDiagnosticOverlay(reason);
+    window.__VMQ_LAST_ERROR__ = {
+      message: reason?.message || String(reason),
+      stack: reason?.stack || '',
+      failingUrl: extractUrl(reason?.message) || extractUrl(String(reason)) || null
+      };
     });
 
     document.getElementById('diagnostic-reload')?.addEventListener('click', () => window.location.reload());
@@ -435,6 +445,7 @@ Fixes (without removing features):
         // Keep shell up and show diagnostics hint (prevents “blank screen” perception)
         logDiagnostic('BOOTSTRAP', 'React mount timeout (shell retained)');
         setLoadingStatus('Still loading… If stuck, enable ?vmq-diagnostics');
+        showBootFatal('Mount timeout (React never mounted)', window.__VMQ_APP_IMPORT_ERROR__ || window.__VMQ_LAST_ERROR__ || {});
         if (isDiagnosticMode) showDiagnosticOverlay(null);
         return;
       }
