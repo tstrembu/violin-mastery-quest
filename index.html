@@ -438,7 +438,63 @@ Fixes (without removing features):
         if (isDiagnosticMode) showDiagnosticOverlay(null);
         return;
       }
+    
+        // --- VMQ "NO-DEVTOOLS" FATAL BOX (prints failing import URL on-screen) ---
+    function extractUrl(text) {
+      const s = String(text || '');
+      const m =
+        s.match(/https?:\/\/[^\s'"]+/) ||
+        s.match(/(?:\.\/|\/)js\/[^\s'"]+\.js(?:\?[^\s'"]+)?/);
+      return m ? m[0] : null;
+    }
 
+    function showBootFatal(title, info = {}) {
+      const host = document.querySelector('#loading-screen .loading-content') || document.getElementById('loading-screen');
+      if (!host) return;
+
+      let box = document.getElementById('vmq-fatal-box');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'vmq-fatal-box';
+        box.style.cssText =
+          'margin-top:12px;padding:12px;border:1px solid rgba(239,68,68,.65);' +
+          'background:rgba(239,68,68,.08);border-radius:12px;text-align:left;' +
+          'max-width:520px;word-break:break-word;font-family:ui-monospace,Menlo,monospace;font-size:12px;';
+        host.appendChild(box);
+      }
+
+      const sw =
+        ('serviceWorker' in navigator)
+          ? (navigator.serviceWorker.controller ? 'controlling' : 'not controlling')
+          : 'unsupported';
+
+      const basePath = window.__VMQ_BASE_PATH__ || '(unknown)';
+      const appUrl = window.__VMQ_APP_URL__ || '(unknown)';
+      const msg = info.message || '';
+      const url = info.failingUrl || extractUrl(msg) || extractUrl(info.stack) || extractUrl(info.reason) || '(not found)';
+
+      box.innerHTML =
+        `<div style="font-weight:800;margin-bottom:6px;">🚨 ${title}</div>` +
+        `<div><b>Failing URL:</b> ${url}</div>` +
+        `<div><b>App URL:</b> ${appUrl}</div>` +
+        `<div><b>Base path:</b> ${basePath}</div>` +
+        `<div><b>SW:</b> ${sw}</div>` +
+        (msg ? `<div style="margin-top:6px;"><b>Message:</b> ${msg}</div>` : '') +
+        (info.stack ? `<div style="margin-top:6px;white-space:pre-wrap;"><b>Stack:</b>\n${info.stack}</div>` : '');
+    }
+
+    // Capture last errors (so timeout can surface them even without ?vmq-diagnostics)
+    window.__VMQ_LAST_ERROR__ = null;
+
+    window.addEventListener('vmq-app-import-failed', (e) => {
+      window.__VMQ_LAST_ERROR__ = e.detail || null;
+      showBootFatal('App module failed to import', {
+        message: e?.detail?.message,
+        stack: e?.detail?.stack,
+        failingUrl: extractUrl(e?.detail?.message) || extractUrl(e?.detail?.stack)
+      });
+    });
+    
       // React confirmed mount
       document.getElementById('loading-screen')?.classList.remove('active');
       window.dispatchEvent(new CustomEvent('vmq-ready', { detail: { metrics: window.vmqMetrics, diagnosticLog } }));
