@@ -269,22 +269,96 @@ Fixes (without removing features):
     }
 
     // ------------------------------------------------------------
-    // Start App import ASAP (after React UMD is available)
+    // Start App import ASAP (preflight dependency probe + SW reset)
     // ------------------------------------------------------------
     {
       const appUrl = new URL('./js/App.js', BASE_URL).href;
       window.__VMQ_APP_URL__ = appUrl;
-
-      import(appUrl).catch((err) => {
+    
+      // If you add ?vmq-reset=1 it will unregister SW + clear caches, then reload clean.
+      async function hardResetOffline() {
+        try {
+          if ('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r => r.unregister()));
+          }
+          if (window.caches?.keys) {
+            const keys = await caches.keys();
+            await Promise.all(keys.map(k => caches.delete(k)));
+          }
+        } catch {}
+        const u = new URL(location.href);
+        u.searchParams.delete('vmq-reset');
+        location.href = u.href;
+      }
+    
+      if (new URL(location.href).searchParams.get('vmq-reset') === '1') {
+        await hardResetOffline();
+      }
+    
+      function extractStaticImports(jsText) {
+        const out = new Set();
+        const re1 = /import\s+[^'"]*?\s+from\s+['"]([^'"]+)['"]/g;
+        const re2 = /import\s+['"]([^'"]+)['"]/g;
+        let m;
+        while ((m = re1.exec(jsText))) out.add(m[1]);
+        while ((m = re2.exec(jsText))) out.add(m[1]);
+        return [...out];
+      }
+    
+      async function probe(url) {
+        const res = await fetch(url, { cache: 'no-store' });
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (!res.ok) return { ok: false, why: `HTTP ${res.status}`, ct };
+        if (!ct.includes('javascript') && !ct.includes('ecmascript') && !ct.includes('text/plain')) {
+          return { ok: false, why: `Bad MIME: ${ct || '(none)'}`, ct };
+        }
+        return { ok: true, why: 'ok', ct };
+      }
+    
+      async function preflight(appUrl) {
+        const appRes = await fetch(appUrl, { cache: 'no-store' });
+        const appCt = (appRes.headers.get('content-type') || '').toLowerCase();
+        if (!appRes.ok) return { failingUrl: appUrl, detail: `App.js HTTP ${appRes.status}` };
+        if (appCt.includes('text/html')) return { failingUrl: appUrl, detail: `App.js served as HTML (${appCt})` };
+    
+        const appText = await appRes.text();
+        const specs = extractStaticImports(appText)
+          .filter(s => s.startsWith('./') || s.startsWith('../') || s.startsWith('/'));
+    
+        for (const spec of specs.slice(0, 80)) {
+          const url = new URL(spec, appUrl).href;
+          const r = await probe(url);
+          if (!r.ok) return { failingUrl: url, detail: r.why, contentType: r.ct, spec };
+        }
+        return null;
+      }
+    
+      function dispatchImportFailed(err, failingUrl, extra = {}) {
         const detail = {
           appUrl,
+          failingUrl: failingUrl || null,
           message: err?.message || String(err),
           stack: err?.stack || '',
-          when: new Date().toISOString()
+          when: new Date().toISOString(),
+          ...extra
         };
         window.__VMQ_APP_IMPORT_ERROR__ = detail;
         window.dispatchEvent(new CustomEvent('vmq-app-import-failed', { detail }));
-      });
+      }
+    
+      (async () => {
+        try {
+          const fail = await preflight(appUrl);
+          if (fail) {
+            dispatchImportFailed(new Error(`Preflight failed: ${fail.detail}`), fail.failingUrl, fail);
+            return;
+          }
+          await import(appUrl);
+        } catch (err) {
+          dispatchImportFailed(err, null);
+        }
+      })();
     }
 
     // ------------------------------------------------------------
