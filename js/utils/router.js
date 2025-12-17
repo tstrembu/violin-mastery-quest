@@ -1,6 +1,6 @@
 // js/utils/router.js
 // ======================================
-// VMQ ROUTER v3.0.4 - ML-Enhanced Navigation (Corrected + Compatible)
+// VMQ ROUTER v3.0.5 - ML-Enhanced Navigation (Corrected + Compatible)
 // Predictive Prefetching + Robust Storage + Safer Engine Integration
 // ======================================
 
