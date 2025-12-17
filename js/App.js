@@ -14,7 +14,7 @@ import { audioEngine } from './engines/audioEngine.js';
 import { loadXP, updateStreak, getLevel, addXP, unlockAchievement } from './engines/gamification.js';
 import { sessionTracker } from './engines/sessionTracker.js';
 import { keyboard } from './utils/keyboard.js';
-import { a11y } from './accessibility.js';
+import { a11y } from './utils/accessibility.js';
 import { useVMQRouter, VMQ_ROUTES } from './utils/router.js';
 
 import { generateMLRecommendations } from './engines/analytics.js';
