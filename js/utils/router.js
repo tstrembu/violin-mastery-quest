@@ -499,6 +499,21 @@ export function useVMQRouter() {
     }
 
     try { a11y?.announce?.(`Navigated to ${currentRoute}`); } catch {}
+
+    // --- VMQ APP MOUNT SIGNAL (required) ---
+    // Dispatch a one-time "vmq-app-mounted" event the first time a route
+    // successfully renders. The index.html loader listens for this event to
+    // hide the splash screen. If this signal is never sent, the loading
+    // overlay remains visible indefinitely. We use a global flag to ensure
+    // the event only fires once.
+    try {
+      if (typeof window !== 'undefined' && !window.__VMQ_MOUNTED__) {
+        window.__VMQ_MOUNTED__ = true;
+        window.dispatchEvent(new Event('vmq-app-mounted'));
+      }
+    } catch {
+      // ignore
+    }
   }, [currentRoute]);
 
   const updateQueryParam = useCallback((key, value) => {
@@ -605,4 +620,40 @@ export function getCurrentRoute() {
   const raw = safeDecodeURIComponent(window.location.hash.slice(1));
   const [routePart] = (raw || VMQ_ROUTES.HOME).split('?');
   return normalizeRouteSlug(routePart || VMQ_ROUTES.HOME);
+}
+
+// -----------------------------------------------------------------------------
+// INITIAL HASH HANDLING (iOS Safari / Empty Hash)
+//
+// Force an initial route render when the page first loads. On some versions of
+// iOS Safari, the "hashchange" event does not fire on page load if there is
+// already a hash present, which can result in the router never updating the
+// current route. Additionally, if no hash is provided, default to the home
+// route. This listener runs once on the browser "load" event and either sets
+// a default hash or dispatches a synthetic hashchange event to kick the
+// router's hash listener. Wrapping in a typeof guard avoids errors during
+// server-side rendering.
+if (typeof window !== 'undefined') {
+  window.addEventListener('load', () => {
+    try {
+      const currentHash = window.location.hash || '';
+      // If there is no hash, navigate to the home route (#menu by default).
+      if (!currentHash || currentHash === '#') {
+        const homeSlug = VMQ_ROUTES.HOME || 'menu';
+        window.location.hash = `#${encodeURIComponent(homeSlug)}`;
+      } else {
+        // Ensure the router's hashchange handler runs on load. Safari may not
+        // dispatch the initial hashchange automatically, so we dispatch one
+        // manually. Wrapped in try/catch for older browsers.
+        try {
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+        } catch {
+          // Fallback: force a no-op hash update to trigger the listener.
+          window.location.hash = window.location.hash;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  });
 }
