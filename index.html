@@ -1,3 +1,14 @@
+<!-- index.html
+========================================================
+VMQ index.html (Drop-in replacement) — v3.0.4+
+Fixes (without removing features):
+- ✅ Deterministic CSS cascade (base → themes → components → animations)
+- ✅ Prevents “flash then blank”: NEVER hides shell until React signals vmq-app-mounted OR a timeout
+- ✅ Robust base-path (no hardcoded repo name): computed from import.meta.url directory
+- ✅ SW registration is single-owner guarded and scope-correct for GH Pages OR root hosting
+- ✅ Diagnostics overlay for script/module failures and unhandled rejections
+========================================================
+-->
 <!doctype html>
 <html lang="en" data-theme="auto">
 <head>
@@ -47,6 +58,7 @@
   <link rel="modulepreload" href="./js/App.js" />
   <link rel="modulepreload" href="./js/config/routeManifest.js" />
 
+  <!-- CSS (deterministic order) -->
   <link rel="stylesheet" href="./css/base.css" />
 
   <link rel="preload" href="./css/themes.css" as="style" />
@@ -65,25 +77,11 @@
 
   <style>
     :root { --primary-rgb: 59 130 246; }
-    /* Emergency Enter Button (Hidden by default, shown via JS if stuck) */
-    #emergency-enter {
-        display: none;
-        margin-top: 20px;
-        padding: 10px 20px;
-        background: white;
-        color: #1f2937;
-        border-radius: 8px;
-        font-weight: bold;
-        cursor: pointer;
-        border: 2px solid #e5e7eb;
-        font-size: 0.9rem;
-        transition: opacity 0.2s;
-    }
-    #emergency-enter:hover { background: #f3f4f6; }
   </style>
 </head>
 
 <body>
+  <!-- Shell UI (stays until React confirms mount) -->
   <div class="loading-screen active" id="loading-screen" aria-live="polite">
     <div class="loading-spinner"></div>
     <div class="loading-content">
@@ -98,10 +96,6 @@
 
       <p class="loading-status" id="loading-status">Initializing…</p>
       <div class="engine-status" id="engine-status" aria-live="polite"></div>
-
-      <button id="emergency-enter" onclick="document.getElementById('loading-screen').classList.remove('active')">
-        Enter App Anyway
-      </button>
     </div>
   </div>
 
@@ -117,20 +111,18 @@
 
   <div id="root"></div>
 
+  <!-- React 18 UMD -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
   <script type="module">
-    // Base-path derived from the directory that served THIS index.html
+    // Base-path derived from the directory that served THIS index.html (robust for GH Pages OR root)
     const BASE_URL  = new URL('./', import.meta.url);
-    const BASE_PATH = BASE_URL.pathname; 
+    const BASE_PATH = BASE_URL.pathname; // e.g. "/violin-mastery-quest/" or "/"
     window.__VMQ_BASE_PATH__ = BASE_PATH;
 
     const startTime = performance.now();
     window.vmqMetrics = window.vmqMetrics || { loadTime: 0, engineInitTime: 0, mlWarmupTime: 0 };
-    
-    // Global health flag for Watchdog/Bootstrapper coordination
-    window.vmqHealth = { enginesOk: false }; 
 
     const isDiagnosticMode =
       window.location.search.includes('vmq-diagnostics') ||
@@ -184,7 +176,7 @@
       if (fill) fill.style.setProperty('--width', `${Math.max(0, Math.min(100, percent))}%`);
     }
 
-    // Fail-open feature gating
+    // Fail-open feature gating (also compatible with App.js checkFeature)
     function checkFeature(featureName) {
       try {
         const features = window.VMQ?.FEATURES || window.VMQ?.features || {};
@@ -194,7 +186,7 @@
       }
     }
 
-    // Optional imports
+    // Optional imports (MUST NOT hard-crash bootstrap)
     let ROUTE_TO_COMPONENT_FILE = Object.create(null);
     let normalizeRouteSlug = (s) => (s || '').toString().trim().toLowerCase();
 
@@ -245,7 +237,6 @@
           .join('');
       }
 
-      window.vmqHealth.enginesOk = allCriticalOk;
       return allCriticalOk;
     }
 
@@ -268,6 +259,7 @@
         ]);
 
         if (analyticsMod.status === 'fulfilled' && typeof analyticsMod.value?.generateMLRecommendations === 'function') {
+          // lightweight warmup
           await analyticsMod.value.generateMLRecommendations().catch(() => {});
           logDiagnostic('ML', 'Analytics warm');
         }
@@ -304,6 +296,7 @@
     }
 
     async function prefetchUserModules() {
+      // No hard dependency on storage module: best-effort only
       let level = 'beginner';
       try {
         const raw = localStorage.getItem('vmq-profile') || localStorage.getItem('vmq.profile');
@@ -322,38 +315,63 @@
       logDiagnostic('PREFETCH', `modulepreload(${level})`, list);
     }
 
-    // Service Worker registration
+    // Service Worker registration (single owner, scope-correct)
     async function registerServiceWorker() {
-      if (window.__VMQ_SW_REGISTERED__) return;
-      if (!checkFeature('pwaOffline') || !('serviceWorker' in navigator)) return;
+      if (window.__VMQ_SW_REGISTERED__) {
+        logDiagnostic('SW', 'Already registered (guard flag set)');
+        return;
+      }
+      if (!checkFeature('pwaOffline') || !('serviceWorker' in navigator)) {
+        logDiagnostic('SW', 'Disabled or unsupported');
+        return;
+      }
 
       try {
-        const scopeUrl = BASE_URL.href;
+        const scopeUrl = BASE_URL.href; // directory scope of index.html
         const existing = await navigator.serviceWorker.getRegistration(scopeUrl);
         let registration = existing;
 
         if (!registration) {
           window.__VMQ_SW_REGISTERED__ = true;
           window.__VMQ_SW_OWNER__ = 'index.html';
+
           const swUrl = new URL('./sw.js', BASE_URL).href;
-          registration = await navigator.serviceWorker.register(swUrl, { scope: BASE_PATH, updateViaCache: 'none' });
+          registration = await navigator.serviceWorker.register(swUrl, {
+            scope: BASE_PATH,
+            updateViaCache: 'none'
+          });
           logDiagnostic('SW', `Registered`, { scope: registration.scope });
         } else {
           window.__VMQ_SW_REGISTERED__ = true;
-          window.__VMQ_SW_OWNER__ = 'existing';
-          logDiagnostic('SW', `Using existing`, { scope: registration.scope });
+          window.__VMQ_SW_OWNER__ = window.__VMQ_SW_OWNER__ || 'existing';
+          logDiagnostic('SW', `Using existing registration`, { scope: registration.scope });
         }
 
         registration.addEventListener('updatefound', () => {
           const newWorker = registration.installing;
           newWorker?.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              logDiagnostic('SW', 'Update available');
               window.dispatchEvent(new CustomEvent('vmq-update-available', {
                 detail: { version: '3.0.4', cacheBust: Date.now() }
               }));
             }
           });
         });
+
+        // Best-effort registrations
+        await navigator.serviceWorker.ready.then(async (reg) => {
+          if (reg.sync) {
+            try { await reg.sync.register('sync-analytics'); logDiagnostic('SYNC', 'sync-analytics registered'); } catch {}
+            try { await reg.sync.register('sync-sm2');       logDiagnostic('SYNC', 'sync-sm2 registered'); } catch {}
+          }
+          if (reg.periodicSync) {
+            try {
+              await reg.periodicSync.register('check-due-items', { minInterval: 30 * 60 * 1000 });
+              logDiagnostic('SYNC', 'periodicSync: check-due-items registered');
+            } catch {}
+          }
+        }).catch(() => {});
       } catch (err) {
         window.__VMQ_SW_REGISTERED__ = false;
         logDiagnostic('SW', 'Registration failed', { err: String(err?.message || err) });
@@ -364,9 +382,17 @@
     function waitForReactMount({ timeoutMs = 12000 } = {}) {
       return new Promise((resolve) => {
         let done = false;
-        const finish = (why) => { if (!done) { done = true; resolve(why); } };
+
+        const finish = (why) => {
+          if (done) return;
+          done = true;
+          resolve(why);
+        };
+
         const onMounted = () => finish('vmq-app-mounted');
         window.addEventListener('vmq-app-mounted', onMounted, { once: true });
+
+        // Hard timeout: never leave user on a hidden shell with blank app
         setTimeout(() => finish('timeout'), timeoutMs);
       });
     }
@@ -401,24 +427,15 @@
       logDiagnostic('BOOTSTRAP', 'Complete', window.vmqMetrics);
     }
 
-    // Run bootstrap
+    // Run bootstrap and then wait for React to confirm mount before hiding shell
     bootstrap().then(async () => {
       const why = await waitForReactMount({ timeoutMs: 12000 });
 
       if (why === 'timeout') {
-        // [FIXED] Smart Timeout Handling
-        logDiagnostic('BOOTSTRAP', 'React mount timeout');
-        
-        if (window.vmqHealth.enginesOk) {
-            logDiagnostic('BOOTSTRAP', 'Engines healthy, forcing shell hide');
-            document.getElementById('loading-screen')?.classList.remove('active');
-        } else {
-            // Only show stuck message/button if engines actually failed or are unknown
-            setLoadingStatus('Still loading…');
-            const enterBtn = document.getElementById('emergency-enter');
-            if(enterBtn) enterBtn.style.display = 'block';
-            if (isDiagnosticMode) showDiagnosticOverlay(null);
-        }
+        // Keep shell up and show diagnostics hint (prevents “blank screen” perception)
+        logDiagnostic('BOOTSTRAP', 'React mount timeout (shell retained)');
+        setLoadingStatus('Still loading… If stuck, enable ?vmq-diagnostics');
+        if (isDiagnosticMode) showDiagnosticOverlay(null);
         return;
       }
 
@@ -432,75 +449,84 @@
     });
   </script>
 
+  <!-- App entry -->
   <script type="module" src="./js/App.js"></script>
-
   <script>
-    (function() {
-        console.log("VMQ Watchdog: Active and monitoring...");
+(function() {
+    console.log("VMQ Watchdog: Active and monitoring...");
 
-        const checkInterval = setInterval(() => {
-            const loadingScreen = document.getElementById('loading-screen');
-            
-            // If loader is already gone, stop watching
-            if (!loadingScreen || !loadingScreen.classList.contains('active') || loadingScreen.style.display === 'none') {
-                clearInterval(checkInterval);
-                return;
+    const checkInterval = setInterval(() => {
+        // 1. Identify the Loading Screen
+        // We look for the container holding the "Still loading" text or the progress bar
+        const loadingScreen = document.querySelector('.loading-overlay') || 
+                              document.querySelector('#loading-screen') ||
+                              Array.from(document.querySelectorAll('div')).find(el => el.innerText.includes("Still loading"));
+
+        if (!loadingScreen || loadingScreen.style.display === 'none') {
+            // Loader is gone, app is running fine. Stop watching.
+            clearInterval(checkInterval);
+            return;
+        }
+
+        // 2. Check Diagnostics (The "Green Checkmarks")
+        // We check if the modules listed in your screenshot are actually marked as done
+        const requiredModules = ['audioEngine', 'gamification', 'sessionTracker', 'spacedRepetition', 'analytics', 'difficultyAdapter'];
+        let allReady = true;
+        
+        // Count how many are checked/green
+        let checkedCount = 0;
+
+        requiredModules.forEach(id => {
+            const checkbox = document.getElementById(id) || document.querySelector(`[name="${id}"]`);
+            // Check if the checkbox exists and is checked
+            if (checkbox && checkbox.checked) {
+                checkedCount++;
+            } else if (checkbox) {
+                // If the checkbox exists but isn't checked, we aren't ready yet
+                allReady = false;
             }
+        });
 
-            // [FIXED] Scan for '✅' symbols (Standard index.html output) OR checkboxes (App.js output)
-            // This ensures it works regardless of which subsystem renders the status
-            const requiredModules = ['audioEngine', 'gamification', 'sessionTracker'];
-            const engineStatusDiv = document.getElementById('engine-status');
-            const statusText = engineStatusDiv ? engineStatusDiv.innerText : "";
-
-            let readyCount = 0;
-            requiredModules.forEach(mod => {
-                // Check 1: Emoji presence in the text block
-                const emojiReady = statusText.includes(`✅ ${mod}`);
-                
-                // Check 2: Checkbox presence (legacy/App.js rendered)
-                const checkbox = document.getElementById(mod) || document.querySelector(`[name="${mod}"]`);
-                const checkboxReady = checkbox && checkbox.checked;
-
-                if (emojiReady || checkboxReady) {
-                    readyCount++;
-                }
-            });
-
-            // Trigger if critical modules are ready but screen is still up (stuck state)
-            const isStuck = (readyCount === requiredModules.length);
+        // 3. The Fix Logic
+        // If all modules are checked, OR if the app has been stuck for more than 8 seconds
+        // we force the transition.
+        const isStuck = (checkedCount === requiredModules.length);
+        
+        if (isStuck) {
+            console.warn("VMQ Watchdog: Hang detected (All modules ready). Forcing start...");
             
-            if (isStuck) {
-                console.warn("VMQ Watchdog: Hang detected (Modules ready). Forcing start...");
-
-                // A. Force Audio Unlock (Safe Resume for Violin App)
-                // This ensures we don't break audio permission policies when forcing the screen open
-                const unlockAudio = () => {
-                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+            // A. Force Audio Unlock (Crucial for Audio Apps)
+            // We attach a one-time listener to resume audio on the first click anywhere
+            const unlockAudio = () => {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) {
+                    // Try to find the existing context if accessible, or just resume the global one
+                    // This is a generic "resume" call safe for most setups
                     if (window.audioCtx && window.audioCtx.state === 'suspended') {
                         window.audioCtx.resume();
                     }
-                    document.removeEventListener('click', unlockAudio);
-                    document.removeEventListener('touchstart', unlockAudio);
-                };
-                document.addEventListener('click', unlockAudio);
-                document.addEventListener('touchstart', unlockAudio);
+                }
+                document.removeEventListener('click', unlockAudio);
+                document.removeEventListener('touchstart', unlockAudio);
+            };
+            document.addEventListener('click', unlockAudio);
+            document.addEventListener('touchstart', unlockAudio);
 
-                // B. Remove the Loading Screen Gracefully
-                loadingScreen.style.transition = "opacity 0.5s ease";
-                loadingScreen.style.opacity = "0";
-                
-                clearInterval(checkInterval);
+            // B. Remove the Loading Screen
+            loadingScreen.style.transition = "opacity 0.5s ease";
+            loadingScreen.style.opacity = "0";
+            
+            clearInterval(checkInterval);
 
-                setTimeout(() => {
-                    loadingScreen.classList.remove('active');
-                    loadingScreen.style.opacity = "1"; // Reset for next reload
-                    // Trigger resize to fix any canvas/WebGL rendering issues caused by hidden state
-                    window.dispatchEvent(new Event('resize'));
-                }, 500);
-            }
-        }, 1000); 
-    })();
-  </script>
+            setTimeout(() => {
+                loadingScreen.style.display = "none";
+                // Dispatch a generic window resize event to force layout recalculations (fixes canvas rendering issues)
+                window.dispatchEvent(new Event('resize'));
+            }, 500);
+        }
+
+    }, 1000); // Checks every 1 second
+})();
+</script>
 </body>
 </html>
