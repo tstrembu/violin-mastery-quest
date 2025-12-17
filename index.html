@@ -3,26 +3,20 @@
 VMQ index.html (Drop-in replacement) — v3.0.4+
 Fixes (without removing features):
 - ✅ Deterministic CSS cascade (base → themes → components → animations)
-- ✅ Minimizes FOUC: base.css is render-blocking; the rest loads progressively
-- ✅ Still “fast”: preloads + non-blocking media-swap for non-critical CSS
-- ✅ Hard-fixes --primary-rgb slash-compat (space-separated) at the end of head
-- ✅ GitHub Pages base-path robust: auto-detects /violin-mastery-quest/ or falls back to /
-- ✅ Keeps your SW single-owner guard + update event + diagnostics + bootstrap behavior
+- ✅ Prevents “flash then blank”: NEVER hides shell until React signals vmq-app-mounted OR a timeout
+- ✅ Robust base-path (no hardcoded repo name): computed from import.meta.url directory
+- ✅ SW registration is single-owner guarded and scope-correct for GH Pages OR root hosting
+- ✅ Diagnostics overlay for script/module failures and unhandled rejections
 ========================================================
 -->
 <!doctype html>
 <html lang="en" data-theme="auto">
 <head>
-  <!-- 🎯 PERFORMANCE (Critical Meta) -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#3b82f6" />
   <meta name="color-scheme" content="light dark" />
 
-  <!-- 🎯 SECURITY (CSP)
-       Notes:
-       - Keeps 'unsafe-inline' because we have inline <script type="module"> bootstrap AND inline style attrs.
-       - If you move bootstrap into an external module + remove inline style attrs, you can tighten CSP later. -->
   <meta http-equiv="Content-Security-Policy"
         content="
           default-src 'self';
@@ -37,82 +31,57 @@ Fixes (without removing features):
           frame-ancestors 'none';
         " />
 
-  <!-- 🎯 PWA / iOS -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Violin Mastery Quest" />
   <meta name="application-name" content="VMQ" />
 
-  <!-- 🎯 SEO + Social -->
   <meta name="description" content="Violin Mastery Quest v3 — adaptive violin training: intervals, fingerboard, scales, rhythm, SM-2, AI coach." />
   <title>Violin Mastery Quest</title>
 
-  <!-- 🎯 Open Graph -->
   <meta property="og:title" content="Violin Mastery Quest" />
   <meta property="og:description" content="Adaptive violin training: Bieler Method + spaced repetition + AI coach" />
   <meta property="og:image" content="./icons/icon-512.png" />
   <meta property="og:type" content="website" />
 
-  <!-- 🎯 PWA Manifest -->
   <link rel="manifest" href="./manifest.json" />
 
-  <!-- 🎯 Icons -->
   <link rel="icon" type="image/png" sizes="16x16" href="./icons/icon-16.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="./icons/icon-32.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="icon" type="image/png" sizes="512x512" href="./icons/icon-512.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png" />
 
-  <!-- 🎯 PERFORMANCE -->
   <link rel="preconnect" href="https://unpkg.com" crossorigin />
   <link rel="dns-prefetch" href="https://unpkg.com" />
 
-  <!-- ✅ Prefer modulepreload for ESM entrypoints -->
-  <link rel="modulepreload" href="./js/config/routeManifest.js" />
   <link rel="modulepreload" href="./js/App.js" />
+  <link rel="modulepreload" href="./js/config/routeManifest.js" />
 
-  <!-- =========================================================
-       ✅ CSS LOADING (Deterministic + Minimal FOUC)
-       Order is guaranteed by DOM order (NOT load completion order):
-         1) base.css        (blocking)  -> prevents FOUC for shell/loading screen
-         2) themes.css      (async)      -> token overrides
-         3) components.css  (async)      -> component styling
-         4) animations.css  (async)      -> animations
-       ========================================================= -->
-
-  <!-- 1) Base CSS: blocking on purpose (prevents unstyled loading screen) -->
+  <!-- CSS (deterministic order) -->
   <link rel="stylesheet" href="./css/base.css" />
 
-  <!-- Preload non-critical CSS early -->
   <link rel="preload" href="./css/themes.css" as="style" />
   <link rel="preload" href="./css/components.css" as="style" />
   <link rel="preload" href="./css/animations.css" as="style" />
 
-  <!-- 2–4) Non-blocking, ordered activation (media-swap trick) -->
   <link rel="stylesheet" href="./css/themes.css" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="./css/components.css" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="./css/animations.css" media="print" onload="this.media='all'">
 
-  <!-- No-JS fallback -->
   <noscript>
     <link rel="stylesheet" href="./css/themes.css">
     <link rel="stylesheet" href="./css/components.css">
     <link rel="stylesheet" href="./css/animations.css">
   </noscript>
 
-  <!-- ✅ VMQ hard-fix: ensure --primary-rgb is slash-compatible everywhere.
-       (This intentionally overrides themes.css if it used comma-separated rgb.)
-       Space-separated works for BOTH:
-         - rgb(var(--primary-rgb) / 0.4)
-         - rgb(var(--primary-rgb))
-  -->
   <style>
     :root { --primary-rgb: 59 130 246; }
   </style>
 </head>
 
 <body>
-  <!-- ✅ SHELL UI OUTSIDE React root -->
+  <!-- Shell UI (stays until React confirms mount) -->
   <div class="loading-screen active" id="loading-screen" aria-live="polite">
     <div class="loading-spinner"></div>
     <div class="loading-content">
@@ -130,10 +99,8 @@ Fixes (without removing features):
     </div>
   </div>
 
-  <!-- Toast mount (legacy anchor; ToastSystem may render its own) -->
   <div class="toast-container" id="toast-container"></div>
 
-  <!-- Diagnostic overlay (only shown in debug mode) -->
   <div class="diagnostic-overlay" id="diagnostic-overlay" style="display:none;">
     <div class="diagnostic-content">
       <h2>🔧 VMQ Diagnostic Mode</h2>
@@ -142,26 +109,17 @@ Fixes (without removing features):
     </div>
   </div>
 
-  <!-- ✅ React Mount Point -->
   <div id="root"></div>
 
   <!-- React 18 UMD -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
-  <!-- ========================================================
-       VMQ BOOTSTRAP (Shell-level; keep lightweight)
-       ======================================================== -->
   <script type="module">
-    // Robust base-path detection:
-    // - If hosted on GitHub Pages project site: /violin-mastery-quest/
-    // - If running locally or elsewhere: /
-    const REPO_NAME = 'violin-mastery-quest';
-    const BASE_PATH = (() => {
-      const p = location.pathname || '/';
-      const idx = p.indexOf(`/${REPO_NAME}/`);
-      return idx !== -1 ? `/${REPO_NAME}/` : '/';
-    })();
+    // Base-path derived from the directory that served THIS index.html (robust for GH Pages OR root)
+    const BASE_URL  = new URL('./', import.meta.url);
+    const BASE_PATH = BASE_URL.pathname; // e.g. "/violin-mastery-quest/" or "/"
+    window.__VMQ_BASE_PATH__ = BASE_PATH;
 
     const startTime = performance.now();
     window.vmqMetrics = window.vmqMetrics || { loadTime: 0, engineInitTime: 0, mlWarmupTime: 0 };
@@ -209,67 +167,41 @@ Fixes (without removing features):
 
     document.getElementById('diagnostic-reload')?.addEventListener('click', () => window.location.reload());
 
-    // -------------------------------
-    // Imports (ESM)
-    // -------------------------------
-    import { ROUTE_TO_COMPONENT_FILE, normalizeRouteSlug } from './js/config/routeManifest.js';
-    import { loadJSON } from './js/config/storage.js';
-
-    // -------------------------------
-    // UX helpers
-    // -------------------------------
     function setLoadingStatus(text) {
       const el = document.getElementById('loading-status');
       if (el) el.textContent = text;
     }
-
     function setProgress(percent) {
       const fill = document.getElementById('loading-progress-fill');
       if (fill) fill.style.setProperty('--width', `${Math.max(0, Math.min(100, percent))}%`);
     }
 
-    function announceToScreenReader(message) {
-      const sr = document.createElement('div');
-      sr.setAttribute('role', 'status');
-      sr.setAttribute('aria-live', 'polite');
-      sr.style.position = 'absolute';
-      sr.style.left = '-10000px';
-      sr.textContent = message;
-      document.body.appendChild(sr);
-      setTimeout(() => sr.remove(), 1000);
-    }
-
-    function adaptLoadingToConnection() {
-      const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-      if (!conn) return;
-
-      if (conn.saveData) {
-        logDiagnostic('CONNECTION', 'Data saver enabled');
-        setLoadingStatus('Optimizing for data saver…');
-      } else if (conn.effectiveType === '2g' || (conn.downlink || 0) < 1) {
-        logDiagnostic('CONNECTION', 'Slow connection detected');
-        setLoadingStatus('Slow connection, loading essentials…');
-      }
-    }
-
-    // -------------------------------
-    // Feature flags (fail-open)
-    // -------------------------------
+    // Fail-open feature gating (also compatible with App.js checkFeature)
     function checkFeature(featureName) {
       try {
         const features = window.VMQ?.FEATURES || window.VMQ?.features || {};
-        const enabled = features?.[featureName]?.enabled !== false;
-        logDiagnostic('FEATURE', `${featureName}: ${enabled ? '✅' : '❌'}`);
-        return enabled;
-      } catch (e) {
-        logDiagnostic('FEATURE', `${featureName}: ⚠️ check failed`, { err: String(e?.message || e) });
+        return features?.[featureName]?.enabled !== false;
+      } catch {
         return true;
       }
     }
 
-    // -------------------------------
-    // Engine health (degraded mode supported)
-    // -------------------------------
+    // Optional imports (MUST NOT hard-crash bootstrap)
+    let ROUTE_TO_COMPONENT_FILE = Object.create(null);
+    let normalizeRouteSlug = (s) => (s || '').toString().trim().toLowerCase();
+
+    async function tryLoadRouteManifest() {
+      try {
+        const mod = await import(new URL('./js/config/routeManifest.js', BASE_URL).href);
+        if (mod?.ROUTE_TO_COMPONENT_FILE) ROUTE_TO_COMPONENT_FILE = mod.ROUTE_TO_COMPONENT_FILE;
+        if (typeof mod?.normalizeRouteSlug === 'function') normalizeRouteSlug = mod.normalizeRouteSlug;
+        logDiagnostic('MANIFEST', 'routeManifest loaded');
+      } catch (e) {
+        logDiagnostic('MANIFEST', 'routeManifest missing/unavailable (continuing)', { err: String(e?.message || e) });
+      }
+    }
+
+    // Engine health (degraded supported)
     const requiredEngines = [
       { name: 'audioEngine',       critical: true  },
       { name: 'gamification',      critical: true  },
@@ -286,7 +218,8 @@ Fixes (without removing features):
 
       for (const e of requiredEngines) {
         try {
-          const mod = await import(`./js/engines/${e.name}.js`);
+          const modUrl = new URL(`./js/engines/${e.name}.js`, BASE_URL).href;
+          const mod = await import(modUrl);
           const ok = !!(mod && (mod.default || mod[e.name] || Object.keys(mod).length));
           status[e.name] = ok ? '✅' : '❌';
           if (!ok && e.critical) allCriticalOk = false;
@@ -307,38 +240,33 @@ Fixes (without removing features):
       return allCriticalOk;
     }
 
-    // -------------------------------
     // ML warmup (best-effort)
-    // -------------------------------
     async function warmupMLModels() {
       const wantAnalytics = checkFeature('analytics');
       const wantDA = checkFeature('difficultyAdapter');
-      if (!wantAnalytics && !wantDA) {
-        logDiagnostic('ML', 'ML features disabled, skipping warmup');
-        return;
-      }
+      if (!wantAnalytics && !wantDA) return;
 
       const mlStart = performance.now();
-      logDiagnostic('ML', 'Warming up models…');
+      logDiagnostic('ML', 'Warming up…');
 
       try {
+        const analyticsUrl  = new URL('./js/engines/analytics.js', BASE_URL).href;
+        const difficultyUrl = new URL('./js/engines/difficultyAdapter.js', BASE_URL).href;
+
         const [analyticsMod, difficultyMod] = await Promise.allSettled([
-          import('./js/engines/analytics.js'),
-          import('./js/engines/difficultyAdapter.js')
+          import(analyticsUrl),
+          import(difficultyUrl)
         ]);
 
-        if (analyticsMod.status === 'fulfilled' && analyticsMod.value?.analyzePerformance) {
-          await analyticsMod.value.analyzePerformance('week', { includePredictions: false, includePatterns: true });
-          logDiagnostic('ML', 'Analytics ready');
+        if (analyticsMod.status === 'fulfilled' && typeof analyticsMod.value?.generateMLRecommendations === 'function') {
+          // lightweight warmup
+          await analyticsMod.value.generateMLRecommendations().catch(() => {});
+          logDiagnostic('ML', 'Analytics warm');
         }
 
-        if (difficultyMod.status === 'fulfilled') {
-          const m = difficultyMod.value;
-          const fn = m?.getUserLevel || m?.getDifficultyProfile || m?.default?.getUserLevel;
-          if (typeof fn === 'function') {
-            await fn();
-            logDiagnostic('ML', 'Difficulty model ready');
-          }
+        if (difficultyMod.status === 'fulfilled' && typeof difficultyMod.value?.getAdaptiveConfig === 'function') {
+          await difficultyMod.value.getAdaptiveConfig().catch(() => {});
+          logDiagnostic('ML', 'Difficulty warm');
         }
       } catch (e) {
         logDiagnostic('ML', 'Warmup failed', { err: String(e?.message || e) });
@@ -348,80 +276,75 @@ Fixes (without removing features):
       logDiagnostic('ML', `Warmup complete: ${window.vmqMetrics.mlWarmupTime}ms`);
     }
 
-    // -------------------------------
-    // Prefetch user-relevant modules (safe)
-    // -------------------------------
-    function resolveComponentHref(routeOrId) {
-      if (!routeOrId) return null;
-      const raw = String(routeOrId).replace(/^#/, '').split('?')[0].trim();
-      if (!raw) return null;
-
-      const key = normalizeRouteSlug(raw);
-      const file = ROUTE_TO_COMPONENT_FILE[key];
-      return file ? `./js/components/${file}` : null;
-    }
-
+    // Prefetch (safe)
     function modulePreload(href) {
       if (!href) return;
       if (document.head.querySelector(`link[rel="modulepreload"][href="${href}"]`)) return;
-
       const link = document.createElement('link');
       link.rel = 'modulepreload';
       link.href = href;
       document.head.appendChild(link);
     }
 
-    async function prefetchUserModules() {
-      try {
-        const loadedProfile = loadJSON('vmq-profile', { level: 'beginner' });
-
-        const modulesToPrefetch = {
-          beginner:      ['intervals', 'keys', 'rhythm'],
-          intermediate:  ['bieler', 'scales', 'fingerboard'],
-          advanced:      ['bieler', 'scales', 'flashcards']
-        };
-
-        const list = modulesToPrefetch[loadedProfile.level] || modulesToPrefetch.beginner;
-        list.forEach((id) => modulePreload(resolveComponentHref(id)));
-
-        logDiagnostic('PREFETCH', `Modulepreload for ${loadedProfile.level}`, list);
-      } catch (e) {
-        logDiagnostic('PREFETCH', 'Failed', { err: String(e?.message || e) });
-      }
+    function resolveComponentHref(routeOrId) {
+      if (!routeOrId) return null;
+      const raw = String(routeOrId).replace(/^#/, '').split('?')[0].trim();
+      if (!raw) return null;
+      const key = normalizeRouteSlug(raw);
+      const file = ROUTE_TO_COMPONENT_FILE?.[key];
+      return file ? new URL(`./js/components/${file}`, BASE_URL).href : null;
     }
 
-    // -------------------------------
-    // Service Worker registration (single owner)
-    // -------------------------------
+    async function prefetchUserModules() {
+      // No hard dependency on storage module: best-effort only
+      let level = 'beginner';
+      try {
+        const raw = localStorage.getItem('vmq-profile') || localStorage.getItem('vmq.profile');
+        const profile = raw ? JSON.parse(raw) : null;
+        if (profile?.level) level = profile.level;
+      } catch {}
+
+      const modulesToPrefetch = {
+        beginner:      ['intervals', 'keys', 'rhythm'],
+        intermediate:  ['bieler', 'scales', 'fingerboard'],
+        advanced:      ['bieler', 'scales', 'flashcards']
+      };
+
+      const list = modulesToPrefetch[level] || modulesToPrefetch.beginner;
+      list.forEach((id) => modulePreload(resolveComponentHref(id)));
+      logDiagnostic('PREFETCH', `modulepreload(${level})`, list);
+    }
+
+    // Service Worker registration (single owner, scope-correct)
     async function registerServiceWorker() {
       if (window.__VMQ_SW_REGISTERED__) {
         logDiagnostic('SW', 'Already registered (guard flag set)');
         return;
       }
-
       if (!checkFeature('pwaOffline') || !('serviceWorker' in navigator)) {
-        logDiagnostic('SW', 'Service Worker disabled or not supported');
+        logDiagnostic('SW', 'Disabled or unsupported');
         return;
       }
 
       try {
-        const existing = await navigator.serviceWorker.getRegistration(BASE_PATH);
+        const scopeUrl = BASE_URL.href; // directory scope of index.html
+        const existing = await navigator.serviceWorker.getRegistration(scopeUrl);
         let registration = existing;
 
         if (!registration) {
           window.__VMQ_SW_REGISTERED__ = true;
           window.__VMQ_SW_OWNER__ = 'index.html';
 
-          registration = await navigator.serviceWorker.register(`${BASE_PATH}sw.js`, {
+          const swUrl = new URL('./sw.js', BASE_URL).href;
+          registration = await navigator.serviceWorker.register(swUrl, {
             scope: BASE_PATH,
             updateViaCache: 'none'
           });
-
-          logDiagnostic('SW', `Registered: ${registration.scope}`);
+          logDiagnostic('SW', `Registered`, { scope: registration.scope });
         } else {
           window.__VMQ_SW_REGISTERED__ = true;
           window.__VMQ_SW_OWNER__ = window.__VMQ_SW_OWNER__ || 'existing';
-          logDiagnostic('SW', `Using existing registration: ${registration.scope}`);
+          logDiagnostic('SW', `Using existing registration`, { scope: registration.scope });
         }
 
         registration.addEventListener('updatefound', () => {
@@ -430,85 +353,103 @@ Fixes (without removing features):
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
               logDiagnostic('SW', 'Update available');
               window.dispatchEvent(new CustomEvent('vmq-update-available', {
-                detail: { version: '3.0', cacheBust: Date.now() }
+                detail: { version: '3.0.4', cacheBust: Date.now() }
               }));
             }
           });
         });
 
-        if (registration.sync) {
-          try { await registration.sync.register('sync-analytics'); logDiagnostic('SYNC', 'sync-analytics registered'); }
-          catch (e) { logDiagnostic('SYNC', 'sync-analytics failed', { err: String(e?.message || e) }); }
-
-          try { await registration.sync.register('sync-sm2'); logDiagnostic('SYNC', 'sync-sm2 registered'); }
-          catch (e) { logDiagnostic('SYNC', 'sync-sm2 failed', { err: String(e?.message || e) }); }
-        }
-
-        if (registration.periodicSync) {
-          try {
-            await registration.periodicSync.register('check-due-items', { minInterval: 30 * 60 * 1000 });
-            logDiagnostic('SYNC', 'Periodic sync registered: check-due-items');
-          } catch (e) {
-            logDiagnostic('SYNC', 'Periodic sync failed: check-due-items', { err: String(e?.message || e) });
+        // Best-effort registrations
+        await navigator.serviceWorker.ready.then(async (reg) => {
+          if (reg.sync) {
+            try { await reg.sync.register('sync-analytics'); logDiagnostic('SYNC', 'sync-analytics registered'); } catch {}
+            try { await reg.sync.register('sync-sm2');       logDiagnostic('SYNC', 'sync-sm2 registered'); } catch {}
           }
-        }
+          if (reg.periodicSync) {
+            try {
+              await reg.periodicSync.register('check-due-items', { minInterval: 30 * 60 * 1000 });
+              logDiagnostic('SYNC', 'periodicSync: check-due-items registered');
+            } catch {}
+          }
+        }).catch(() => {});
       } catch (err) {
         window.__VMQ_SW_REGISTERED__ = false;
         logDiagnostic('SW', 'Registration failed', { err: String(err?.message || err) });
       }
     }
 
-    // -------------------------------
+    // Keep shell visible until React confirms mount
+    function waitForReactMount({ timeoutMs = 12000 } = {}) {
+      return new Promise((resolve) => {
+        let done = false;
+
+        const finish = (why) => {
+          if (done) return;
+          done = true;
+          resolve(why);
+        };
+
+        const onMounted = () => finish('vmq-app-mounted');
+        window.addEventListener('vmq-app-mounted', onMounted, { once: true });
+
+        // Hard timeout: never leave user on a hidden shell with blank app
+        setTimeout(() => finish('timeout'), timeoutMs);
+      });
+    }
+
     // Bootstrap sequence
-    // -------------------------------
     async function bootstrap() {
-      logDiagnostic('BOOTSTRAP', 'Starting VMQ bootstrap');
       setProgress(10);
-      adaptLoadingToConnection();
+      setLoadingStatus('Preparing…');
+
+      await tryLoadRouteManifest();
+      setProgress(20);
 
       setLoadingStatus('Warming up…');
       await warmupMLModels();
-      setProgress(35);
+      setProgress(40);
 
       setLoadingStatus('Checking engines…');
       const criticalOk = await checkEngineHealth();
-      if (!criticalOk) {
-        logDiagnostic('BOOTSTRAP', '⚠️ Critical engines missing; continuing in degraded mode');
-        setLoadingStatus('Some features unavailable, continuing…');
-      }
-      setProgress(55);
+      if (!criticalOk) setLoadingStatus('Some features unavailable, continuing…');
+      setProgress(60);
 
-      setLoadingStatus('Preparing modules…');
+      setLoadingStatus('Prefetching…');
       await prefetchUserModules();
-      setProgress(70);
+      setProgress(75);
 
       setLoadingStatus('Enabling offline…');
       await registerServiceWorker();
       setProgress(90);
 
       window.vmqMetrics.engineInitTime = Math.round(performance.now() - startTime);
-      logDiagnostic('BOOTSTRAP', `Complete: ${window.vmqMetrics.engineInitTime}ms`);
       setProgress(100);
+      logDiagnostic('BOOTSTRAP', 'Complete', window.vmqMetrics);
     }
 
-    bootstrap().then(() => {
-      announceToScreenReader('Violin Mastery Quest is ready');
+    // Run bootstrap and then wait for React to confirm mount before hiding shell
+    bootstrap().then(async () => {
+      const why = await waitForReactMount({ timeoutMs: 12000 });
 
-      setTimeout(() => {
-        document.getElementById('loading-screen')?.classList.remove('active');
+      if (why === 'timeout') {
+        // Keep shell up and show diagnostics hint (prevents “blank screen” perception)
+        logDiagnostic('BOOTSTRAP', 'React mount timeout (shell retained)');
+        setLoadingStatus('Still loading… If stuck, enable ?vmq-diagnostics');
+        if (isDiagnosticMode) showDiagnosticOverlay(null);
+        return;
+      }
 
-        window.dispatchEvent(new CustomEvent('vmq-ready', {
-          detail: { metrics: window.vmqMetrics, diagnosticLog }
-        }));
-      }, 250);
+      // React confirmed mount
+      document.getElementById('loading-screen')?.classList.remove('active');
+      window.dispatchEvent(new CustomEvent('vmq-ready', { detail: { metrics: window.vmqMetrics, diagnosticLog } }));
     }).catch((err) => {
-      logDiagnostic('BOOTSTRAP', 'Fatal error during bootstrap', { err: String(err?.message || err) });
+      logDiagnostic('BOOTSTRAP', 'Fatal error', { err: String(err?.message || err) });
       showDiagnosticOverlay(err);
       setLoadingStatus('Error loading VMQ. Enable diagnostics for details.');
     });
   </script>
 
-  <!-- VMQ APP ENTRY -->
+  <!-- App entry -->
   <script type="module" src="./js/App.js"></script>
 </body>
 </html>
