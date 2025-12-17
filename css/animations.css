@@ -1,206 +1,338 @@
-/* animations.css */
-/* ======================================
-   VMQ ANIMATIONS v3.0.4 (Drop-in replacement)
+/* =========================================================
+   VMQ animations.css
    Purpose:
-   - Centralize animation keyframes + utility classes used across VMQ
-   - Keep naming stable + “fail-safe” if modules reference common animation names
-   - Respect prefers-reduced-motion (non-breaking)
+   - Provide motion/transition primitives used across VMQ
+   - Support common state classes (active/open/show/hidden)
+   - Animate known UI elements (loading screen, progress fill,
+     overlays, panels, toasts, status badges)
+   - Respect prefers-reduced-motion
+
    Notes:
-   - base.css already defines several keyframes (spin, pulse, shimmer, scaleIn, slideUp, pulse-glow).
-     This file re-declares a superset safely (duplicate @keyframes is OK; last one wins).
-   - Does NOT require any HTML changes.
-   ====================================== */
+   - Uses CSS variables when available; includes safe fallbacks.
+   - Avoids global rules that could break aria-hidden icons.
+   ========================================================= */
 
-/* ------------------------------------------------------
-   1) Core keyframes (safe duplicates / superset)
-   ------------------------------------------------------ */
-@keyframes spin { to { transform: rotate(360deg); } }
+/* ----------------------------
+   Motion tokens (fallbacks)
+   ---------------------------- */
+:root {
+  --vmq-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --vmq-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --vmq-ease-in: cubic-bezier(0.7, 0, 0.84, 0);
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.7; }
+  --vmq-dur-xxfast: 120ms;
+  --vmq-dur-xfast: 180ms;
+  --vmq-dur-fast: 240ms;
+  --vmq-dur-med: 320ms;
+  --vmq-dur-slow: 520ms;
+
+  /* Fallback “semantic” colors if base.css doesn’t define them */
+  --vmq-ok: var(--success, #16a34a);
+  --vmq-warn: var(--warning, #f59e0b);
+  --vmq-bad: var(--danger, #ef4444);
+  --vmq-focus: var(--primary, #3b82f6);
+
+  /* For subtle shadows if not defined elsewhere */
+  --vmq-shadow: 0 10px 30px rgba(0,0,0,0.18);
 }
 
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--primary-rgb, 59 130 246) / 0.4); }
-  50%      { box-shadow: 0 0 0 12px rgb(var(--primary-rgb, 59 130 246) / 0); }
-}
-
-@keyframes shimmer {
-  0%   { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-@keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.96); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
-@keyframes scaleOut {
-  from { opacity: 1; transform: scale(1); }
-  to   { opacity: 0; transform: scale(0.98); }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-@keyframes fadeOut {
-  from { opacity: 1; }
-  to   { opacity: 0; }
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(18px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes slideDown {
-  from { opacity: 0; transform: translateY(-14px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes slideLeft {
-  from { opacity: 0; transform: translateX(18px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes slideRight {
-  from { opacity: 0; transform: translateX(-18px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-
-/* Nice for “wrong answer” feedback / errors */
-@keyframes shakeX {
-  0%, 100% { transform: translateX(0); }
-  15%      { transform: translateX(-8px); }
-  30%      { transform: translateX(7px); }
-  45%      { transform: translateX(-6px); }
-  60%      { transform: translateX(5px); }
-  75%      { transform: translateX(-4px); }
-}
-
-/* Gentle attention grab */
-@keyframes bob {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-6px); }
-}
-
-/* “Success” pop */
-@keyframes pop {
-  0%   { transform: scale(0.92); opacity: 0; }
-  60%  { transform: scale(1.03); opacity: 1; }
-  100% { transform: scale(1); }
-}
-
-/* ------------------------------------------------------
-   2) Animation utility classes (opt-in)
-   ------------------------------------------------------ */
-
-/* Entrance helpers */
-.animate-fade-in      { animation: fadeIn var(--motion-duration-base, 250ms) var(--motion-easing, ease) both; }
-.animate-slide-up     { animation: slideUp var(--motion-duration-base, 250ms) var(--motion-easing, ease) both; }
-.animate-slide-down   { animation: slideDown var(--motion-duration-base, 250ms) var(--motion-easing, ease) both; }
-.animate-slide-left   { animation: slideLeft var(--motion-duration-base, 250ms) var(--motion-easing, ease) both; }
-.animate-slide-right  { animation: slideRight var(--motion-duration-base, 250ms) var(--motion-easing, ease) both; }
-.animate-scale-in     { animation: scaleIn var(--motion-duration-base, 250ms) var(--motion-easing, ease) both; }
-.animate-pop          { animation: pop 320ms var(--motion-easing, ease) both; }
-
-/* Exit helpers (use when modules toggle a class before removing elements) */
-.animate-fade-out     { animation: fadeOut var(--motion-duration-base, 250ms) var(--motion-easing, ease) both; }
-.animate-scale-out    { animation: scaleOut var(--motion-duration-base, 250ms) var(--motion-easing, ease) both; }
-
-/* Feedback */
-.animate-shake        { animation: shakeX 420ms var(--motion-easing, ease) both; }
-.animate-bob          { animation: bob 1.6s var(--motion-easing, ease) infinite; }
-.animate-pulse        { animation: pulse 1.8s var(--motion-easing, ease) infinite; }
-.animate-pulse-glow   { animation: pulse-glow 2.2s var(--motion-easing, ease) infinite; }
-.animate-spin         { animation: spin 0.9s linear infinite; }
-
-/* Skeleton shimmer (works with your base shimmer gradient too) */
-.animate-shimmer {
-  background-size: 200% 100%;
-  animation: shimmer 1.5s linear infinite;
-}
-
-/* Stagger helpers (nice for answer grids / lists) */
-.delay-1 { animation-delay: 50ms !important; }
-.delay-2 { animation-delay: 100ms !important; }
-.delay-3 { animation-delay: 150ms !important; }
-.delay-4 { animation-delay: 200ms !important; }
-.delay-5 { animation-delay: 250ms !important; }
-
-/* Duration helpers */
-.duration-fast { animation-duration: 150ms !important; }
-.duration-slow { animation-duration: 500ms !important; }
-
-/* ------------------------------------------------------
-   3) Common VMQ UI patterns (safe, optional)
-   ------------------------------------------------------ */
-
-/* Modal/overlay “standard” (modules can reuse these classes if they exist) */
-.vmq-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgb(0 0 0 / 0.55);
-  backdrop-filter: blur(10px);
-  z-index: var(--z-modal, 1000);
-  display: grid;
-  place-items: center;
-  padding: clamp(12px, 2.5vw, 24px);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-duration-base, 250ms) var(--motion-easing, ease);
-}
-
-.vmq-overlay.active {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.vmq-modal {
-  width: min(720px, 96vw);
-  background: var(--card, #fff);
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: var(--radius-lg, 16px);
-  box-shadow: var(--shadow-xl, 0 25px 50px -12px rgb(0 0 0 / 0.25));
-  transform: translateY(18px) scale(0.98);
-  opacity: 0;
-  animation: slideUp var(--motion-duration-base, 250ms) var(--motion-easing, ease) both;
-}
-
-.vmq-overlay.active .vmq-modal {
-  opacity: 1;
-}
-
-/* Route / view transition helper (if any module toggles .vmq-view-enter) */
-.vmq-view-enter { animation: fadeIn var(--motion-duration-base, 250ms) var(--motion-easing, ease) both; }
-.vmq-view-exit  { animation: fadeOut var(--motion-duration-base, 250ms) var(--motion-easing, ease) both; }
-
-/* ------------------------------------------------------
-   4) Reduced motion (respect OS/user preference)
-   ------------------------------------------------------ */
+/* ----------------------------
+   Reduced motion: disable
+   ---------------------------- */
 @media (prefers-reduced-motion: reduce) {
-  .animate-fade-in,
-  .animate-slide-up,
-  .animate-slide-down,
-  .animate-slide-left,
-  .animate-slide-right,
-  .animate-scale-in,
-  .animate-pop,
-  .animate-fade-out,
-  .animate-scale-out,
-  .animate-shake,
-  .animate-bob,
-  .animate-pulse,
-  .animate-pulse-glow,
-  .animate-spin,
-  .animate-shimmer,
-  .vmq-view-enter,
-  .vmq-view-exit,
-  .vmq-modal {
-    animation: none !important;
-    transition: none !important;
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
   }
+}
+
+/* =========================================================
+   Generic state utilities (safe defaults)
+   ========================================================= */
+
+/* Hidden helpers (only when class is present) */
+.hidden {
+  display: none !important;
+}
+
+.invisible {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+/* “Show/hide” transitions: use opacity/transform so layout stays stable */
+.fade {
+  opacity: 0;
+  transform: translateY(2px);
+  transition:
+    opacity var(--vmq-dur-fast) var(--vmq-ease),
+    transform var(--vmq-dur-fast) var(--vmq-ease);
+}
+
+.fade.show,
+.show .fade,
+.fade.active,
+.active .fade {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Slide up panel primitive */
+.slide-up {
+  opacity: 0;
+  transform: translateY(10px);
+  transition:
+    opacity var(--vmq-dur-med) var(--vmq-ease-out),
+    transform var(--vmq-dur-med) var(--vmq-ease-out);
+  will-change: opacity, transform;
+}
+
+.slide-up.show,
+.slide-up.active,
+.is-open .slide-up,
+.open .slide-up {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Scale pop primitive (good for badges/toasts) */
+.pop {
+  opacity: 0;
+  transform: scale(0.98);
+  transition:
+    opacity var(--vmq-dur-fast) var(--vmq-ease),
+    transform var(--vmq-dur-fast) var(--vmq-ease);
+  will-change: opacity, transform;
+}
+
+.pop.show,
+.pop.active,
+.is-open .pop,
+.open .pop {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* =========================================================
+   Loading screen + bootstrap shell
+   (index.html uses .loading-screen.active)
+   ========================================================= */
+
+.loading-screen {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--vmq-dur-med) var(--vmq-ease-out),
+    visibility 0s linear var(--vmq-dur-med);
+}
+
+.loading-screen.active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity var(--vmq-dur-med) var(--vmq-ease-out),
+    visibility 0s linear 0s;
+}
+
+/* Spinner animation (only if your base/components define .loading-spinner shape) */
+.loading-spinner {
+  animation: vmq-spin 900ms linear infinite;
+}
+
+@keyframes vmq-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Progress fill: index.html sets --width via JS */
+.progress-fill {
+  width: var(--width, 0%);
+  transition: width var(--vmq-dur-fast) var(--vmq-ease-out);
+  will-change: width;
+}
+
+/* Loading status “soft pulse” */
+.loading-status {
+  animation: vmq-softpulse 2.2s var(--vmq-ease) infinite;
+}
+
+@keyframes vmq-softpulse {
+  0%, 100% { opacity: 0.88; }
+  50% { opacity: 1; }
+}
+
+/* =========================================================
+   Status badges: ok / warn (seen in offline/import/share)
+   ========================================================= */
+
+.ok,
+.warn {
+  transition:
+    transform var(--vmq-dur-xfast) var(--vmq-ease),
+    opacity var(--vmq-dur-xfast) var(--vmq-ease),
+    background-color var(--vmq-dur-fast) var(--vmq-ease),
+    border-color var(--vmq-dur-fast) var(--vmq-ease),
+    color var(--vmq-dur-fast) var(--vmq-ease);
+  will-change: transform, opacity;
+}
+
+/* A little “pop” feedback when the class is applied */
+.ok {
+  animation: vmq-badge-in var(--vmq-dur-fast) var(--vmq-ease-out) both;
+}
+
+.warn {
+  animation: vmq-badge-in var(--vmq-dur-fast) var(--vmq-ease-out) both;
+}
+
+@keyframes vmq-badge-in {
+  from { opacity: 0; transform: translateY(2px) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* If your HTML badge elements have borders, these help without forcing layout */
+.ok {
+  border-color: color-mix(in srgb, var(--vmq-ok) 55%, transparent);
+}
+
+.warn {
+  border-color: color-mix(in srgb, var(--vmq-warn) 55%, transparent);
+}
+
+/* =========================================================
+   Answer feedback helpers (common patterns)
+   ========================================================= */
+
+.correct {
+  animation: vmq-correct-flash 520ms var(--vmq-ease-out) both;
+}
+
+.wrong {
+  animation: vmq-wrong-shake 420ms var(--vmq-ease-out) both;
+}
+
+@keyframes vmq-correct-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(22,163,74,0.0); }
+  35%  { box-shadow: 0 0 0 6px rgba(22,163,74,0.18); }
+  100% { box-shadow: 0 0 0 0 rgba(22,163,74,0.0); }
+}
+
+@keyframes vmq-wrong-shake {
+  0%   { transform: translateX(0); }
+  20%  { transform: translateX(-4px); }
+  40%  { transform: translateX(4px); }
+  60%  { transform: translateX(-3px); }
+  80%  { transform: translateX(3px); }
+  100% { transform: translateX(0); }
+}
+
+/* =========================================================
+   Overlays / panels (Bieler mastery overlay + generic)
+   You have: .mastery-overlay, .mastery-panel
+   ========================================================= */
+
+.mastery-overlay {
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity var(--vmq-dur-med) var(--vmq-ease-out),
+    transform var(--vmq-dur-med) var(--vmq-ease-out);
+  will-change: opacity, transform;
+}
+
+.mastery-panel {
+  opacity: 0;
+  transform: translateY(10px) scale(0.995);
+  transition:
+    opacity var(--vmq-dur-med) var(--vmq-ease-out),
+    transform var(--vmq-dur-med) var(--vmq-ease-out);
+  will-change: opacity, transform;
+}
+
+/* If your JS conditionally renders these, they’ll appear instantly.
+   If your app toggles a parent class like .open or .active, these rules kick in. */
+.active .mastery-overlay,
+.open .mastery-overlay,
+.is-open .mastery-overlay,
+.mastery-overlay.active,
+.mastery-overlay.open,
+.mastery-overlay.is-open {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.active .mastery-panel,
+.open .mastery-panel,
+.is-open .mastery-panel,
+.mastery-panel.active,
+.mastery-panel.open,
+.mastery-panel.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* =========================================================
+   Toasts (supports several common naming schemes)
+   ========================================================= */
+
+/* Container safety: prevents layout jump during animation */
+.toast-container {
+  contain: layout paint;
+}
+
+/* Base toast motion (works even if your toast markup differs) */
+.toast,
+.toast-message,
+.toast-item {
+  animation: vmq-toast-in var(--vmq-dur-med) var(--vmq-ease-out) both;
+}
+
+.toast--enter {
+  animation: vmq-toast-in var(--vmq-dur-med) var(--vmq-ease-out) both;
+}
+
+.toast--exit,
+.toast.is-leaving,
+.toast[data-state="closing"] {
+  animation: vmq-toast-out var(--vmq-dur-fast) var(--vmq-ease-in) both;
+}
+
+@keyframes vmq-toast-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes vmq-toast-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(8px) scale(0.99); }
+}
+
+/* =========================================================
+   Modal-ish helpers (if you use .open/.is-open patterns)
+   ========================================================= */
+
+.modal,
+.dialog,
+.sheet {
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity var(--vmq-dur-med) var(--vmq-ease-out),
+    transform var(--vmq-dur-med) var(--vmq-ease-out);
+  will-change: opacity, transform;
+}
+
+.modal.is-open,
+.modal.open,
+.dialog.is-open,
+.dialog.open,
+.sheet.is-open,
+.sheet.open,
+.open .modal,
+.is-open .modal {
+  opacity: 1;
+  transform: translateY(0);
 }
