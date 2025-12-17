@@ -12,7 +12,7 @@
 
 import { loadJSON, saveJSON, STORAGE_KEYS } from '../config/storage.js';
 import { loadXP, loadStreak, getLevel } from './gamification.js';
-import { analyzePerformance as _analyzePerformance, getModuleProgress as _getModuleProgress } from './analytics.js';
+import * as analytics from './analytics.js';
 import { BIELER_TAXONOMY } from '../config/constants.js';
 import { getDueItems as _getDueItemsFromSRS } from './spacedRepetition.js';
 
@@ -78,8 +78,8 @@ function getSrsDueSummarySync() {
  */
 function analyzePerformanceSafe(period = 'week') {
   try {
-    if (typeof _analyzePerformance === 'function') {
-      const res = _analyzePerformance(period);
+    if (typeof analytics?.analyzePerformance === 'function') {
+      const res = analytics.analyzePerformance(period);
       if (isObj(res)) return res;
     }
   } catch {
@@ -129,7 +129,9 @@ function analyzePerformanceSafe(period = 'week') {
  */
 function getModuleProgressSafe(moduleKey) {
   try {
-    if (typeof _getModuleProgress === 'function') return _getModuleProgress(moduleKey);
+    if (typeof analytics?.getModuleProgress === 'function') {
+      return analytics.getModuleProgress(moduleKey);
+    }
   } catch {
     // ignore
   }
