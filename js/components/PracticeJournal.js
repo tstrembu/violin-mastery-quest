@@ -1,501 +1,502 @@
-/* js/components/PracticeJournal.js
-========================================================
-VMQ Practice Journal v3.0.5 (Drop-in)
-- React UMD (no JSX) + ES module imports
-- Uses existing VMQ storage keys (STORAGE_KEYS.JOURNAL + PRACTICE_LOG)
-- Shows recent practice sessions (from sessionTracker log) + lets you add notes
-- Safe on iOS Safari (feature-detected) + never hard-crashes if data is missing
-========================================================
-*/
+// js/components/PracticeJournal.js
+// ============================================================
+// VMQ Practice Journal v1.0.0 (Drop-in)
+// - React UMD (no JSX)
+// - GH Pages subpath safe (relative imports)
+// - iOS Safari safe (no unsupported APIs required)
+// - Uses VMQ storage wrapper (loadJSON/saveJSON) with fallbacks
+// - Provides: add entry, edit, delete, search, export/import
+// ============================================================
 
-import { STORAGE_KEYS, loadJSON, saveJSON } from '../config/storage.js';
-import * as gamification from '../engines/gamification.js';
-import sessionTrackerDefault, { sessionTracker as sessionTrackerNamed } from '../engines/sessionTracker.js';
+import { STORAGE_KEYS, loadJSON, saveJSON, isStorageAvailable } from '../config/storage.js';
+import { trackEvent } from '../engines/analytics.js';
 
 const { createElement: h, useEffect, useMemo, useRef, useState, useCallback } = React;
 
-const sessionTracker = sessionTrackerNamed || sessionTrackerDefault;
+const KEY =
+  (STORAGE_KEYS && (STORAGE_KEYS.JOURNAL || STORAGE_KEYS.PRACTICE_LOG)) ||
+  'vmq.journal';
 
-const JOURNAL_KEY = STORAGE_KEYS?.JOURNAL || 'vmq.journal';
-const PRACTICE_LOG_KEY = STORAGE_KEYS?.PRACTICE_LOG || 'vmq.practiceLog';
-
-function safeArray(v) { return Array.isArray(v) ? v : []; }
-function safeStr(v) { return (v == null) ? '' : String(v); }
-
-function isoDay(d = new Date()) {
-  // Local “day” identifier (stable for user)
-  const dt = (d instanceof Date) ? d : new Date(d);
-  const yyyy = dt.getFullYear();
-  const mm = String(dt.getMonth() + 1).padStart(2, '0');
-  const dd = String(dt.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function nowISO() { return new Date().toISOString(); }
-
-function makeId(prefix = 'jrnl') {
+function uid(prefix = 'jrnl') {
   try {
     if (globalThis.crypto?.randomUUID) return `${prefix}_${globalThis.crypto.randomUUID()}`;
   } catch {}
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-function toast(message, type = 'info', meta = {}) {
+function todayISODate() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function safeArray(v) {
+  return Array.isArray(v) ? v : [];
+}
+
+function toast(message, type = 'info') {
   try {
-    window.VMQToast?.addToast?.(message, type, 3500, { source: 'journal', ...meta });
+    const api = window.VMQToast;
+    if (api?.toastHelpers?.[type]) return api.toastHelpers[type](message, { source: 'journal' });
+    if (typeof api?.addToast === 'function') return api.addToast(message, type, 3500, { source: 'journal' });
+  } catch {}
+  return null;
+}
+
+function safeTrack(action, label, data = {}) {
+  try {
+    if (typeof trackEvent === 'function') trackEvent('journal', action, { label, ...data });
   } catch {}
 }
 
-function awardXP(amount, reason = 'Journal entry') {
+function loadEntries() {
   try {
-    if (typeof gamification.awardXP === 'function') gamification.awardXP(amount, reason);
-    else if (typeof gamification.addXP === 'function') gamification.addXP(amount, reason);
-  } catch {}
-}
-
-function loadJournal() {
-  // Supports: { entries: [...] } OR legacy [] OR legacy object maps
-  const raw = loadJSON(JOURNAL_KEY, { entries: [] });
-
-  if (Array.isArray(raw)) return { entries: raw };
-  if (raw && typeof raw === 'object') {
-    if (Array.isArray(raw.entries)) return { ...raw, entries: raw.entries };
-    // If someone stored as {id:entry,...}
-    const maybeEntries = Object.values(raw).filter(v => v && typeof v === 'object' && (v.notes || v.activity));
-    if (maybeEntries.length) return { entries: maybeEntries };
-  }
-  return { entries: [] };
-}
-
-function saveJournal(model) {
-  const entries = safeArray(model?.entries).slice(0, 500); // hard cap (offline-safe)
-  saveJSON(JOURNAL_KEY, { entries, updatedAt: Date.now(), version: 1 });
-}
-
-function loadPracticeLog() {
-  const log = loadJSON(PRACTICE_LOG_KEY, []);
-  return safeArray(log).slice().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-}
-
-function fmtMinutes(min) {
-  const n = Number(min);
-  if (!Number.isFinite(n) || n <= 0) return '—';
-  if (n < 60) return `${Math.round(n)}m`;
-  const h0 = Math.floor(n / 60);
-  const m0 = Math.round(n % 60);
-  return `${h0}h ${m0}m`;
-}
-
-function fmtDateTime(ts) {
-  const t = Number(ts);
-  if (!Number.isFinite(t)) return '';
-  try {
-    const d = new Date(t);
-    return d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const v = loadJSON(KEY, []);
+    return safeArray(v);
   } catch {
-    return '';
+    return [];
   }
 }
 
-function uniq(list) {
-  const out = [];
-  const seen = new Set();
-  for (const x of list) {
-    const k = safeStr(x).trim();
-    if (!k) continue;
-    const key = k.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(k);
+function saveEntries(entries) {
+  try {
+    saveJSON(KEY, safeArray(entries));
+    return true;
+  } catch {
+    return false;
   }
-  return out;
 }
 
-export default function PracticeJournal({
-  onBack,
-  onNavigate,
-  emitAnalyticsEvent
-}) {
-  const [tab, setTab] = useState('journal'); // 'journal' | 'sessions'
-  const [journalModel, setJournalModel] = useState(() => loadJournal());
-  const [practiceLog, setPracticeLog] = useState(() => loadPracticeLog());
+function normalizeTags(str) {
+  const raw = String(str || '').trim();
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
 
-  // Form state
-  const [date, setDate] = useState(() => isoDay());
-  const [activity, setActivity] = useState('General Practice');
-  const [minutes, setMinutes] = useState('');
-  const [tags, setTags] = useState('');
-  const [notes, setNotes] = useState('');
-  const [editingId, setEditingId] = useState(null);
+function entryToEditable(e) {
+  return {
+    id: e?.id || uid(),
+    date: e?.date || todayISODate(),
+    title: e?.title || '',
+    notes: e?.notes || '',
+    durationMin: Number.isFinite(Number(e?.durationMin)) ? Number(e.durationMin) : '',
+    mood: Number.isFinite(Number(e?.mood)) ? Number(e.mood) : '',
+    tagsText: safeArray(e?.tags).join(', ')
+  };
+}
 
-  const saveTimer = useRef(null);
+export default function PracticeJournal(props = {}) {
+  const onBack = typeof props.onBack === 'function' ? props.onBack : null;
 
-  // Refresh from disk (best effort) on mount + whenever tab changes
+  const [entries, setEntries] = useState(() => loadEntries());
+  const [mode, setMode] = useState('list'); // 'list' | 'new' | 'edit'
+  const [draft, setDraft] = useState(() => entryToEditable(null));
+  const [search, setSearch] = useState('');
+  const [onlyToday, setOnlyToday] = useState(false);
+
+  const autosaveTimer = useRef(null);
+
+  // Persist on change (debounced)
   useEffect(() => {
-    setJournalModel(loadJournal());
-    setPracticeLog(loadPracticeLog());
-  }, [tab]);
-
-  // Debounced autosave journal model (prevents storage thrash)
-  useEffect(() => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      try { saveJournal(journalModel); } catch {}
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      saveEntries(entries);
     }, 200);
 
     return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     };
-  }, [journalModel]);
+  }, [entries]);
 
-  const journalEntries = useMemo(() => {
-    const entries = safeArray(journalModel?.entries)
-      .map(e => ({
-        id: e.id || makeId('jrnl'),
-        date: e.date || isoDay(e.timestamp || Date.now()),
-        timestamp: e.timestamp || Date.now(),
-        activity: safeStr(e.activity || 'Practice'),
-        minutes: Number(e.minutes || 0) || 0,
-        tags: safeStr(e.tags || ''),
-        notes: safeStr(e.notes || ''),
-        sessionId: e.sessionId || null,
-        createdAt: e.createdAt || e.timestamp || Date.now(),
-        updatedAt: e.updatedAt || e.timestamp || Date.now()
-      }))
+  // If storage becomes available later (rare iOS edge), refresh once
+  useEffect(() => {
+    try {
+      if (!isStorageAvailable?.()) return;
+      // If state is empty but storage has data, restore
+      const stored = loadEntries();
+      if (!entries.length && stored.length) setEntries(stored);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = String(search || '').trim().toLowerCase();
+    const t = todayISODate();
+
+    return safeArray(entries)
+      .filter(e => {
+        if (onlyToday && e?.date !== t) return false;
+        if (!q) return true;
+        const hay = [
+          e?.date,
+          e?.title,
+          e?.notes,
+          safeArray(e?.tags).join(' ')
+        ].join(' ').toLowerCase();
+        return hay.includes(q);
+      })
       .sort((a, b) => {
-        // Sort by day then timestamp
-        if (a.date !== b.date) return (a.date < b.date) ? 1 : -1;
-        return (b.timestamp || 0) - (a.timestamp || 0);
+        const ta = Number.isFinite(Number(a?.timestamp)) ? Number(a.timestamp) : new Date(a?.date || 0).getTime();
+        const tb = Number.isFinite(Number(b?.timestamp)) ? Number(b.timestamp) : new Date(b?.date || 0).getTime();
+        return tb - ta;
       });
+  }, [entries, search, onlyToday]);
 
-    // De-dupe by id
-    const seen = new Set();
-    return entries.filter(e => (seen.has(e.id) ? false : (seen.add(e.id), true)));
-  }, [journalModel]);
-
-  const recentActivities = useMemo(() => {
-    const fromLog = practiceLog.map(s => s.activity);
-    const fromEntries = journalEntries.map(e => e.activity);
-    return uniq([
-      'General Practice',
-      'Repertoire',
-      'Scales',
-      'Intonation',
-      'Rhythm',
-      'Intervals / Ear',
-      'Bieler Lab',
-      ...fromLog,
-      ...fromEntries
-    ]).slice(0, 18);
-  }, [practiceLog, journalEntries]);
-
-  const todaysLog = useMemo(() => {
-    const today = isoDay();
-    return practiceLog.filter(s => isoDay(s.timestamp || Date.now()) === today);
-  }, [practiceLog]);
-
-  const sessionsThisWeek = useMemo(() => {
-    const now = Date.now();
-    const cutoff = now - 7 * 24 * 60 * 60 * 1000;
-    return practiceLog.filter(s => (s.timestamp || 0) >= cutoff);
-  }, [practiceLog]);
-
-  const weekTotals = useMemo(() => {
-    const mins = sessionsThisWeek.reduce((sum, s) => sum + (Number(s.minutes) || 0), 0);
-    const xp = sessionsThisWeek.reduce((sum, s) => sum + (Number(s.xpEarned) || 0), 0);
-    const total = sessionsThisWeek.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
-    return { mins, xp, total };
-  }, [sessionsThisWeek]);
+  const startNew = useCallback(() => {
+    setDraft(entryToEditable(null));
+    setMode('new');
+    safeTrack('open', 'new');
+  }, []);
 
   const startEdit = useCallback((entry) => {
-    setEditingId(entry.id);
-    setDate(entry.date || isoDay(entry.timestamp || Date.now()));
-    setActivity(entry.activity || 'General Practice');
-    setMinutes(entry.minutes ? String(entry.minutes) : '');
-    setTags(entry.tags || '');
-    setNotes(entry.notes || '');
-    setTab('journal');
-    toast('Editing entry', 'info');
+    setDraft(entryToEditable(entry));
+    setMode('edit');
+    safeTrack('open', 'edit', { id: entry?.id });
   }, []);
 
-  const resetForm = useCallback(() => {
-    setEditingId(null);
-    setDate(isoDay());
-    setActivity('General Practice');
-    setMinutes('');
-    setTags('');
-    setNotes('');
+  const cancelEdit = useCallback(() => {
+    setMode('list');
+    setDraft(entryToEditable(null));
   }, []);
 
-  const upsertEntry = useCallback(() => {
-    const day = safeStr(date).trim() || isoDay();
-    const act = safeStr(activity).trim() || 'General Practice';
-    const noteText = safeStr(notes).trim();
+  const updateDraft = useCallback((key, value) => {
+    setDraft(prev => ({ ...prev, [key]: value }));
+  }, []);
 
-    if (!noteText) {
-      toast('Add a quick note before saving.', 'warning');
-      return;
+  const validateDraft = useCallback(() => {
+    const title = String(draft.title || '').trim();
+    const notes = String(draft.notes || '').trim();
+    if (!title && !notes) {
+      toast('Add a title or notes before saving.', 'warning');
+      return false;
     }
+    return true;
+  }, [draft]);
 
-    const mins = Math.max(0, Math.min(600, Number(minutes) || 0));
-    const tagText = safeStr(tags).trim();
+  const saveDraft = useCallback(() => {
+    if (!validateDraft()) return;
 
-    const entry = {
-      id: editingId || makeId('jrnl'),
-      date: day,
-      timestamp: Date.now(),
-      activity: act,
-      minutes: mins,
-      tags: tagText,
-      notes: noteText,
-      // Optionally link the most recent session from that day
-      sessionId: null,
-      updatedAt: Date.now(),
-      createdAt: editingId ? undefined : Date.now()
+    const normalized = {
+      id: draft.id || uid(),
+      date: String(draft.date || todayISODate()),
+      title: String(draft.title || '').trim(),
+      notes: String(draft.notes || '').trim(),
+      durationMin: draft.durationMin === '' ? null : Number(draft.durationMin),
+      mood: draft.mood === '' ? null : Number(draft.mood),
+      tags: normalizeTags(draft.tagsText),
+      timestamp: Date.now()
     };
 
-    setJournalModel(prev => {
-      const existing = safeArray(prev?.entries);
-      const next = existing.filter(e => (e?.id || '') !== entry.id);
-      next.push(entry);
-      return { ...(prev || {}), entries: next };
+    setEntries(prev => {
+      const list = safeArray(prev);
+      const idx = list.findIndex(e => e?.id === normalized.id);
+      if (idx >= 0) {
+        const next = list.slice();
+        next[idx] = { ...list[idx], ...normalized };
+        return next;
+      }
+      return [normalized, ...list];
     });
 
-    try {
-      emitAnalyticsEvent?.('journal', editingId ? 'update' : 'create', { activity: act, minutes: mins, hasTags: !!tagText });
-    } catch {}
-
-    // Small, non-spammy reward (optional)
-    if (!editingId) {
-      awardXP(2, 'Journal entry');
-      try { window.VMQToast?.toastHelpers?.xpGain?.(2, 'journal', { activity: act }); } catch {}
-    }
-
-    toast(editingId ? 'Journal entry updated' : 'Journal entry saved', 'success');
-    resetForm();
-  }, [date, activity, minutes, tags, notes, editingId, emitAnalyticsEvent, resetForm]);
+    setMode('list');
+    setDraft(entryToEditable(null));
+    toast('Saved journal entry.', 'success');
+    safeTrack('save', mode === 'edit' ? 'edit' : 'new', { id: normalized.id });
+  }, [draft, mode, validateDraft]);
 
   const deleteEntry = useCallback((id) => {
+    if (!id) return;
     const ok = window.confirm('Delete this journal entry?');
     if (!ok) return;
 
-    setJournalModel(prev => {
-      const next = safeArray(prev?.entries).filter(e => (e?.id || '') !== id);
-      return { ...(prev || {}), entries: next };
-    });
+    setEntries(prev => safeArray(prev).filter(e => e?.id !== id));
+    toast('Deleted entry.', 'info');
+    safeTrack('delete', 'entry', { id });
+  }, []);
 
-    try { emitAnalyticsEvent?.('journal', 'delete', { id }); } catch {}
-    toast('Entry deleted', 'info');
-    if (editingId === id) resetForm();
-  }, [emitAnalyticsEvent, editingId, resetForm]);
-
-  const exportJournal = useCallback(() => {
-    const payload = {
-      exportedAt: new Date().toISOString(),
-      journal: { entries: journalEntries },
-      practiceLog: practiceLog.slice(0, 100) // keep it small
-    };
-
+  const exportJSON = useCallback(() => {
     try {
+      const payload = {
+        version: 'vmq-journal-1',
+        exportedAt: new Date().toISOString(),
+        entries: safeArray(entries)
+      };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `vmq-journal-export-${Date.now()}.json`;
+      a.download = `vmq-practice-journal-${Date.now()}.json`;
       a.click();
-      toast('Export downloaded', 'success');
-    } catch {
-      toast('Export failed (browser blocked download)', 'error');
+      URL.revokeObjectURL(url);
+      toast('Exported journal JSON.', 'success');
+      safeTrack('export', 'json', { count: entries.length });
+    } catch (e) {
+      toast('Export failed.', 'error');
     }
-  }, [journalEntries, practiceLog]);
+  }, [entries]);
 
-  const endCurrentSession = useCallback(() => {
+  const importJSON = useCallback(async (file) => {
     try {
-      sessionTracker?.forceEnd?.('journal');
-      toast('Session ended', 'success');
-      setPracticeLog(loadPracticeLog());
-    } catch {
-      toast('Could not end session', 'error');
+      if (!file) return;
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const incoming = safeArray(parsed?.entries || parsed || []);
+      if (!incoming.length) {
+        toast('Import file has no entries.', 'warning');
+        return;
+      }
+
+      // Merge by id (incoming wins)
+      setEntries(prev => {
+        const map = new Map();
+        safeArray(prev).forEach(e => { if (e?.id) map.set(e.id, e); });
+        incoming.forEach(e => {
+          const id = e?.id || uid();
+          map.set(id, { ...e, id });
+        });
+        return Array.from(map.values()).sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0));
+      });
+
+      toast('Imported journal entries.', 'success');
+      safeTrack('import', 'json', { count: incoming.length });
+    } catch (e) {
+      toast('Import failed (invalid JSON).', 'error');
     }
   }, []);
 
-  const currentSessionStats = useMemo(() => {
-    try { return sessionTracker?.getSessionStats?.() || null; } catch { return null; }
-  }, [practiceLog.length]); // re-evaluate when log updates
-
-  // ----- UI -----
-  const Header = h(
-    'div',
-    { className: 'module-header', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-md)' } },
-    h('div', null,
-      h('h1', { style: { margin: 0 } }, 'Practice Journal'),
-      h('p', { className: 'text-muted', style: { margin: '6px 0 0' } }, 'Notes + recent sessions (offline)')
-    ),
-    h('div', { style: { display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', justifyContent: 'flex-end' } },
-      h('button', { className: `btn ${tab === 'journal' ? 'btn-primary' : 'btn-secondary'}`, onClick: () => setTab('journal') }, '📝 Journal'),
-      h('button', { className: `btn ${tab === 'sessions' ? 'btn-primary' : 'btn-secondary'}`, onClick: () => setTab('sessions') }, '📊 Sessions'),
-      h('button', { className: 'btn btn-secondary', onClick: exportJournal }, '⬇️ Export'),
-      h('button', { className: 'btn btn-secondary', onClick: () => (onBack ? onBack() : onNavigate?.('menu')) }, '🏠 Menu')
-    )
-  );
-
-  const SessionCard = h(
-    'div',
-    { className: 'card elevated', style: { marginBottom: 'var(--space-lg)' } },
-    h('h2', { style: { marginTop: 0 } }, 'Current session'),
-    currentSessionStats
-      ? h('div', { className: 'grid', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' } },
-          h('div', null, h('div', { className: 'text-muted' }, 'Activity'), h('div', null, safeStr(currentSessionStats.activity || '—'))),
-          h('div', null, h('div', { className: 'text-muted' }, 'Minutes'), h('div', null, `${Number(currentSessionStats.elapsedMinutes || 0)}m`)),
-          h('div', null, h('div', { className: 'text-muted' }, 'Accuracy'), h('div', null, `${Math.round((Number(currentSessionStats.accuracy || 0)) * 100)}%`)),
-          h('div', null, h('div', { className: 'text-muted' }, 'Focus'), h('div', null, `${Number(currentSessionStats.focusScore || 0)}%`)),
-          h('div', { style: { gridColumn: '1 / -1', display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', marginTop: 'var(--space-sm)' } },
-            h('button', { className: 'btn btn-secondary', onClick: () => setPracticeLog(loadPracticeLog()) }, '🔄 Refresh'),
-            h('button', { className: 'btn btn-danger', onClick: endCurrentSession }, '⏹ End session')
+  const renderHeader = () => {
+    return h(
+      'div',
+      { className: 'module-header' },
+      h(
+        'div',
+        { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-md)' } },
+        h(
+          'div',
+          null,
+          h('h1', { style: { margin: 0 } }, 'Practice Journal'),
+          h('p', { className: 'text-muted', style: { margin: 'var(--space-xs) 0 0' } },
+            'Quick reflections, practice notes, and progress snapshots.'
           )
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', justifyContent: 'flex-end' } },
+          onBack && h('button', { className: 'btn btn-secondary', onClick: onBack }, '← Back'),
+          h('button', { className: 'btn btn-primary', onClick: startNew }, '＋ New Entry')
         )
-      : h('p', { className: 'text-muted' }, 'No active session right now.')
-  );
-
-  const JournalForm = h(
-    'div',
-    { className: 'card elevated', style: { marginBottom: 'var(--space-lg)' } },
-    h('h2', { style: { marginTop: 0 } }, editingId ? 'Edit entry' : 'New entry'),
-    h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' } },
-      h('label', { className: 'field' },
-        h('div', { className: 'text-muted', style: { marginBottom: 6 } }, 'Date'),
-        h('input', {
-          className: 'input',
-          type: 'date',
-          value: date,
-          onChange: (e) => setDate(e.target.value)
-        })
-      ),
-      h('label', { className: 'field' },
-        h('div', { className: 'text-muted', style: { marginBottom: 6 } }, 'Activity'),
-        h('select', {
-          className: 'input',
-          value: activity,
-          onChange: (e) => setActivity(e.target.value)
-        },
-          recentActivities.map(a => h('option', { key: a, value: a }, a))
-        )
-      ),
-      h('label', { className: 'field' },
-        h('div', { className: 'text-muted', style: { marginBottom: 6 } }, 'Minutes (optional)'),
-        h('input', {
-          className: 'input',
-          inputMode: 'numeric',
-          placeholder: 'e.g., 25',
-          value: minutes,
-          onChange: (e) => setMinutes(e.target.value)
-        })
-      ),
-      h('label', { className: 'field' },
-        h('div', { className: 'text-muted', style: { marginBottom: 6 } }, 'Tags (optional)'),
-        h('input', {
-          className: 'input',
-          placeholder: 'e.g., Bach, shifting, intonation',
-          value: tags,
-          onChange: (e) => setTags(e.target.value)
-        })
       )
-    ),
-    h('label', { className: 'field', style: { display: 'block', marginTop: 'var(--space-md)' } },
-      h('div', { className: 'text-muted', style: { marginBottom: 6 } }, 'Notes'),
-      h('textarea', {
-        className: 'input',
-        rows: 5,
-        placeholder: 'What went well? What is confusing? What is the next tiny step?',
-        value: notes,
-        onChange: (e) => setNotes(e.target.value)
-      })
-    ),
-    h('div', { style: { display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', marginTop: 'var(--space-md)' } },
-      h('button', { className: 'btn btn-primary', onClick: upsertEntry }, editingId ? '✅ Save changes' : '✅ Save entry'),
-      h('button', { className: 'btn btn-secondary', onClick: resetForm }, '↩︎ Reset'),
-      h('button', { className: 'btn btn-secondary', onClick: () => toast('Tip: add ?vmq-diagnostics in the URL for console hints.', 'info') }, 'ℹ️ Tip')
-    ),
-    todaysLog.length
-      ? h('p', { className: 'text-muted', style: { marginTop: 'var(--space-md)' } },
-          `Today: ${todaysLog.length} session(s) logged • ${fmtMinutes(todaysLog.reduce((s, x) => s + (Number(x.minutes) || 0), 0))}`
-        )
-      : null
-  );
+    );
+  };
 
-  const EntriesList = h(
-    'div',
-    { className: 'card elevated' },
-    h('h2', { style: { marginTop: 0 } }, 'Recent entries'),
-    journalEntries.length
-      ? h('div', { style: { display: 'grid', gap: 'var(--space-md)' } },
-          journalEntries.slice(0, 30).map((e) =>
-            h('div', { key: e.id, className: 'card', style: { padding: 'var(--space-md)' } },
-              h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 'var(--space-md)', alignItems: 'baseline' } },
-                h('div', null,
-                  h('strong', null, `${e.date} • ${e.activity}`),
-                  h('div', { className: 'text-muted', style: { fontSize: 'var(--font-size-sm)', marginTop: 4 } },
-                    `${e.minutes ? `${fmtMinutes(e.minutes)} • ` : ''}${e.tags ? `Tags: ${e.tags}` : 'No tags'}`
-                  )
-                ),
-                h('div', { style: { display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', justifyContent: 'flex-end' } },
-                  h('button', { className: 'btn btn-secondary', onClick: () => startEdit(e) }, '✏️ Edit'),
-                  h('button', { className: 'btn btn-danger', onClick: () => deleteEntry(e.id) }, '🗑 Delete')
-                )
-              ),
-              h('div', { style: { marginTop: 'var(--space-sm)', whiteSpace: 'pre-wrap' } }, e.notes)
-            )
+  const renderList = () => {
+    return h(
+      'div',
+      { className: 'card' },
+      h(
+        'div',
+        { style: { display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', alignItems: 'center', marginBottom: 'var(--space-md)' } },
+        h('input', {
+          className: 'input',
+          style: { flex: '1 1 220px' },
+          placeholder: 'Search title, notes, tags…',
+          value: search,
+          onChange: (e) => setSearch(e.target.value)
+        }),
+        h(
+          'label',
+          { style: { display: 'flex', alignItems: 'center', gap: '8px', userSelect: 'none' } },
+          h('input', {
+            type: 'checkbox',
+            checked: !!onlyToday,
+            onChange: (e) => setOnlyToday(!!e.target.checked)
+          }),
+          h('span', null, 'Today')
+        ),
+        h('button', { className: 'btn btn-secondary', onClick: exportJSON }, 'Export'),
+        h('label', { className: 'btn btn-secondary', style: { cursor: 'pointer' } },
+          'Import',
+          h('input', {
+            type: 'file',
+            accept: 'application/json',
+            style: { display: 'none' },
+            onChange: (e) => {
+              const f = e.target.files && e.target.files[0];
+              e.target.value = '';
+              importJSON(f);
+            }
+          })
+        )
+      ),
+      filtered.length === 0
+        ? h(
+            'div',
+            { className: 'text-muted', style: { padding: 'var(--space-lg)', textAlign: 'center' } },
+            h('div', { style: { fontSize: '2rem', marginBottom: 'var(--space-sm)' } }, '📝'),
+            h('div', null, 'No entries yet.'),
+            h('div', { style: { marginTop: 'var(--space-sm)' } }, 'Tap “New Entry” to start.')
           )
-        )
-      : h('p', { className: 'text-muted' }, 'No journal entries yet. Add a quick note above.')
-  );
+        : h(
+            'div',
+            { style: { display: 'grid', gap: 'var(--space-sm)' } },
+            filtered.map(e => {
+              const tags = safeArray(e?.tags);
+              const dur = Number.isFinite(Number(e?.durationMin)) ? `${Number(e.durationMin)} min` : null;
+              const mood = Number.isFinite(Number(e?.mood)) ? `Mood: ${Number(e.mood)}/5` : null;
 
-  const SessionsView = h(
-    'div',
-    null,
-    h('div', { className: 'card elevated', style: { marginBottom: 'var(--space-lg)' } },
-      h('h2', { style: { marginTop: 0 } }, 'This week'),
-      h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-md)' } },
-        h('div', null, h('div', { className: 'text-muted' }, 'Minutes'), h('div', null, fmtMinutes(weekTotals.mins))),
-        h('div', null, h('div', { className: 'text-muted' }, 'XP earned'), h('div', null, String(Math.round(weekTotals.xp || 0)))),
-        h('div', null, h('div', { className: 'text-muted' }, 'Questions'), h('div', null, String(Math.round(weekTotals.total || 0))))
-      ),
-      h('div', { style: { marginTop: 'var(--space-md)', display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap' } },
-        h('button', { className: 'btn btn-secondary', onClick: () => setPracticeLog(loadPracticeLog()) }, '🔄 Refresh log'),
-        h('button', { className: 'btn btn-secondary', onClick: () => setTab('journal') }, '📝 Add note')
-      )
-    ),
-    h('div', { className: 'card elevated' },
-      h('h2', { style: { marginTop: 0 } }, 'Recent sessions'),
-      practiceLog.length
-        ? h('div', { style: { display: 'grid', gap: 'var(--space-sm)' } },
-            practiceLog.slice(0, 25).map((s, idx) =>
-              h('div', { key: s.id || `${s.timestamp || idx}-${idx}`, className: 'card', style: { padding: 'var(--space-md)' } },
-                h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 'var(--space-md)' } },
-                  h('div', null,
-                    h('strong', null, safeStr(s.activity || 'Practice')),
-                    h('div', { className: 'text-muted', style: { fontSize: 'var(--font-size-sm)', marginTop: 4 } },
-                      `${fmtDateTime(s.timestamp)} • ${fmtMinutes(s.minutes)}`
+              return h(
+                'div',
+                { key: e?.id, className: 'card', style: { padding: 'var(--space-md)' } },
+                h(
+                  'div',
+                  { style: { display: 'flex', justifyContent: 'space-between', gap: 'var(--space-md)', alignItems: 'flex-start' } },
+                  h(
+                    'div',
+                    { style: { minWidth: 0 } },
+                    h('div', { className: 'text-muted', style: { fontSize: 'var(--font-size-sm)' } }, e?.date || ''),
+                    h('div', { style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', overflow: 'hidden', textOverflow: 'ellipsis' } },
+                      e?.title || '(Untitled)'
+                    ),
+                    (dur || mood) && h(
+                      'div',
+                      { className: 'text-muted', style: { marginTop: '4px', fontSize: 'var(--font-size-sm)' } },
+                      [dur, mood].filter(Boolean).join(' • ')
                     )
                   ),
-                  h('div', { style: { textAlign: 'right' } },
-                    h('div', null, `⭐ ${Number(s.xpEarned || 0) || 0}`),
-                    h('div', { className: 'text-muted', style: { fontSize: 'var(--font-size-sm)' } }, `Q: ${Number(s.total || 0) || 0}`)
+                  h(
+                    'div',
+                    { style: { display: 'flex', gap: 'var(--space-xs)', flexWrap: 'wrap', justifyContent: 'flex-end' } },
+                    h('button', { className: 'btn btn-secondary', onClick: () => startEdit(e) }, 'Edit'),
+                    h('button', { className: 'btn btn-danger', onClick: () => deleteEntry(e?.id) }, 'Delete')
                   )
+                ),
+                e?.notes && h(
+                  'div',
+                  { style: { marginTop: 'var(--space-sm)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } },
+                  e.notes
+                ),
+                tags.length > 0 && h(
+                  'div',
+                  { style: { marginTop: 'var(--space-sm)', display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+                  tags.map(t => h('span', { key: t, className: 'chip' }, t))
                 )
-              )
-            )
+              );
+            })
           )
-        : h('p', { className: 'text-muted' }, 'No sessions logged yet.')
-    )
-  );
+    );
+  };
+
+  const renderEditor = () => {
+    const isEdit = mode === 'edit';
+    return h(
+      'div',
+      { className: 'card' },
+      h('h2', { style: { marginTop: 0 } }, isEdit ? 'Edit Entry' : 'New Entry'),
+      h(
+        'div',
+        { style: { display: 'grid', gap: 'var(--space-md)' } },
+        h(
+          'div',
+          { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' } },
+          h(
+            'div',
+            null,
+            h('label', { className: 'label' }, 'Date'),
+            h('input', {
+              className: 'input',
+              type: 'date',
+              value: draft.date,
+              onChange: (e) => updateDraft('date', e.target.value || todayISODate())
+            })
+          ),
+          h(
+            'div',
+            null,
+            h('label', { className: 'label' }, 'Duration (minutes)'),
+            h('input', {
+              className: 'input',
+              type: 'number',
+              inputMode: 'numeric',
+              min: 0,
+              placeholder: 'e.g., 30',
+              value: draft.durationMin,
+              onChange: (e) => updateDraft('durationMin', e.target.value === '' ? '' : Number(e.target.value))
+            })
+          )
+        ),
+        h(
+          'div',
+          null,
+          h('label', { className: 'label' }, 'Title'),
+          h('input', {
+            className: 'input',
+            placeholder: 'e.g., Accolay: intonation + bow distribution',
+            value: draft.title,
+            onChange: (e) => updateDraft('title', e.target.value)
+          })
+        ),
+        h(
+          'div',
+          null,
+          h('label', { className: 'label' }, 'Notes'),
+          h('textarea', {
+            className: 'input',
+            rows: 7,
+            placeholder: 'What improved? What felt tricky? What’s the next tiny goal?',
+            value: draft.notes,
+            onChange: (e) => updateDraft('notes', e.target.value)
+          })
+        ),
+        h(
+          'div',
+          { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' } },
+          h(
+            'div',
+            null,
+            h('label', { className: 'label' }, 'Mood (1–5)'),
+            h('input', {
+              className: 'input',
+              type: 'number',
+              inputMode: 'numeric',
+              min: 1,
+              max: 5,
+              placeholder: 'optional',
+              value: draft.mood,
+              onChange: (e) => updateDraft('mood', e.target.value === '' ? '' : Number(e.target.value))
+            })
+          ),
+          h(
+            'div',
+            null,
+            h('label', { className: 'label' }, 'Tags (comma separated)'),
+            h('input', {
+              className: 'input',
+              placeholder: 'intonation, rhythm, Kreutzer',
+              value: draft.tagsText,
+              onChange: (e) => updateDraft('tagsText', e.target.value)
+            })
+          )
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', marginTop: 'var(--space-sm)' } },
+          h('button', { className: 'btn btn-primary', onClick: saveDraft }, 'Save'),
+          h('button', { className: 'btn btn-secondary', onClick: cancelEdit }, 'Cancel')
+        )
+      )
+    );
+  };
 
   return h(
     'div',
     { className: 'module-container' },
-    Header,
-    tab === 'journal'
-      ? h('div', null, SessionCard, JournalForm, EntriesList)
-      : h('div', null, SessionCard, SessionsView)
+    renderHeader(),
+    mode === 'list' ? renderList() : renderEditor()
   );
 }
