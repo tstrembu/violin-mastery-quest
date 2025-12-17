@@ -1,4 +1,3 @@
-
 // js/config/routeManifest.js
 // ======================================
 // VMQ ROUTE MANIFEST v2.3.3 (Drop-in)
@@ -6,7 +5,7 @@
 // - Keep existing exports + behavior (ROUTE_ALIASES, safeDecodeURIComponent,
 //   normalizeRouteSlug, ROUTE_TO_COMPONENT_FILE)
 // - Add robust normalization (trim, strip #/?, collapse slashes)
-// - Support aliases + optional reverse aliases (no breaking changes)
+// - Support aliases (no breaking changes)
 // - Provide safe helpers for query parsing without requiring callers to use them
 // - Freeze exported maps to prevent accidental runtime mutation
 // ======================================
@@ -46,12 +45,10 @@ export function normalizeRouteSlug(route) {
   // Convert to string, trim.
   r = (r ?? '').toString().trim();
 
-  // Remove leading hash fragment marker if present.
-  // e.g. "#/scaleslab?x=1" -> "/scaleslab?x=1"
+  // Remove leading hash marker if present.
   if (r.startsWith('#')) r = r.slice(1);
 
-  // If a full URL was passed (rare), keep only pathname+hash portion.
-  // Avoid URL() for older environments; do minimal, safe parsing.
+  // If a full URL was passed, keep only path-ish portion.
   // Example: "https://x/y#/scales" -> "/y#/scales" then handled below
   const protoIdx = r.indexOf('://');
   if (protoIdx !== -1) {
@@ -60,8 +57,7 @@ export function normalizeRouteSlug(route) {
     r = firstSlash !== -1 ? afterProto.slice(firstSlash) : '';
   }
 
-  // Strip querystring and hash fragments (after the first route segment is extracted).
-  // We'll first strip query from the whole string to simplify.
+  // Strip querystring first.
   const qIdx = r.indexOf('?');
   if (qIdx !== -1) r = r.slice(0, qIdx);
 
@@ -69,17 +65,17 @@ export function normalizeRouteSlug(route) {
   const hashIdx = r.indexOf('#');
   if (hashIdx !== -1) r = r.slice(hashIdx + 1);
 
-  // Normalize slashes: remove leading/trailing slashes and collapse multiple.
-  r = r.replace(/\\/g, '/');          // windows slashes safety
-  r = r.replace(/\/{2,}/g, '/');      // collapse
-  r = r.replace(/^\/+/, '');          // leading
-  r = r.replace(/\/+$/, '');          // trailing
+  // Normalize slashes.
+  r = r.replace(/\\/g, '/');      // windows slashes safety
+  r = r.replace(/\/{2,}/g, '/');  // collapse
+  r = r.replace(/^\/+/, '');      // leading
+  r = r.replace(/\/+$/, '');      // trailing
 
-  // Keep only first path segment as slug (so "scales/foo" -> "scales")
+  // Keep only first path segment.
   const seg = r.split('/').filter(Boolean)[0] || '';
   const slug = seg.toLowerCase();
 
-  // Apply aliases
+  // Apply aliases.
   return ROUTE_ALIASES[slug] || slug;
 }
 
@@ -113,14 +109,16 @@ export const ROUTE_TO_COMPONENT_FILE = Object.freeze({
   notelocator: 'NoteLocator.js',
   scales: 'ScalesLab.js',
 
+  // ✅ Required routes per your prompt:
   coach: 'CoachPanel.js',
+  datamanager: 'DataManager.js',
+
   journal: 'PracticeJournal.js',
   flashcards: 'Flashcards.js',
 
   practiceplanner: 'PracticePlanner.js',
   achievements: 'Achievements.js',
   dailygoals: 'DailyGoals.js',
-  datamanager: 'DataManager.js',
   testers: 'Testers.js',
 });
 
@@ -161,6 +159,7 @@ export function parseQueryString(qs) {
     const k = safeDecodeURIComponent(kRaw).trim();
     if (!k) continue;
     const v = safeDecodeURIComponent(rest.join('=')).trim();
+
     // support repeated keys as arrays
     if (Object.prototype.hasOwnProperty.call(out, k)) {
       if (Array.isArray(out[k])) out[k].push(v);
