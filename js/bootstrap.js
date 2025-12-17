@@ -166,3 +166,27 @@ export async function registerSW(opts = {}) {
     return null;
   }
 }
+
+// -----------------------------------------------------------------------------
+// MOUNT TIMEOUT SAFETY GUARD
+//
+// If the main app fails to dispatch the "vmq-app-mounted" event within a
+// reasonable time, force the event to fire so the loader overlay can hide.
+// Without this fallback, a misconfiguration or network error could leave
+// users staring at a loading screen indefinitely. The loader's own timeout is
+// separate, but this guard ensures it never waits longer than 6 seconds.
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    try {
+      if (!window.__VMQ_MOUNTED__) {
+        // Use console.warn instead of log() here to ensure visibility even when
+        // logging is disabled via VMQ_LOG. This guard should only fire on
+        // unexpected conditions.
+        console.warn('[VMQ] Mount timeout — forcing loader exit');
+        window.dispatchEvent(new Event('vmq-app-mounted'));
+      }
+    } catch {
+      // ignore
+    }
+  }, 6000);
+}
