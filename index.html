@@ -1,6 +1,6 @@
 <!-- index.html
 ========================================================
-VMQ index.html (Drop-in replacement) — v3.0.4+
+VMQ index.html (Drop-in replacement) — v3.0.5+
 Fixes (without removing features):
 - ✅ Deterministic CSS cascade (base → themes → components → animations)
 - ✅ Prevents “flash then blank”: NEVER hides shell until React signals vmq-app-mounted OR a timeout
@@ -450,6 +450,22 @@ Fixes (without removing features):
   </script>
 
   <!-- App entry -->
-  <script type="module" src="./js/App.js"></script>
+  <script type="module">
+  // VMQ App loader with on-screen import failure reporting
+  const BASE_URL = new URL('./', import.meta.url);
+  const appUrl = new URL('./js/App.js', BASE_URL).href;
+  window.__VMQ_APP_URL__ = appUrl;
+
+  import(appUrl).catch((err) => {
+    const detail = {
+      appUrl,
+      message: err?.message || String(err),
+      stack: err?.stack || '',
+      when: new Date().toISOString()
+    };
+    window.__VMQ_APP_IMPORT_ERROR__ = detail;
+    window.dispatchEvent(new CustomEvent('vmq-app-import-failed', { detail }));
+  });
+</script>
 </body>
 </html>
