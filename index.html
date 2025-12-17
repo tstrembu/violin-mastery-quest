@@ -1,12 +1,13 @@
 <!-- index.html
 ========================================================
-VMQ index.html (Drop-in replacement) — v3.0.5+
+VMQ index.html (Drop-in replacement) — v3.0.6
 Fixes (without removing features):
 - ✅ Deterministic CSS cascade (base → themes → components → animations)
-- ✅ Prevents “flash then blank”: NEVER hides shell until React signals vmq-app-mounted OR a timeout
-- ✅ Robust base-path (no hardcoded repo name): computed from import.meta.url directory
-- ✅ SW registration is single-owner guarded and scope-correct for GH Pages OR root hosting
-- ✅ Diagnostics overlay for script/module failures and unhandled rejections
+- ✅ Never blank: shell stays until vmq-app-mounted OR timeout
+- ✅ GH Pages safe: robust base-path from import.meta.url
+- ✅ SW registration guarded + scope correct
+- ✅ Diagnostic overlay + global error capture
+- ✅ NEW: No-devtools fatal box shows failing import URL on timeout/import fail
 ========================================================
 -->
 <!doctype html>
@@ -115,13 +116,16 @@ Fixes (without removing features):
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
+  <!-- Single owner module: listeners → app import → bootstrap → wait mount -->
   <script type="module">
-    // Base-path derived from the directory that served THIS index.html (robust for GH Pages OR root)
+    // ------------------------------------------------------------
+    // Base-path derived from the directory serving THIS index.html
+    // ------------------------------------------------------------
     const BASE_URL  = new URL('./', import.meta.url);
     const BASE_PATH = BASE_URL.pathname; // e.g. "/violin-mastery-quest/" or "/"
     window.__VMQ_BASE_PATH__ = BASE_PATH;
 
-    const startTime = performance.now();
+    const startTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     window.vmqMetrics = window.vmqMetrics || { loadTime: 0, engineInitTime: 0, mlWarmupTime: 0 };
 
     const isDiagnosticMode =
@@ -130,7 +134,8 @@ Fixes (without removing features):
 
     const diagnosticLog = [];
     function logDiagnostic(category, message, data = null) {
-      const timestamp = (performance.now() - startTime).toFixed(2);
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      const timestamp = (now - startTime).toFixed(2);
       const line = `[${timestamp}ms] [${category}] ${message}${data ? ' ' + JSON.stringify(data) : ''}`;
       diagnosticLog.push(line);
 
@@ -154,27 +159,6 @@ Fixes (without removing features):
       }
     }
 
-    window.addEventListener('error', (event) => {
-      logDiagnostic('ERROR', event.message, { filename: event.filename, lineno: event.lineno, colno: event.colno });
-      showDiagnosticOverlay(event.error || event);
-    window.__VMQ_LAST_ERROR__ = {
-      message: event.message,
-      stack: event?.error?.stack || '',
-      failingUrl: event.filename || extractUrl(event.message) || null
-      };
-    });
-
-    window.addEventListener('unhandledrejection', (event) => {
-      const reason = event?.reason;
-      logDiagnostic('PROMISE', reason?.message || 'Unhandled rejection', reason ? { reason: String(reason) } : null);
-      if (isDiagnosticMode) showDiagnosticOverlay(reason);
-    window.__VMQ_LAST_ERROR__ = {
-      message: reason?.message || String(reason),
-      stack: reason?.stack || '',
-      failingUrl: extractUrl(reason?.message) || extractUrl(String(reason)) || null
-      };
-    });
-
     document.getElementById('diagnostic-reload')?.addEventListener('click', () => window.location.reload());
 
     function setLoadingStatus(text) {
@@ -186,7 +170,95 @@ Fixes (without removing features):
       if (fill) fill.style.setProperty('--width', `${Math.max(0, Math.min(100, percent))}%`);
     }
 
-    // Fail-open feature gating (also compatible with App.js checkFeature)
+    // ------------------------------------------------------------
+    // NO-DEVTOOLS FATAL BOX (must exist BEFORE any errors/imports)
+    // ------------------------------------------------------------
+    function extractUrl(text) {
+      const s = String(text || '');
+      const m =
+        s.match(/https?:\/\/[^\s'"]+/) ||
+        s.match(/(?:\.\/|\/)js\/[^\s'"]+\.js(?:\?[^\s'"]+)?/);
+      return m ? m[0] : null;
+    }
+
+    function showBootFatal(title, info = {}) {
+      const host = document.querySelector('#loading-screen .loading-content') || document.getElementById('loading-screen');
+      if (!host) return;
+
+      let box = document.getElementById('vmq-fatal-box');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'vmq-fatal-box';
+        box.style.cssText =
+          'margin-top:12px;padding:12px;border:1px solid rgba(239,68,68,.65);' +
+          'background:rgba(239,68,68,.08);border-radius:12px;text-align:left;' +
+          'max-width:520px;word-break:break-word;font-family:ui-monospace,Menlo,monospace;font-size:12px;';
+        host.appendChild(box);
+      }
+
+      const sw =
+        ('serviceWorker' in navigator)
+          ? (navigator.serviceWorker.controller ? 'controlling' : 'not controlling')
+          : 'unsupported';
+
+      const basePath = window.__VMQ_BASE_PATH__ || '(unknown)';
+      const appUrl = window.__VMQ_APP_URL__ || '(unknown)';
+      const msg = info.message || '';
+      const url =
+        info.failingUrl ||
+        extractUrl(msg) ||
+        extractUrl(info.stack) ||
+        extractUrl(info.reason) ||
+        '(not found)';
+
+      box.innerHTML =
+        `<div style="font-weight:800;margin-bottom:6px;">🚨 ${title}</div>` +
+        `<div><b>Failing URL:</b> ${url}</div>` +
+        `<div><b>App URL:</b> ${appUrl}</div>` +
+        `<div><b>Base path:</b> ${basePath}</div>` +
+        `<div><b>SW:</b> ${sw}</div>` +
+        (msg ? `<div style="margin-top:6px;"><b>Message:</b> ${msg}</div>` : '') +
+        (info.stack ? `<div style="margin-top:6px;white-space:pre-wrap;"><b>Stack:</b>\n${info.stack}</div>` : '');
+    }
+
+    window.__VMQ_LAST_ERROR__ = null;
+
+    // Global error capture
+    window.addEventListener('error', (event) => {
+      logDiagnostic('ERROR', event.message, { filename: event.filename, lineno: event.lineno, colno: event.colno });
+      window.__VMQ_LAST_ERROR__ = {
+        message: event.message,
+        stack: event?.error?.stack || '',
+        failingUrl: event.filename || extractUrl(event.message) || null
+      };
+      showDiagnosticOverlay(event.error || event);
+    });
+
+    window.addEventListener('unhandledrejection', (event) => {
+      const reason = event?.reason;
+      logDiagnostic('PROMISE', reason?.message || 'Unhandled rejection', reason ? { reason: String(reason) } : null);
+      window.__VMQ_LAST_ERROR__ = {
+        message: reason?.message || String(reason),
+        stack: reason?.stack || '',
+        failingUrl: extractUrl(reason?.message) || extractUrl(String(reason)) || null
+      };
+      if (isDiagnosticMode) showDiagnosticOverlay(reason);
+    });
+
+    // App import failure event (from our loader below)
+    window.addEventListener('vmq-app-import-failed', (e) => {
+      const detail = e?.detail || {};
+      logDiagnostic('APP', 'App module failed to import', { appUrl: detail.appUrl, message: detail.message });
+      showBootFatal('App module failed to import', {
+        message: detail.message,
+        stack: detail.stack,
+        failingUrl: extractUrl(detail.message) || extractUrl(detail.stack) || null
+      });
+    });
+
+    // ------------------------------------------------------------
+    // Fail-open feature gating (compatible with App.js checkFeature)
+    // ------------------------------------------------------------
     function checkFeature(featureName) {
       try {
         const features = window.VMQ?.FEATURES || window.VMQ?.features || {};
@@ -196,7 +268,28 @@ Fixes (without removing features):
       }
     }
 
+    // ------------------------------------------------------------
+    // Start App import ASAP (after React UMD is available)
+    // ------------------------------------------------------------
+    {
+      const appUrl = new URL('./js/App.js', BASE_URL).href;
+      window.__VMQ_APP_URL__ = appUrl;
+
+      import(appUrl).catch((err) => {
+        const detail = {
+          appUrl,
+          message: err?.message || String(err),
+          stack: err?.stack || '',
+          when: new Date().toISOString()
+        };
+        window.__VMQ_APP_IMPORT_ERROR__ = detail;
+        window.dispatchEvent(new CustomEvent('vmq-app-import-failed', { detail }));
+      });
+    }
+
+    // ------------------------------------------------------------
     // Optional imports (MUST NOT hard-crash bootstrap)
+    // ------------------------------------------------------------
     let ROUTE_TO_COMPONENT_FILE = Object.create(null);
     let normalizeRouteSlug = (s) => (s || '').toString().trim().toLowerCase();
 
@@ -256,7 +349,7 @@ Fixes (without removing features):
       const wantDA = checkFeature('difficultyAdapter');
       if (!wantAnalytics && !wantDA) return;
 
-      const mlStart = performance.now();
+      const mlStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       logDiagnostic('ML', 'Warming up…');
 
       try {
@@ -269,7 +362,6 @@ Fixes (without removing features):
         ]);
 
         if (analyticsMod.status === 'fulfilled' && typeof analyticsMod.value?.generateMLRecommendations === 'function') {
-          // lightweight warmup
           await analyticsMod.value.generateMLRecommendations().catch(() => {});
           logDiagnostic('ML', 'Analytics warm');
         }
@@ -282,7 +374,8 @@ Fixes (without removing features):
         logDiagnostic('ML', 'Warmup failed', { err: String(e?.message || e) });
       }
 
-      window.vmqMetrics.mlWarmupTime = Math.round(performance.now() - mlStart);
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      window.vmqMetrics.mlWarmupTime = Math.round(now - mlStart);
       logDiagnostic('ML', `Warmup complete: ${window.vmqMetrics.mlWarmupTime}ms`);
     }
 
@@ -306,7 +399,6 @@ Fixes (without removing features):
     }
 
     async function prefetchUserModules() {
-      // No hard dependency on storage module: best-effort only
       let level = 'beginner';
       try {
         const raw = localStorage.getItem('vmq-profile') || localStorage.getItem('vmq.profile');
@@ -337,8 +429,8 @@ Fixes (without removing features):
       }
 
       try {
-        const scopeUrl = BASE_URL.href; // directory scope of index.html
-        const existing = await navigator.serviceWorker.getRegistration(scopeUrl);
+        // getRegistration() expects a scope URL/string; BASE_PATH is correct for GH Pages subpath
+        const existing = await navigator.serviceWorker.getRegistration(BASE_PATH);
         let registration = existing;
 
         if (!registration) {
@@ -363,13 +455,12 @@ Fixes (without removing features):
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
               logDiagnostic('SW', 'Update available');
               window.dispatchEvent(new CustomEvent('vmq-update-available', {
-                detail: { version: '3.0.4', cacheBust: Date.now() }
+                detail: { version: '3.0.6', cacheBust: Date.now() }
               }));
             }
           });
         });
 
-        // Best-effort registrations
         await navigator.serviceWorker.ready.then(async (reg) => {
           if (reg.sync) {
             try { await reg.sync.register('sync-analytics'); logDiagnostic('SYNC', 'sync-analytics registered'); } catch {}
@@ -402,7 +493,6 @@ Fixes (without removing features):
         const onMounted = () => finish('vmq-app-mounted');
         window.addEventListener('vmq-app-mounted', onMounted, { once: true });
 
-        // Hard timeout: never leave user on a hidden shell with blank app
         setTimeout(() => finish('timeout'), timeoutMs);
       });
     }
@@ -432,7 +522,8 @@ Fixes (without removing features):
       await registerServiceWorker();
       setProgress(90);
 
-      window.vmqMetrics.engineInitTime = Math.round(performance.now() - startTime);
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      window.vmqMetrics.engineInitTime = Math.round(now - startTime);
       setProgress(100);
       logDiagnostic('BOOTSTRAP', 'Complete', window.vmqMetrics);
     }
@@ -442,70 +533,16 @@ Fixes (without removing features):
       const why = await waitForReactMount({ timeoutMs: 12000 });
 
       if (why === 'timeout') {
-        // Keep shell up and show diagnostics hint (prevents “blank screen” perception)
         logDiagnostic('BOOTSTRAP', 'React mount timeout (shell retained)');
         setLoadingStatus('Still loading… If stuck, enable ?vmq-diagnostics');
-        showBootFatal('Mount timeout (React never mounted)', window.__VMQ_APP_IMPORT_ERROR__ || window.__VMQ_LAST_ERROR__ || {});
+        showBootFatal(
+          'Mount timeout (React never mounted)',
+          window.__VMQ_APP_IMPORT_ERROR__ || window.__VMQ_LAST_ERROR__ || {}
+        );
         if (isDiagnosticMode) showDiagnosticOverlay(null);
         return;
       }
-    
-        // --- VMQ "NO-DEVTOOLS" FATAL BOX (prints failing import URL on-screen) ---
-    function extractUrl(text) {
-      const s = String(text || '');
-      const m =
-        s.match(/https?:\/\/[^\s'"]+/) ||
-        s.match(/(?:\.\/|\/)js\/[^\s'"]+\.js(?:\?[^\s'"]+)?/);
-      return m ? m[0] : null;
-    }
 
-    function showBootFatal(title, info = {}) {
-      const host = document.querySelector('#loading-screen .loading-content') || document.getElementById('loading-screen');
-      if (!host) return;
-
-      let box = document.getElementById('vmq-fatal-box');
-      if (!box) {
-        box = document.createElement('div');
-        box.id = 'vmq-fatal-box';
-        box.style.cssText =
-          'margin-top:12px;padding:12px;border:1px solid rgba(239,68,68,.65);' +
-          'background:rgba(239,68,68,.08);border-radius:12px;text-align:left;' +
-          'max-width:520px;word-break:break-word;font-family:ui-monospace,Menlo,monospace;font-size:12px;';
-        host.appendChild(box);
-      }
-
-      const sw =
-        ('serviceWorker' in navigator)
-          ? (navigator.serviceWorker.controller ? 'controlling' : 'not controlling')
-          : 'unsupported';
-
-      const basePath = window.__VMQ_BASE_PATH__ || '(unknown)';
-      const appUrl = window.__VMQ_APP_URL__ || '(unknown)';
-      const msg = info.message || '';
-      const url = info.failingUrl || extractUrl(msg) || extractUrl(info.stack) || extractUrl(info.reason) || '(not found)';
-
-      box.innerHTML =
-        `<div style="font-weight:800;margin-bottom:6px;">🚨 ${title}</div>` +
-        `<div><b>Failing URL:</b> ${url}</div>` +
-        `<div><b>App URL:</b> ${appUrl}</div>` +
-        `<div><b>Base path:</b> ${basePath}</div>` +
-        `<div><b>SW:</b> ${sw}</div>` +
-        (msg ? `<div style="margin-top:6px;"><b>Message:</b> ${msg}</div>` : '') +
-        (info.stack ? `<div style="margin-top:6px;white-space:pre-wrap;"><b>Stack:</b>\n${info.stack}</div>` : '');
-    }
-
-    // Capture last errors (so timeout can surface them even without ?vmq-diagnostics)
-    window.__VMQ_LAST_ERROR__ = null;
-
-    window.addEventListener('vmq-app-import-failed', (e) => {
-      window.__VMQ_LAST_ERROR__ = e.detail || null;
-      showBootFatal('App module failed to import', {
-        message: e?.detail?.message,
-        stack: e?.detail?.stack,
-        failingUrl: extractUrl(e?.detail?.message) || extractUrl(e?.detail?.stack)
-      });
-    });
-    
       // React confirmed mount
       document.getElementById('loading-screen')?.classList.remove('active');
       window.dispatchEvent(new CustomEvent('vmq-ready', { detail: { metrics: window.vmqMetrics, diagnosticLog } }));
@@ -513,26 +550,8 @@ Fixes (without removing features):
       logDiagnostic('BOOTSTRAP', 'Fatal error', { err: String(err?.message || err) });
       showDiagnosticOverlay(err);
       setLoadingStatus('Error loading VMQ. Enable diagnostics for details.');
+      showBootFatal('Fatal bootstrap error', { message: err?.message || String(err), stack: err?.stack || '' });
     });
   </script>
-
-  <!-- App entry -->
-  <script type="module">
-  // VMQ App loader with on-screen import failure reporting
-  const BASE_URL = new URL('./', import.meta.url);
-  const appUrl = new URL('./js/App.js', BASE_URL).href;
-  window.__VMQ_APP_URL__ = appUrl;
-
-  import(appUrl).catch((err) => {
-    const detail = {
-      appUrl,
-      message: err?.message || String(err),
-      stack: err?.stack || '',
-      when: new Date().toISOString()
-    };
-    window.__VMQ_APP_IMPORT_ERROR__ = detail;
-    window.dispatchEvent(new CustomEvent('vmq-app-import-failed', { detail }));
-  });
-</script>
 </body>
 </html>
