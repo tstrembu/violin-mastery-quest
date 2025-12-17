@@ -1674,6 +1674,100 @@ function calculateStyleConfidence(categoryScores) {
   return v < 100 ? 'low' : v < 400 ? 'medium' : 'high';
 }
 
+// ======================================
+// ✅ ML Bridge (required by App.js)
+// - App.js imports: generateMLRecommendations()
+// - Must return an object with:
+//   - confidence (number 0..1)
+//   - quickAction (optional { route, params, label, icon })
+// ======================================
+
+function actionToRoute(action) {
+  // Your recommendations use actions like "#flashcards"
+  const a = String(action || '').trim();
+  if (!a) return null;
+  if (a.startsWith('#')) return a.slice(1);
+  return a;
+}
+
+function pickQuickAction(analysis) {
+  const recs = Array.isArray(analysis?.recommendations) ? analysis.recommendations : [];
+  if (!recs.length) return null;
+
+  // Pick the best (already sorted by priority/mlConfidence in your generator)
+  const top = recs[0];
+
+  const route = actionToRoute(top.action);
+  if (!route) return null;
+
+  return {
+    route,                  // must match ROUTES keys in App.js (e.g., "flashcards", "bieler", "keys")
+    params: {},             // reserved for future use
+    label: top.title || 'Continue',
+    icon: top.icon || '➡️'
+  };
+}
+
+function computeMlConfidence(analysis) {
+  // Keep simple + stable: scale by data volume + consistency
+  const sessions = Number(analysis?.totalSessions || 0);
+  const consistency = Number(analysis?.consistencyScore || 0);
+
+  const volumeScore = Math.max(0, Math.min(1, sessions / 20));      // saturates around 20 sessions
+  const consistencyScore = Math.max(0, Math.min(1, consistency / 100));
+
+  // bias toward moderate confidence unless there’s real data
+  const c = 0.25 + 0.45 * volumeScore + 0.30 * consistencyScore;
+  return Math.max(0.1, Math.min(0.95, c));
+}
+
+export function generateMLRecommendations(options = {}) {
+  const timeframe = options?.timeframe || 'week';
+
+  // Reuse your existing analysis pipeline (keeps “intended features”)
+  const analysis = analyzePerformance(timeframe, {
+    includePredictions: true,
+    includePatterns: true,
+    includeOptimization: true,
+    includeBreakthrough: true
+  });
+
+  const confidence = computeMlConfidence(analysis);
+  const quickAction = pickQuickAction(analysis);
+
+  // App.js expects `recommendations?.confidence`
+  return {
+    ...analysis,
+    confidence,
+    quickAction
+  };
+}
+
+// ======================================
+// ✅ Fix getModuleProgress to read from your real store first
+// (keeps backward-compat with legacy localStorage key)
+// ======================================
+
+export function getModuleProgress(moduleKey) {
+  const key = String(moduleKey || '').trim();
+  if (!key) return null;
+
+  // Preferred: use STORAGE_KEYS.ANALYTICS
+  try {
+    const stats = loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats());
+    const by = stats?.byModule || {};
+    return by[key] || by[formatModuleName(key)] || null;
+  } catch {}
+
+  // Legacy fallback (older builds)
+  try {
+    const legacy = JSON.parse(localStorage.getItem('vmq-stats') || '{"byModule":{}}');
+    return legacy?.byModule?.[key] || null;
+  } catch {
+    return null;
+  }
+}
+
 // --------------------------------------
 // Default export (keeps prior API shape + adds missing keys)
 // --------------------------------------
