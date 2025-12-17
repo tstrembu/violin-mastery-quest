@@ -1,7 +1,6 @@
-// js/components/PracticeJournal.js
 /* js/components/PracticeJournal.js
 ========================================================
-VMQ Practice Journal v3.0.6 (Drop-in)
+VMQ Practice Journal v3.0.5 (Drop-in)
 - React UMD (no JSX) + ES module imports
 - Uses existing VMQ storage keys (STORAGE_KEYS.JOURNAL + PRACTICE_LOG)
 - Shows recent practice sessions (from sessionTracker log) + lets you add notes
