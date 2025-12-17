@@ -1,21 +1,13 @@
 // js/engines/analytics.js
 // ======================================
-// VMQ ANALYTICS v3.0.5 — drop-in replacement
+// VMQ ANALYTICS v3.0.6 — drop-in replacement
 //
-// High-impact bug fixes implemented (per your list):
-// 1) ✅ No hard ESM import for optional helpers (uses globalThis.VMQHelpers fallback)
-// 2) ✅ Robust timestamp parsing everywhere (toMs())
-// 3) ✅ Oldest-session logic no longer assumes sorting (minTimestampMs())
-// 4) ✅ formatTimeRange() fixed for 11PM → 12AM boundary
-// 5) ✅ Recent window accuracy is correct (ring buffer recentWindow[])
-// 6) ✅ Streak updates on every updateStats() (stats.streaks.current/max)
-//
-// Public API preserved:
-// - analyzePerformance(timeframe, options)
-// - updateStats(module, isCorrect, responseTime, sessionData)
-// - getQuickStat(type)
-// - exportAnalytics()
-// - default export with same keys
+// Fixes / guarantees:
+// ✅ Named exports include: analyzePerformance, updateStats, getQuickStat,
+//    exportAnalytics, getModuleProgress, generateMLRecommendations
+// ✅ getModuleProgress uses STORAGE_KEYS.ANALYTICS (not ad-hoc localStorage keys)
+// ✅ Backward-compatible default export includes all public functions
+// ✅ Keeps your hardened timestamp + streak + recent-window logic
 // ======================================
 
 import { loadJSON, saveJSON, STORAGE_KEYS } from '../config/storage.js';
@@ -26,10 +18,9 @@ import { getGlobalStats as diffStats } from './difficultyAdapter.js';
 // Optional helpers if your app exposes them (e.g., window.VMQHelpers)
 const Helpers = (globalThis && globalThis.VMQHelpers) ? globalThis.VMQHelpers : null;
 
-// ======================================
-// ✅ Local, guaranteed helper primitives
-// ======================================
-
+// --------------------------------------
+// Local guaranteed helper primitives
+// --------------------------------------
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function clamp(n, lo, hi) {
@@ -74,13 +65,11 @@ function safeTrack(category, action, payload) {
   }
 }
 
-// ✅ Fix #2: timestamp hardening everywhere
 function toMs(ts, fallback = Date.now()) {
   const t = new Date(ts).getTime();
   return Number.isFinite(t) ? t : fallback;
 }
 
-// ✅ Fix #3: do not assume sessions are sorted
 function minTimestampMs(sessions) {
   const list = Array.isArray(sessions) ? sessions : [];
   if (!list.length) return Date.now();
@@ -98,11 +87,9 @@ function dayKeyFromTs(ts) {
 }
 
 function dayKeyToMs(dayKey) {
-  // dayKey is like "Mon Dec 15 2025" (from toDateString()).
   return toMs(dayKey, NaN);
 }
 
-// ✅ Fix #4: 11PM end-period bug
 function formatTimeRange(hour) {
   const h = ((Number(hour) || 0) % 24 + 24) % 24;
   const start = h % 12 || 12;
@@ -131,10 +118,38 @@ function formatDuration(ms) {
   return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-// ======================================
-// 🎯 ADVANCED PERFORMANCE ANALYSIS (Public API)
-// ======================================
+// --------------------------------------
+// Stats structure
+// --------------------------------------
+function initializeStats() {
+  return {
+    total: 0,
+    correct: 0,
+    byModule: {},
+    daily: {},
+    streaks: { current: 0, max: 0 },
+    recentSessions: [],
+    lastAnalysis: Date.now(),
+    confusionMatrix: {},
+    learningVelocity: [],
+    retentionHistory: []
+  };
+}
 
+function getTimeCutoff(timeframe) {
+  const map = {
+    week: 7 * DAY_MS,
+    month: 30 * DAY_MS,
+    quarter: 90 * DAY_MS,
+    year: 365 * DAY_MS,
+    all: Infinity
+  };
+  return map[timeframe] ?? map.week;
+}
+
+// --------------------------------------
+// Public: analyzePerformance()
+// --------------------------------------
 export function analyzePerformance(timeframe = 'week', options = {}) {
   const {
     includePredictions = true,
@@ -149,7 +164,6 @@ export function analyzePerformance(timeframe = 'week', options = {}) {
 
   const cutoff = getTimeCutoff(timeframe);
 
-  // ✅ Fix #2: invalid timestamps no longer drop sessions (fallback to now)
   const filteredSessions = (Array.isArray(sessions) ? sessions : []).filter(s => {
     const ts = toMs(s?.timestamp, now);
     return (now - ts) < cutoff;
@@ -211,14 +225,110 @@ export function analyzePerformance(timeframe = 'week', options = {}) {
   };
 }
 
-// ======================================
-// 🧠 MACHINE LEARNING PREDICTIONS
-// ======================================
+// --------------------------------------
+// Public: generateMLRecommendations()
+// (Safe, lightweight; used by App.js warmup in many VMQ builds)
+// --------------------------------------
+export function generateMLRecommendations() {
+  try {
+    const analysis = analyzePerformance('week', {
+      includePredictions: true,
+      includePatterns: true,
+      includeOptimization: false,
+      includeBreakthrough: true
+    });
 
+    const sm2 = analysis?.sm2Integration;
+    const weaknesses = analysis?.weaknesses || [];
+    const breakthroughs = analysis?.breakthroughs || [];
+
+    let quickAction = null;
+    let confidence = 0.6;
+
+    // Priority 1: due flashcards
+    if ((sm2?.dueToday || 0) >= 5) {
+      quickAction = { label: 'Review Flashcards', icon: '🔄', route: '#flashcards', params: {} };
+      confidence = 0.95;
+    }
+    // Priority 2: a clear weakness
+    else if (weaknesses[0]?.moduleKey) {
+      quickAction = { label: `Fix ${weaknesses[0].module}`, icon: '🎯', route: `#${weaknesses[0].moduleKey}`, params: {} };
+      confidence = 0.85;
+    }
+    // Priority 3: push a breakthrough
+    else if (breakthroughs?.[0]?.moduleKey) {
+      quickAction = { label: `Push ${breakthroughs[0].module}`, icon: '🚀', route: `#${breakthroughs[0].moduleKey}`, params: {} };
+      confidence = 0.8;
+    }
+    // Fallback
+    else {
+      quickAction = { label: 'Go to Dashboard', icon: '📊', route: '#dashboard', params: {} };
+      confidence = 0.65;
+    }
+
+    return {
+      confidence,
+      quickAction,
+      summary: {
+        overallAccuracy: analysis?.overallAccuracy ?? 0,
+        consistencyScore: analysis?.consistencyScore ?? 0,
+        currentStreak: analysis?.currentStreak ?? 0
+      },
+      recommendations: analysis?.recommendations || []
+    };
+  } catch (e) {
+    return { confidence: 0.2, quickAction: { label: 'Go to Menu', icon: '🏠', route: '#menu', params: {} }, error: e?.message || String(e) };
+  }
+}
+
+// --------------------------------------
+// Public: getModuleProgress()  ✅ (your missing export)
+// --------------------------------------
+export function getModuleProgress(moduleKey) {
+  const stats = loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats());
+  const key = String(moduleKey || '').trim();
+  if (!key) return null;
+
+  // Try exact match first, then case-insensitive match
+  const by = stats?.byModule || {};
+  if (by[key]) return normalizeModuleProgress(key, by[key]);
+
+  const lower = key.toLowerCase();
+  const found = Object.keys(by).find(k => String(k).toLowerCase() === lower);
+  if (!found) return null;
+
+  return normalizeModuleProgress(found, by[found]);
+}
+
+function normalizeModuleProgress(key, data) {
+  const total = Number(data?.total) || 0;
+  const correct = Number(data?.correct) || 0;
+
+  const recentTotal = Number(data?.recentTotal) || (Array.isArray(data?.recentWindow) ? data.recentWindow.length : 0);
+  const recentCorrect =
+    Number(data?.recentCorrect) ||
+    (Array.isArray(data?.recentWindow) ? data.recentWindow.reduce((s, v) => s + (v ? 1 : 0), 0) : 0);
+
+  return {
+    moduleKey: String(key),
+    total,
+    correct,
+    accuracy: total > 0 ? Math.round((correct / total) * 100) : 0,
+    recentTotal,
+    recentCorrect,
+    recentAccuracy: recentTotal > 0 ? Math.round((recentCorrect / recentTotal) * 100) : 0,
+    avgResponseTime: Number(data?.avgResponseTime) || 0,
+    lastPracticed: Number(data?.lastPracticed) || 0,
+    difficulty: data?.difficulty || 'medium'
+  };
+}
+
+// --------------------------------------
+// Predictions + patterns (your existing logic, kept compatible)
+// --------------------------------------
 function generatePredictions(stats, sessions, modules) {
   if (!Array.isArray(sessions) || sessions.length < 5) return null;
 
-  // ✅ Fix #2/#3: sort with toMs; don't assume valid timestamps
   const sorted = [...sessions].sort((a, b) => toMs(a?.timestamp, 0) - toMs(b?.timestamp, 0));
   const recentSessions = sorted.slice(-20);
   const timeSeriesData = buildTimeSeriesData(recentSessions);
@@ -400,10 +510,7 @@ function assessDataStability(sessions) {
   return v < 100 ? 'stable' : v < 200 ? 'moderate' : 'volatile';
 }
 
-// ======================================
-// 🎨 LEARNING PATTERNS DETECTION
-// ======================================
-
+// Patterns
 function detectLearningPatterns(sessions, stats) {
   if (!Array.isArray(sessions) || sessions.length < 5) return null;
 
@@ -422,93 +529,7 @@ function detectLearningPatterns(sessions, stats) {
   };
 }
 
-function identifyLearningStyle(stats) {
-  const byModule = stats?.byModule || {};
-  const modulePrefs = Object.entries(byModule)
-    .filter(([_, data]) => (data?.total || 0) >= 10)
-    .map(([module, data]) => ({
-      module,
-      score: H.accuracy(data.correct, data.total),
-      category: classifyModuleType(module)
-    }));
-
-  // (Optional “better math” without breaking shape): average per category instead of sum.
-  const categoryBuckets = modulePrefs.reduce((acc, m) => {
-    if (!acc[m.category]) acc[m.category] = [];
-    acc[m.category].push(m.score);
-    return acc;
-  }, {});
-
-  const categoryScores = Object.fromEntries(
-    Object.entries(categoryBuckets).map(([k, arr]) => [k, Math.round(H.average(arr))])
-  );
-
-  const dominantStyle = Object.entries(categoryScores)
-    .sort((a, b) => b[1] - a[1])[0]?.[0] || 'balanced';
-
-  return {
-    primary: dominantStyle,
-    scores: categoryScores,
-    confidence: calculateStyleConfidence(categoryScores),
-    recommendation: getStyleRecommendation(dominantStyle)
-  };
-}
-
-function analyzePracticeHabits(sessions) {
-  const daily = groupSessionsByDay(sessions);
-  const daysActive = Object.keys(daily).length;
-
-  // ✅ Fix #3: do not assume sessions[0] is oldest
-  const oldestMs = minTimestampMs(sessions);
-  const totalDays = Math.ceil((Date.now() - oldestMs) / DAY_MS);
-
-  return {
-    consistency: Math.round((daysActive / Math.max(1, totalDays)) * 100),
-    avgSessionsPerDay: Math.round((sessions.length / Math.max(1, daysActive)) * 10) / 10,
-    avgDuration: (H.average(sessions.map(s => s.engagedMs || 0)) / 60000),
-    preferredTime: identifyPreferredPracticeTime(sessions),
-    sessionDistribution: calculateSessionDistribution(sessions)
-  };
-}
-
-function analyzeFocusPatterns(sessions) {
-  return {
-    avgFocusScore: H.average(sessions.map(s => s.focusScore || 50)),
-    focusTrend: calculateLinearTrend(sessions.map((s, i) => ({ x: i, y: s.focusScore || 50 }))),
-    bestFocusDuration: identifyOptimalSessionLength(sessions),
-    distractionTriggers: identifyDistractionTriggers(sessions)
-  };
-}
-
-function analyzeErrorPatterns(stats) {
-  const modules = Object.entries(stats?.byModule || {});
-  return {
-    systematicErrors: identifySystematicErrors(modules),
-    errorClusters: identifyErrorClusters(stats),
-    conceptualGaps: identifyConceptualGaps(modules),
-    correctionRate: calculateCorrectionRate(stats)
-  };
-}
-
-function calculateRecoveryRate(sessions) {
-  const list = Array.isArray(sessions) ? sessions : [];
-  const recoveries = list.filter((s, i) => {
-    if (i === 0) return false;
-    const prev = list[i - 1];
-    return (prev?.accuracy || 0) < 70 && (s?.accuracy || 0) >= 80;
-  });
-
-  return {
-    rate: list.length > 1 ? Math.round((recoveries.length / list.length) * 100) : 0,
-    avgRecoveryTime: (H.average(recoveries.map(s => s.engagedMs || 0)) / 60000),
-    resilience: recoveries.length >= 3 ? 'high' : recoveries.length >= 1 ? 'medium' : 'developing'
-  };
-}
-
-// ======================================
-// ⚡ OPTIMIZATION ENGINE
-// ======================================
-
+// Optimization
 function calculateOptimalPracticeSchedule(sessions, patterns) {
   if (!patterns || !Array.isArray(sessions) || sessions.length < 10) return null;
 
@@ -538,10 +559,7 @@ function generateModuleRotation(patterns) {
   };
 }
 
-// ======================================
-// 🎯 BREAKTHROUGH OPPORTUNITIES
-// ======================================
-
+// Breakthroughs
 function detectBreakthroughOpportunities(modules, patterns, overall) {
   const list = Array.isArray(modules) ? modules : [];
   const opportunities = [];
@@ -552,6 +570,7 @@ function detectBreakthroughOpportunities(modules, patterns, overall) {
       opportunities.push({
         type: 'mastery-threshold',
         module: m.module,
+        moduleKey: m.moduleKey,
         currentLevel: m.accuracy,
         potential: 95 - m.accuracy,
         effort: 'low',
@@ -566,6 +585,7 @@ function detectBreakthroughOpportunities(modules, patterns, overall) {
       opportunities.push({
         type: 'plateau-break',
         module: m.module,
+        moduleKey: m.moduleKey,
         currentLevel: m.accuracy,
         recommendation: `Change practice approach: try ${getAlternativePracticeMethod(m.moduleKey)}`,
         effort: 'medium',
@@ -584,15 +604,11 @@ function detectBreakthroughOpportunities(modules, patterns, overall) {
     .slice(0, 5);
 }
 
-// ======================================
-// 🔄 CROSS-ENGINE INTEGRATION (Async-safe)
-// ======================================
-
+// Integrations
 function integrateSM2Data() {
   try {
     const maybe = sm2Stats?.();
     if (maybe && typeof maybe.then === 'function') return null;
-
     const sm2 = maybe;
     return sm2 ? {
       dueToday: sm2.dueToday || 0,
@@ -609,7 +625,6 @@ function integrateDifficultyData() {
   try {
     const maybe = diffStats?.();
     if (maybe && typeof maybe.then === 'function') return null;
-
     const diff = maybe;
     return diff ? {
       avgDifficulty: diff.avgDifficulty || diff.avgLevel || 1.0,
@@ -635,10 +650,7 @@ function analyzeSessionQuality(sessions) {
   };
 }
 
-// ======================================
-// 🎓 RETENTION & MASTERY METRICS
-// ======================================
-
+// Retention & mastery metrics (safe placeholders kept)
 function calculateRetentionMetrics(stats, modules) {
   return {
     shortTerm: calculateShortTermRetention(stats),
@@ -669,10 +681,9 @@ function assessMetacognitiveSkills(sessions, stats) {
   };
 }
 
-// ======================================
-// 🎯 ENHANCED RECOMMENDATIONS (Public)
-// ======================================
-
+// --------------------------------------
+// Public recommendations exports (kept)
+// --------------------------------------
 export function generateSmartRecommendations(overall, modules, trends, patterns, predictions) {
   const recs = [];
 
@@ -845,44 +856,165 @@ export function generateAdvancedAIInsights(overall, modules, patterns, predictio
     .slice(0, 5);
 }
 
-// ======================================
-// 🔧 INTERNAL: Stats structure + transforms
-// ======================================
+// --------------------------------------
+// Public: updateStats(), getQuickStat(), exportAnalytics()
+// --------------------------------------
+export function updateStats(module, isCorrect, responseTime = 0, sessionData = {}) {
+  const stats = loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats());
+  const modKey = String(module || 'unknown');
 
-function initializeStats() {
+  stats.total += 1;
+  stats.correct += isCorrect ? 1 : 0;
+
+  if (!stats.byModule[modKey]) {
+    stats.byModule[modKey] = {
+      correct: 0,
+      total: 0,
+      avgResponseTime: 0,
+      recentWindow: [],
+      recentCorrect: 0,
+      recentTotal: 0,
+      lastPracticed: Date.now(),
+      difficulty: 'medium',
+      errorPatterns: [],
+      improvementRate: []
+    };
+  }
+
+  const mod = stats.byModule[modKey];
+  mod.total += 1;
+  mod.correct += isCorrect ? 1 : 0;
+  mod.lastPracticed = Date.now();
+
+  if (!Array.isArray(mod.recentWindow)) mod.recentWindow = [];
+  mod.recentWindow.push(!!isCorrect);
+  if (mod.recentWindow.length > 20) mod.recentWindow.shift();
+
+  mod.recentTotal = mod.recentWindow.length;
+  mod.recentCorrect = mod.recentWindow.reduce((s, v) => s + (v ? 1 : 0), 0);
+
+  const rt = Number(responseTime) || 0;
+  mod.avgResponseTime = mod.avgResponseTime
+    ? (mod.avgResponseTime * 0.9 + rt * 0.1)
+    : rt;
+
+  if (!Array.isArray(mod.improvementRate)) mod.improvementRate = [];
+  mod.improvementRate.push({ timestamp: Date.now(), accuracy: H.accuracy(mod.correct, mod.total) });
+  if (mod.improvementRate.length > 50) mod.improvementRate.shift();
+
+  const todayKey = new Date().toDateString();
+  stats.daily = stats.daily || {};
+  stats.daily[todayKey] = (stats.daily[todayKey] || 0) + 1;
+
+  const days = Object.keys(stats.daily || {})
+    .map(d => dayKeyToMs(d))
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a);
+
+  let streak = 0;
+  if (days.length) {
+    const todayMs = dayKeyToMs(todayKey);
+    const day0 = days[0];
+    const diff0 = Number.isFinite(todayMs) ? Math.floor((todayMs - day0) / DAY_MS) : 999;
+
+    if (diff0 === 0) {
+      streak = 1;
+      for (let i = 1; i < days.length; i++) {
+        const diff = Math.floor((days[i - 1] - days[i]) / DAY_MS);
+        if (diff === 1) streak += 1;
+        else break;
+      }
+    }
+  }
+
+  stats.streaks = stats.streaks || { current: 0, max: 0 };
+  stats.streaks.current = streak;
+  stats.streaks.max = Math.max(stats.streaks.max || 0, streak);
+
+  if (!Array.isArray(stats.learningVelocity)) stats.learningVelocity = [];
+  stats.learningVelocity.push({
+    timestamp: Date.now(),
+    module: modKey,
+    isCorrect: !!isCorrect,
+    responseTime: rt,
+    currentAccuracy: H.accuracy(mod.correct, mod.total)
+  });
+  if (stats.learningVelocity.length > 100) stats.learningVelocity.shift();
+
+  saveJSON(STORAGE_KEYS.ANALYTICS, stats);
+
+  try {
+    sessionTracker?.trackAnswer?.(module, isCorrect, responseTime, sessionData);
+  } catch {
+    safeTrack('answer', 'record', { module, isCorrect, responseTime });
+  }
+
+  return stats;
+}
+
+export function getQuickStat(type) {
+  const stats = loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats());
+
+  switch (type) {
+    case 'accuracy':
+      return H.accuracy(stats.correct, stats.total);
+
+    // backward compat: “questions answered”
+    case 'sessions':
+      return stats.total || 0;
+
+    case 'consistency': {
+      const sessions = loadJSON(STORAGE_KEYS.JOURNAL, []);
+      const list = Array.isArray(sessions) ? sessions : [];
+      const oldestMs = minTimestampMs(list);
+      const days = Math.max(1, Math.ceil((Date.now() - oldestMs) / DAY_MS));
+      const uniqueDays = new Set(list.map(s => dayKeyFromTs(s?.timestamp))).size;
+      return Math.min(100, Math.round((uniqueDays / days) * 100));
+    }
+
+    case 'streak':
+      return safeGet(stats, 'streaks.current', 0) || 0;
+
+    case 'momentum': {
+      const sessions = loadJSON(STORAGE_KEYS.JOURNAL, []);
+      const list = Array.isArray(sessions) ? sessions : [];
+      return calculateMomentumScore(list.slice(-10));
+    }
+
+    default:
+      return 0;
+  }
+}
+
+export function exportAnalytics() {
+  const analysis = analyzePerformance('all', {
+    includePredictions: true,
+    includePatterns: true,
+    includeOptimization: true,
+    includeBreakthrough: true
+  });
+
   return {
-    total: 0,
-    correct: 0,
-    byModule: {},
-    daily: {},
-    streaks: { current: 0, max: 0 },
-    recentSessions: [],
-    lastAnalysis: Date.now(),
-    confusionMatrix: {},
-    learningVelocity: [],
-    retentionHistory: []
+    version: '3.1',
+    timestamp: Date.now(),
+    ...analysis,
+    rawStats: loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats()),
+    mlMeta: {
+      predictionsEnabled: true,
+      patternsDetected: true,
+      optimizationActive: true
+    }
   };
 }
 
-function getTimeCutoff(timeframe) {
-  const map = {
-    week: 7 * DAY_MS,
-    month: 30 * DAY_MS,
-    quarter: 90 * DAY_MS,
-    year: 365 * DAY_MS,
-    all: Infinity
-  };
-  return map[timeframe] ?? map.week;
-}
-
+// --------------------------------------
+// The remaining internal helpers you already had (kept)
+// --------------------------------------
 function calculateOverallStats(stats, sessions) {
   const list = Array.isArray(sessions) ? sessions : [];
   const totalTime = list.reduce((sum, s) => sum + (s.engagedMs || 0), 0);
-
-  // ✅ Fix #2: robust day extraction
   const uniqueDays = new Set(list.map(s => dayKeyFromTs(s?.timestamp))).size;
 
-  // ✅ Fix #3: do not assume ordering
   const oldestMs = minTimestampMs(list);
   const daysSpan = Math.max(1, Math.ceil((Date.now() - oldestMs) / DAY_MS));
   const consistency = Math.round((uniqueDays / daysSpan) * 100);
@@ -933,8 +1065,6 @@ function calculateModuleStats(stats, sessions) {
 function calculateTrends(sessions) {
   const list = Array.isArray(sessions) ? sessions : [];
   const cutoff = Date.now() - (7 * DAY_MS);
-
-  // ✅ Fix #2: robust filtering
   const last7 = list.filter(s => toMs(s?.timestamp, 0) >= cutoff);
 
   return {
@@ -946,7 +1076,6 @@ function calculateTrends(sessions) {
   };
 }
 
-// Strength / weakness helpers
 function identifyStrengths(modules) {
   return (Array.isArray(modules) ? modules : [])
     .filter(m => (m.accuracy || 0) >= 85 && (m.attempts || 0) >= 10 && (m.consistency || 0) >= 60)
@@ -980,7 +1109,6 @@ function identifyGrowthOpportunities(modules, patterns) {
     .slice(0, 5);
 }
 
-// Stats math
 function calculateLinearTrend(data) {
   if (!Array.isArray(data) || data.length < 2) return 0;
 
@@ -1060,7 +1188,6 @@ function calculateMomentumScore(sessions) {
   return Math.round(Math.max(0, (trend * 10 + consistency) / 2));
 }
 
-// Streak / trend helpers
 function calculateCurrentStreak(sessions) {
   const list = Array.isArray(sessions) ? sessions : [];
   const todayKey = new Date().toDateString();
@@ -1104,7 +1231,87 @@ function calculateImprovement(data) {
   return Math.round(recent - overall);
 }
 
-// Categorization / recommendations
+function identifyLearningStyle(stats) {
+  const byModule = stats?.byModule || {};
+  const modulePrefs = Object.entries(byModule)
+    .filter(([_, data]) => (data?.total || 0) >= 10)
+    .map(([module, data]) => ({
+      module,
+      score: H.accuracy(data.correct, data.total),
+      category: classifyModuleType(module)
+    }));
+
+  const categoryBuckets = modulePrefs.reduce((acc, m) => {
+    if (!acc[m.category]) acc[m.category] = [];
+    acc[m.category].push(m.score);
+    return acc;
+  }, {});
+
+  const categoryScores = Object.fromEntries(
+    Object.entries(categoryBuckets).map(([k, arr]) => [k, Math.round(H.average(arr))])
+  );
+
+  const dominantStyle = Object.entries(categoryScores)
+    .sort((a, b) => b[1] - a[1])[0]?.[0] || 'balanced';
+
+  return {
+    primary: dominantStyle,
+    scores: categoryScores,
+    confidence: calculateStyleConfidence(categoryScores),
+    recommendation: getStyleRecommendation(dominantStyle)
+  };
+}
+
+function analyzePracticeHabits(sessions) {
+  const daily = groupSessionsByDay(sessions);
+  const daysActive = Object.keys(daily).length;
+
+  const oldestMs = minTimestampMs(sessions);
+  const totalDays = Math.ceil((Date.now() - oldestMs) / DAY_MS);
+
+  return {
+    consistency: Math.round((daysActive / Math.max(1, totalDays)) * 100),
+    avgSessionsPerDay: Math.round((sessions.length / Math.max(1, daysActive)) * 10) / 10,
+    avgDuration: (H.average(sessions.map(s => s.engagedMs || 0)) / 60000),
+    preferredTime: identifyPreferredPracticeTime(sessions),
+    sessionDistribution: calculateSessionDistribution(sessions)
+  };
+}
+
+function analyzeFocusPatterns(sessions) {
+  return {
+    avgFocusScore: H.average(sessions.map(s => s.focusScore || 50)),
+    focusTrend: calculateLinearTrend(sessions.map((s, i) => ({ x: i, y: s.focusScore || 50 }))),
+    bestFocusDuration: identifyOptimalSessionLength(sessions),
+    distractionTriggers: identifyDistractionTriggers(sessions)
+  };
+}
+
+function analyzeErrorPatterns(stats) {
+  const modules = Object.entries(stats?.byModule || {});
+  return {
+    systematicErrors: identifySystematicErrors(modules),
+    errorClusters: [],
+    conceptualGaps: identifyConceptualGaps(modules),
+    correctionRate: calculateCorrectionRate(stats)
+  };
+}
+
+function calculateRecoveryRate(sessions) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  const recoveries = list.filter((s, i) => {
+    if (i === 0) return false;
+    const prev = list[i - 1];
+    return (prev?.accuracy || 0) < 70 && (s?.accuracy || 0) >= 80;
+  });
+
+  return {
+    rate: list.length > 1 ? Math.round((recoveries.length / list.length) * 100) : 0,
+    avgRecoveryTime: (H.average(recoveries.map(s => s.engagedMs || 0)) / 60000),
+    resilience: recoveries.length >= 3 ? 'high' : recoveries.length >= 1 ? 'medium' : 'developing'
+  };
+}
+
 function classifyModuleType(module) {
   const m = String(module || '').toLowerCase();
   if (m.includes('ear') || m.includes('interval')) return 'auditory';
@@ -1135,7 +1342,6 @@ function getAlternativePracticeMethod(moduleKey) {
   return alternatives[key] || 'vary tempo, context, and spacing';
 }
 
-// Session grouping / habit analysis
 function groupSessionsByDay(sessions) {
   return (Array.isArray(sessions) ? sessions : []).reduce((acc, s) => {
     const day = dayKeyFromTs(s?.timestamp);
@@ -1202,16 +1408,11 @@ function identifyCommonDistractionTimes(sessions) {
     .map(([h]) => formatTimeRange(parseInt(h, 10)));
 }
 
-// Error analysis stubs (coherent + safe)
 function identifySystematicErrors(modules) {
   return (Array.isArray(modules) ? modules : [])
     .filter(([_, data]) => (data?.total || 0) >= 10 && H.accuracy(data.correct, data.total) < 70)
     .map(([module]) => formatModuleName(module))
     .slice(0, 3);
-}
-
-function identifyErrorClusters(stats) {
-  return [];
 }
 
 function identifyConceptualGaps(modules) {
@@ -1233,7 +1434,6 @@ function calculateCorrectionRate(stats) {
   return mods.length > 0 ? Math.round((improving / mods.length) * 100) : 0;
 }
 
-// Cognitive / deliberate practice
 function assessCognitiveLoad(sessions, stats) {
   const list = Array.isArray(sessions) ? sessions : [];
   const recent = list.slice(-10);
@@ -1268,7 +1468,6 @@ function assessDeliberatePractice(sessions) {
   };
 }
 
-// Transfer efficiency / correlations
 function measureTransferEfficiency(stats) {
   const pairs = calculateModuleCorrelationsFromStats(stats);
   const positive = pairs.filter(c => c.correlation > 0.5);
@@ -1335,7 +1534,6 @@ function generateTransferRecommendations(correlations) {
     .map(c => `Practice ${c.module1} and ${c.module2} together to reinforce shared patterns`);
 }
 
-// Optimization helpers
 function calculateIdealSessionDuration(sessions) {
   const list = Array.isArray(sessions) ? sessions : [];
   const high = list.filter(s => (s.qualityScore || 0) >= 75);
@@ -1408,7 +1606,7 @@ function identifyTransferOpportunities(modules) {
   return ops;
 }
 
-// Retention placeholders (coherent + safe)
+// safe placeholders
 function calculateShortTermRetention(stats) { return 85; }
 function calculateMediumTermRetention(stats) { return 75; }
 function calculateLongTermRetention(stats) { return 65; }
@@ -1455,7 +1653,6 @@ function identifyStrengthenedConcepts(modules) {
     .slice(0, 3);
 }
 
-// Metacognition placeholders
 function calculateSelfAwareness(sessions) { return 75; }
 function calculateAdaptability(sessions, stats) {
   const list = Array.isArray(sessions) ? sessions : [];
@@ -1477,194 +1674,16 @@ function calculateStyleConfidence(categoryScores) {
   return v < 100 ? 'low' : v < 400 ? 'medium' : 'high';
 }
 
-// ======================================
-// 🎯 STATS UPDATE (Public) — FIXED
-// ======================================
-
-export function updateStats(module, isCorrect, responseTime = 0, sessionData = {}) {
-  const stats = loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats());
-  const modKey = String(module || 'unknown');
-
-  stats.total += 1;
-  stats.correct += isCorrect ? 1 : 0;
-
-  if (!stats.byModule[modKey]) {
-    stats.byModule[modKey] = {
-      correct: 0,
-      total: 0,
-      avgResponseTime: 0,
-
-      // ✅ Fix #5: exact last-20 tracking
-      recentWindow: [],
-      recentCorrect: 0,
-      recentTotal: 0,
-
-      lastPracticed: Date.now(),
-      difficulty: 'medium',
-      errorPatterns: [],
-      improvementRate: []
-    };
-  }
-
-  const mod = stats.byModule[modKey];
-  mod.total += 1;
-  mod.correct += isCorrect ? 1 : 0;
-  mod.lastPracticed = Date.now();
-
-  // ✅ Fix #5: correct last-20 window via ring buffer
-  if (!Array.isArray(mod.recentWindow)) mod.recentWindow = [];
-  mod.recentWindow.push(!!isCorrect);
-  if (mod.recentWindow.length > 20) mod.recentWindow.shift();
-
-  mod.recentTotal = mod.recentWindow.length;
-  mod.recentCorrect = mod.recentWindow.reduce((s, v) => s + (v ? 1 : 0), 0);
-
-  // EMA for response time
-  const rt = Number(responseTime) || 0;
-  mod.avgResponseTime = mod.avgResponseTime
-    ? (mod.avgResponseTime * 0.9 + rt * 0.1)
-    : rt;
-
-  // Improvement history (bounded)
-  if (!Array.isArray(mod.improvementRate)) mod.improvementRate = [];
-  mod.improvementRate.push({ timestamp: Date.now(), accuracy: H.accuracy(mod.correct, mod.total) });
-  if (mod.improvementRate.length > 50) mod.improvementRate.shift();
-
-  // Daily counts
-  const todayKey = new Date().toDateString();
-  stats.daily = stats.daily || {};
-  stats.daily[todayKey] = (stats.daily[todayKey] || 0) + 1;
-
-  // ✅ Fix #6: streak updates (current + max)
-  const days = Object.keys(stats.daily || {})
-    .map(d => dayKeyToMs(d))
-    .filter(Number.isFinite)
-    .sort((a, b) => b - a);
-
-  let streak = 0;
-  if (days.length) {
-    const todayMs = dayKeyToMs(todayKey);
-    const day0 = days[0];
-    const diff0 = Number.isFinite(todayMs) ? Math.floor((todayMs - day0) / DAY_MS) : 999;
-
-    if (diff0 === 0) {
-      streak = 1;
-      for (let i = 1; i < days.length; i++) {
-        const diff = Math.floor((days[i - 1] - days[i]) / DAY_MS);
-        if (diff === 1) streak += 1;
-        else break;
-      }
-    }
-  }
-
-  stats.streaks = stats.streaks || { current: 0, max: 0 };
-  stats.streaks.current = streak;
-  stats.streaks.max = Math.max(stats.streaks.max || 0, streak);
-
-  // Learning velocity (bounded)
-  if (!Array.isArray(stats.learningVelocity)) stats.learningVelocity = [];
-  stats.learningVelocity.push({
-    timestamp: Date.now(),
-    module: modKey,
-    isCorrect: !!isCorrect,
-    responseTime: rt,
-    currentAccuracy: H.accuracy(mod.correct, mod.total)
-  });
-  if (stats.learningVelocity.length > 100) stats.learningVelocity.shift();
-
-  saveJSON(STORAGE_KEYS.ANALYTICS, stats);
-
-  // Live session tracking: guard if sessionTracker API differs
-  try {
-    sessionTracker?.trackAnswer?.(module, isCorrect, responseTime, sessionData);
-  } catch {
-    safeTrack('answer', 'record', { module, isCorrect, responseTime });
-  }
-
-  return stats;
-}
-
-// ======================================
-// 🎯 QUICK STATS (Public) — FIXED
-// ======================================
-
-export function getQuickStat(type) {
-  const stats = loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats());
-
-  switch (type) {
-    case 'accuracy':
-      return H.accuracy(stats.correct, stats.total);
-
-    // NOTE: kept for backward compatibility (this is “questions”, not “sessions”)
-    case 'sessions':
-      return stats.total || 0;
-
-    case 'consistency': {
-      const sessions = loadJSON(STORAGE_KEYS.JOURNAL, []);
-      const list = Array.isArray(sessions) ? sessions : [];
-
-      // ✅ Fix #3: oldest based on minTimestampMs
-      const oldestMs = minTimestampMs(list);
-      const days = Math.max(1, Math.ceil((Date.now() - oldestMs) / DAY_MS));
-
-      // ✅ Fix #2: robust day extraction
-      const uniqueDays = new Set(list.map(s => dayKeyFromTs(s?.timestamp))).size;
-      return Math.min(100, Math.round((uniqueDays / days) * 100));
-    }
-
-    case 'streak':
-      return safeGet(stats, 'streaks.current', 0) || 0;
-
-    case 'momentum': {
-      const sessions = loadJSON(STORAGE_KEYS.JOURNAL, []);
-      const list = Array.isArray(sessions) ? sessions : [];
-      return calculateMomentumScore(list.slice(-10));
-    }
-
-    default:
-      return 0;
-  }
-}
-
-// ======================================
-// 🎯 EXPORT (Public)
-// ======================================
-
-export function exportAnalytics() {
-  const analysis = analyzePerformance('all', {
-    includePredictions: true,
-    includePatterns: true,
-    includeOptimization: true,
-    includeBreakthrough: true
-  });
-
-  return {
-    version: '3.1',
-    timestamp: Date.now(),
-    ...analysis,
-    rawStats: loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats()),
-    mlMeta: {
-      predictionsEnabled: true,
-      patternsDetected: true,
-      optimizationActive: true
-    }
-  };
-}
-
-export function getModuleProgress(moduleKey) {
-  const stats = JSON.parse(localStorage.getItem('vmq-stats') || '{"byModule":{}}');
-  return stats?.byModule?.[moduleKey] || null;
-}
-
-// ======================================
-// Default export (keeps prior API shape)
-// ======================================
-
+// --------------------------------------
+// Default export (keeps prior API shape + adds missing keys)
+// --------------------------------------
 export default {
   analyzePerformance,
+  generateMLRecommendations,
   updateStats,
   getQuickStat,
   exportAnalytics,
+  getModuleProgress,
   generateSmartRecommendations,
   generateAdvancedAIInsights
 };
