@@ -1,20 +1,11 @@
 // js/App.js
 // ======================================
-// VMQ ROOT APP v3.0.0 - ML-Adaptive PWA
+// VMQ ROOT APP v3.0.5 - ML-Adaptive PWA
 // Error Boundaries • Theme Sync • Lazy Modules • Predictive Loading
 // ======================================
 
-const {
-  createElement: h,
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  useMemo,
-} = React;
-
 // --------------------------------------
-// Core imports
+// Core imports (ES modules MUST come first)
 // --------------------------------------
 import { VMQ_VERSION, FEATURES } from './config/constants.js';
 import { STORAGE_KEYS, loadJSON, saveJSON } from './config/storage.js';
@@ -36,6 +27,12 @@ import { generateMLRecommendations } from './engines/analytics.js';
 import { getAdaptiveConfig } from './engines/difficultyAdapter.js';
 import { getDueItems } from './engines/spacedRepetition.js';
 
+// ✅ Single source of truth for route normalization + file mapping
+import {
+  normalizeRouteSlug,
+  getComponentFileForRoute,
+} from './config/routeManifest.js';
+
 // --------------------------------------
 // UI components
 // --------------------------------------
@@ -43,7 +40,7 @@ import ToastSystem from './components/Toast.js';
 import ErrorBoundary from './components/ErrorBoundary.js';
 import Loading from './components/Loading.js';
 
-// Core components
+// Core components (eager)
 import MainMenu from './components/MainMenu.js';
 import Dashboard from './components/Dashboard.js';
 import Analytics from './components/Analytics.js';
@@ -52,14 +49,17 @@ import Welcome from './components/Welcome.js';
 import CoachPanel from './components/CoachPanel.js';
 import PracticeJournal from './components/PracticeJournal.js';
 
-// Lazy modules (keep aligned to real files)
-const Intervals = React.lazy(() => import('./components/Intervals.js'));
-const KeySignatures = React.lazy(() => import('./components/KeySignatures.js'));
-const Rhythm = React.lazy(() => import('./components/Rhythm.js'));
-const Bieler = React.lazy(() => import('./components/Bieler.js'));
-const Fingerboard = React.lazy(() => import('./components/Fingerboard.js'));
-const ScalesLab = React.lazy(() => import('./components/ScalesLab.js'));
-const Flashcards = React.lazy(() => import('./components/Flashcards.js'));
+// --------------------------------------
+// React globals (works with CDN React)
+// --------------------------------------
+const {
+  createElement: h,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} = React;
 
 // --------------------------------------
 // Defaults
@@ -184,9 +184,11 @@ function MLProvider({ children }) {
 }
 
 // --------------------------------------
-// Routes map (expand safely as files exist)
+// ROUTE COMPONENTS
+// - Keep your current eager routes
+// - Add dynamic lazy-load for any manifest-mapped route
 // --------------------------------------
-const ROUTES = {
+const EAGER_ROUTE_COMPONENTS = Object.freeze({
   menu: MainMenu,
   dashboard: Dashboard,
   analytics: Analytics,
@@ -194,15 +196,33 @@ const ROUTES = {
   welcome: Welcome,
   coach: CoachPanel,
   journal: PracticeJournal,
+});
 
-  intervals: Intervals,
-  keys: KeySignatures,
-  rhythm: Rhythm,
-  bieler: Bieler,
-  fingerboard: Fingerboard,
-  scales: ScalesLab,
-  flashcards: Flashcards,
-};
+// Cache lazy components by filename
+const _lazyByFileCache = new Map();
+
+/**
+ * Resolve a route into a React component, using the routeManifest mapping.
+ * Returns null if unknown.
+ */
+function getComponentForRoute(route) {
+  const slug = normalizeRouteSlug(route);
+
+  // Prefer eager components for core screens
+  if (EAGER_ROUTE_COMPONENTS[slug]) return EAGER_ROUTE_COMPONENTS[slug];
+
+  const file = getComponentFileForRoute(slug);
+  if (!file) return null;
+
+  if (!_lazyByFileCache.has(file)) {
+    _lazyByFileCache.set(
+      file,
+      React.lazy(() => import(`./components/${file}`))
+    );
+  }
+
+  return _lazyByFileCache.get(file);
+}
 
 // --------------------------------------
 // Feature flag helper
@@ -320,7 +340,6 @@ function useEngagementOptimizer({ enabled = true } = {}) {
         ...prev,
         lastInteraction: now,
         isIdle: false,
-        // do NOT auto-clear breakSuggested here; only user/UI should clear if you add that action
       }));
 
       idleTimer = setTimeout(() => {
@@ -333,7 +352,6 @@ function useEngagementOptimizer({ enabled = true } = {}) {
     window.addEventListener('scroll', markActive);
     window.addEventListener('touchstart', markActive);
 
-    // prime
     markActive();
 
     return () => {
@@ -345,7 +363,7 @@ function useEngagementOptimizer({ enabled = true } = {}) {
     };
   }, [enabled]);
 
-  // Pomodoro break suggestion: 25 minutes since last activity (resets on activity)
+  // Pomodoro break suggestion: 25 minutes since last activity
   useEffect(() => {
     if (!enabled) return;
 
@@ -354,7 +372,6 @@ function useEngagementOptimizer({ enabled = true } = {}) {
     const schedule = () => {
       if (breakTimer) clearTimeout(breakTimer);
 
-      // if already suggested, don't schedule again
       setState((prev) => {
         if (prev.breakSuggested) return prev;
 
@@ -367,7 +384,6 @@ function useEngagementOptimizer({ enabled = true } = {}) {
       });
     };
 
-    // schedule on mount
     schedule();
 
     const onActivity = () => schedule();
@@ -406,7 +422,6 @@ function updateThemeColor(theme) {
 }
 
 function getUserSegment() {
-  // simple deterministic segmenting; replace if you have a real model
   try {
     const profile = loadJSON(STORAGE_KEYS.PROFILE, {});
     const seed = String(profile?.id || profile?.name || profile?.createdAt || 'anon');
@@ -428,7 +443,7 @@ function predictTimeToNextLevel(currentXp, xpToNext) {
   if (avgXpPerSession <= 0) return null;
 
   const sessionsNeeded = Math.ceil((xpToNext - currentXp) / avgXpPerSession);
-  const avgSessionFrequency = 1; // sessions/day (simple heuristic)
+  const avgSessionFrequency = 1;
   return Math.ceil(sessionsNeeded / avgSessionFrequency);
 }
 
@@ -685,7 +700,7 @@ export default function App() {
         const initTime = performance.now() - initStart;
         checkBudget({
           engineInitTime: Math.round(initTime),
-          mlWarmupTime: mlContext?.isWarmingUp ? 0 : PERFORMANCE_BUDGETS.mlWarmupTime, // heuristic
+          mlWarmupTime: mlContext?.isWarmingUp ? 0 : PERFORMANCE_BUDGETS.mlWarmupTime,
         });
 
         console.log(`[VMQ v${VMQ_VERSION}] ✓ Ready`);
@@ -715,7 +730,6 @@ export default function App() {
       cancelled = true;
       unsubscribe();
     };
-    // NOTE: intentionally not depending on settings/mlContext to avoid init loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkHealth, applyTheme, refreshStats, router, emitAnalyticsEvent, checkBudget]);
 
@@ -744,7 +758,7 @@ export default function App() {
   }, [initialized, engagement.lastInteraction, engagement.breakSuggested, emitAnalyticsEvent]);
 
   // ------------------------------------
-  // PWA update handler (index.html dispatches vmq-update-available)
+  // PWA update handler
   // ------------------------------------
   useEffect(() => {
     const handleUpdate = (e) => {
@@ -810,7 +824,6 @@ export default function App() {
     window.addEventListener('hashchange', onHashChange);
     onHashChange();
 
-    // Wait for SW that index.html registered; register periodic sync + optional notifications gating
     navigator.serviceWorker.ready
       .then(async (registration) => {
         if (!mounted) return;
@@ -824,13 +837,7 @@ export default function App() {
           }
         }
 
-        // Keep behavior, but only if user setting allows it
-        if (
-          settings.notifications &&
-          'Notification' in window &&
-          Notification.permission === 'default'
-        ) {
-          // Ask user after they’ve been in the app a bit (and only once per install)
+        if (settings.notifications && 'Notification' in window && Notification.permission === 'default') {
           const askedKey = 'vmq-notification-asked-v1';
           const alreadyAsked = loadJSON(askedKey, false);
           if (!alreadyAsked) {
@@ -851,7 +858,6 @@ export default function App() {
       navigator.serviceWorker.removeEventListener('message', onMessage);
       window.removeEventListener('hashchange', onHashChange);
     };
-    // Intentionally include settings.notifications so this can respect toggles
   }, [settings.notifications]);
 
   // ------------------------------------
@@ -906,7 +912,8 @@ export default function App() {
   // Route renderer (Suspense + ErrorBoundary)
   // ------------------------------------
   const renderCurrentRoute = useCallback(() => {
-    const Component = ROUTES[router.route] || NotFound;
+    const slug = normalizeRouteSlug(router.route);
+    const Component = getComponentForRoute(slug) || NotFound;
 
     const commonProps = {
       onBack: () => router.navigate(VMQ_ROUTES.MENU),
@@ -924,7 +931,6 @@ export default function App() {
     return h(
       ErrorBoundary,
       {
-        // If your ErrorBoundary expects different props, adjust here.
         fallback: h('div', { className: 'card card-error' }, '⚠️ Module crashed. Please reload.'),
       },
       h(
@@ -958,20 +964,17 @@ export default function App() {
         h('div', { style: { fontSize: 'clamp(4rem, 12vw, 6rem)', marginBottom: 'var(--space-lg)' } }, '⚠️'),
         h('h1', { style: { color: 'var(--danger)', marginBottom: 'var(--space-md)' } }, 'Initialization Failed'),
         h('p', { style: { marginBottom: 'var(--space-md)' } }, diagnosticData.error),
-
         h(
           'div',
           { className: 'diagnostic-info', style: { textAlign: 'left', margin: 'var(--space-lg) 0' } },
           h('h3', null, 'Diagnostic Info:'),
           h('pre', { style: { fontSize: 'var(--font-size-xs)', overflow: 'auto' } }, JSON.stringify(diagnosticData, null, 2))
         ),
-
         h(
           'button',
           { className: 'btn btn-primary btn-lg', onClick: () => window.location.reload(), style: { margin: 'var(--space-sm)' } },
           '🔄 Reload App'
         ),
-
         h(
           'button',
           {
@@ -988,7 +991,6 @@ export default function App() {
           },
           '📥 Download Diagnostics'
         ),
-
         h(
           'p',
           { className: 'text-muted', style: { marginTop: 'var(--space-lg)', fontSize: 'var(--font-size-sm)' } },
@@ -1093,7 +1095,7 @@ export default function App() {
             h(
               'button',
               {
-                className: `nav-btn ${router.route === VMQ_ROUTES.DASHBOARD ? 'active' : ''}`,
+                className: `nav-btn ${normalizeRouteSlug(router.route) === VMQ_ROUTES.DASHBOARD ? 'active' : ''}`,
                 onClick: () => router.navigate(VMQ_ROUTES.DASHBOARD),
                 'aria-label': 'Dashboard',
               },
@@ -1102,7 +1104,7 @@ export default function App() {
             h(
               'button',
               {
-                className: `nav-btn ${router.route === VMQ_ROUTES.COACH ? 'active' : ''}`,
+                className: `nav-btn ${normalizeRouteSlug(router.route) === VMQ_ROUTES.COACH ? 'active' : ''}`,
                 onClick: () => router.navigate(VMQ_ROUTES.COACH),
                 'aria-label': 'AI Coach',
               },
@@ -1111,7 +1113,7 @@ export default function App() {
             h(
               'button',
               {
-                className: `nav-btn ${router.route === VMQ_ROUTES.SETTINGS ? 'active' : ''}`,
+                className: `nav-btn ${normalizeRouteSlug(router.route) === VMQ_ROUTES.SETTINGS ? 'active' : ''}`,
                 onClick: () => router.navigate(VMQ_ROUTES.SETTINGS),
                 'aria-label': 'Settings',
               },
@@ -1206,7 +1208,6 @@ function bootstrap() {
   }
 }
 
-// Auto-bootstrap (App.js is loaded as a module entry)
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', bootstrap);
 } else {
