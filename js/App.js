@@ -1,23 +1,17 @@
 // js/App.js
 // ======================================
-// VMQ ROOT APP v3.0.5 - ML-Adaptive PWA
+// VMQ ROOT APP v3.0.4 - ML-Adaptive PWA
 // Error Boundaries • Theme Sync • Lazy Modules • Predictive Loading
 // ======================================
 
 // --------------------------------------
-// Core imports (ES modules MUST come first)
+// Core imports (MUST be first in ESM)
 // --------------------------------------
 import { VMQ_VERSION, FEATURES } from './config/constants.js';
 import { STORAGE_KEYS, loadJSON, saveJSON } from './config/storage.js';
 
 import { audioEngine } from './engines/audioEngine.js';
-import {
-  loadXP,
-  updateStreak,
-  getLevel,
-  addXP,
-  unlockAchievement,
-} from './engines/gamification.js';
+import { loadXP, updateStreak, getLevel, addXP, unlockAchievement } from './engines/gamification.js';
 import { sessionTracker } from './engines/sessionTracker.js';
 import { keyboard } from './utils/keyboard.js';
 import { a11y } from './accessibility.js';
@@ -27,12 +21,6 @@ import { generateMLRecommendations } from './engines/analytics.js';
 import { getAdaptiveConfig } from './engines/difficultyAdapter.js';
 import { getDueItems } from './engines/spacedRepetition.js';
 
-// ✅ Single source of truth for route normalization + file mapping
-import {
-  normalizeRouteSlug,
-  getComponentFileForRoute,
-} from './config/routeManifest.js';
-
 // --------------------------------------
 // UI components
 // --------------------------------------
@@ -40,7 +28,7 @@ import ToastSystem from './components/Toast.js';
 import ErrorBoundary from './components/ErrorBoundary.js';
 import Loading from './components/Loading.js';
 
-// Core components (eager)
+// Core components
 import MainMenu from './components/MainMenu.js';
 import Dashboard from './components/Dashboard.js';
 import Analytics from './components/Analytics.js';
@@ -50,7 +38,7 @@ import CoachPanel from './components/CoachPanel.js';
 import PracticeJournal from './components/PracticeJournal.js';
 
 // --------------------------------------
-// React globals (works with CDN React)
+// React globals (UMD provided by index.html)
 // --------------------------------------
 const {
   createElement: h,
@@ -60,6 +48,15 @@ const {
   useRef,
   useMemo,
 } = React;
+
+// Lazy modules (keep aligned to real files)
+const Intervals     = React.lazy(() => import('./components/Intervals.js'));
+const KeySignatures = React.lazy(() => import('./components/KeySignatures.js'));
+const Rhythm        = React.lazy(() => import('./components/Rhythm.js'));
+const Bieler        = React.lazy(() => import('./components/Bieler.js'));
+const Fingerboard   = React.lazy(() => import('./components/Fingerboard.js'));
+const ScalesLab     = React.lazy(() => import('./components/ScalesLab.js'));
+const Flashcards    = React.lazy(() => import('./components/Flashcards.js'));
 
 // --------------------------------------
 // Defaults
@@ -115,7 +112,6 @@ function MLProvider({ children }) {
     error: null,
   });
 
-  // Warm up ML models on mount
   useEffect(() => {
     let cancelled = false;
 
@@ -141,8 +137,10 @@ function MLProvider({ children }) {
           error: null,
         });
 
+        // eslint-disable-next-line no-console
         console.log(`[ML] Warmup complete: ${Math.round(performance.now() - start)}ms`);
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.warn('[ML] Warmup failed:', e);
         if (cancelled) return;
         setMlState((prev) => ({ ...prev, isWarmingUp: false, error: e }));
@@ -150,12 +148,9 @@ function MLProvider({ children }) {
     }
 
     warmup();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  // Periodic refresh every 5 minutes
   useEffect(() => {
     let cancelled = false;
 
@@ -170,6 +165,7 @@ function MLProvider({ children }) {
           lastUpdated: Date.now(),
         }));
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.warn('[ML] Refresh failed:', e);
       }
     }, 300000);
@@ -184,11 +180,9 @@ function MLProvider({ children }) {
 }
 
 // --------------------------------------
-// ROUTE COMPONENTS
-// - Keep your current eager routes
-// - Add dynamic lazy-load for any manifest-mapped route
+// Routes map (expand safely as files exist)
 // --------------------------------------
-const EAGER_ROUTE_COMPONENTS = Object.freeze({
+const ROUTES = {
   menu: MainMenu,
   dashboard: Dashboard,
   analytics: Analytics,
@@ -196,39 +190,20 @@ const EAGER_ROUTE_COMPONENTS = Object.freeze({
   welcome: Welcome,
   coach: CoachPanel,
   journal: PracticeJournal,
-});
 
-// Cache lazy components by filename
-const _lazyByFileCache = new Map();
-
-/**
- * Resolve a route into a React component, using the routeManifest mapping.
- * Returns null if unknown.
- */
-function getComponentForRoute(route) {
-  const slug = normalizeRouteSlug(route);
-
-  // Prefer eager components for core screens
-  if (EAGER_ROUTE_COMPONENTS[slug]) return EAGER_ROUTE_COMPONENTS[slug];
-
-  const file = getComponentFileForRoute(slug);
-  if (!file) return null;
-
-  if (!_lazyByFileCache.has(file)) {
-    _lazyByFileCache.set(
-      file,
-      React.lazy(() => import(`./components/${file}`))
-    );
-  }
-
-  return _lazyByFileCache.get(file);
-}
+  intervals: Intervals,
+  keys: KeySignatures,
+  rhythm: Rhythm,
+  bieler: Bieler,
+  fingerboard: Fingerboard,
+  scales: ScalesLab,
+  flashcards: Flashcards,
+};
 
 // --------------------------------------
 // Feature flag helper
 // --------------------------------------
 export function checkFeature(featureName) {
-  // enabled unless explicitly disabled
   return FEATURES?.[featureName]?.enabled !== false;
 }
 
@@ -260,7 +235,7 @@ function useEngineHealth() {
     for (const engine of engines) {
       try {
         const mod = await import(engine.module);
-        const isHealthy = !!(mod && (mod.default || mod[engine.name]));
+        const isHealthy = !!(mod && (mod.default || mod[engine.name] || Object.keys(mod).length));
         results[engine.name] = { status: isHealthy ? 'healthy' : 'failed', critical: engine.critical };
         if (!isHealthy && engine.critical) allHealthy = false;
       } catch (e) {
@@ -303,6 +278,7 @@ function usePerformanceBudget() {
 
     for (const [key, budget] of Object.entries(PERFORMANCE_BUDGETS)) {
       if (typeof newMetrics[key] === 'number' && newMetrics[key] > budget) {
+        // eslint-disable-next-line no-console
         console.warn(`[Perf] Budget exceeded: ${key} (${newMetrics[key]}ms > ${budget}ms)`);
         exceeded = true;
       }
@@ -316,7 +292,7 @@ function usePerformanceBudget() {
 }
 
 // --------------------------------------
-// Engagement optimizer (activity-aware Pomodoro)
+// Engagement optimizer
 // --------------------------------------
 function useEngagementOptimizer({ enabled = true } = {}) {
   const [state, setState] = useState({
@@ -326,7 +302,6 @@ function useEngagementOptimizer({ enabled = true } = {}) {
     breakSuggested: false,
   });
 
-  // idle detection
   useEffect(() => {
     if (!enabled) return;
 
@@ -363,7 +338,6 @@ function useEngagementOptimizer({ enabled = true } = {}) {
     };
   }, [enabled]);
 
-  // Pomodoro break suggestion: 25 minutes since last activity
   useEffect(() => {
     if (!enabled) return;
 
@@ -469,31 +443,24 @@ export default function App() {
   const engagement = useEngagementOptimizer({ enabled: true });
   const initAttempts = useRef(0);
 
-  const [gamificationState, setGamificationState] = useState({
+  const [gamificationState] = useState({
     activeBoosts: [],
     achievementQueue: [],
     socialLeaderboard: null,
   });
 
-  // ------------------------------------
   // Fail-safe init timeout
-  // ------------------------------------
   useEffect(() => {
     if (initialized) return;
-
     const timeoutId = setTimeout(() => {
-      console.warn('[VMQ] Initialization timed out, starting in degraded mode.', {
-        healthStatus: health.status,
-      });
+      // eslint-disable-next-line no-console
+      console.warn('[VMQ] Initialization timed out, starting in degraded mode.', { healthStatus: health.status });
       setInitialized(true);
     }, 8000);
-
     return () => clearTimeout(timeoutId);
   }, [initialized, health.status]);
 
-  // ------------------------------------
-  // Analytics Event Bus
-  // ------------------------------------
+  // Analytics event bus
   const emitAnalyticsEvent = useCallback(
     (category, action, data = {}) => {
       const event = {
@@ -511,31 +478,19 @@ export default function App() {
       };
 
       if (window.location.hostname === 'localhost') {
+        // eslint-disable-next-line no-console
         console.log(`[Analytics] ${category}.${action}`, event.data);
       }
 
-      try {
-        sessionTracker.trackActivity(category, action, event.data);
-      } catch (e) {
-        console.warn('[Analytics] sessionTracker failed:', e);
-      }
-
-      if (window.analyticsEngine?.trackEvent) {
-        try {
-          window.analyticsEngine.trackEvent(event);
-        } catch (e) {
-          console.warn('[Analytics] analyticsEngine failed:', e);
-        }
-      }
+      try { sessionTracker.trackActivity(category, action, event.data); } catch {}
+      try { window.analyticsEngine?.trackEvent?.(event); } catch {}
 
       window.dispatchEvent(new CustomEvent('vmq-analytics-event', { detail: event }));
     },
     [router, level.level, xp, engagement.focusScore, mlContext?.confidence]
   );
 
-  // ------------------------------------
-  // Theme application (PWA sync)
-  // ------------------------------------
+  // Theme application
   const applyTheme = useCallback(
     (currentSettings) => {
       const html = document.documentElement;
@@ -553,26 +508,18 @@ export default function App() {
       if (currentSettings.dyslexiaMode) html.setAttribute('data-dyslexia', 'true');
       else html.removeAttribute('data-dyslexia');
 
-      if (currentSettings.reducedMotion || engagement.focusScore < 0.5) {
-        html.setAttribute('data-reduced-motion', 'true');
-      } else {
-        html.removeAttribute('data-reduced-motion');
-      }
+      if (currentSettings.reducedMotion || engagement.focusScore < 0.5) html.setAttribute('data-reduced-motion', 'true');
+      else html.removeAttribute('data-reduced-motion');
 
-      if (currentSettings.layout && currentSettings.layout !== 'default') {
-        html.setAttribute('data-layout', currentSettings.layout);
-      } else {
-        html.removeAttribute('data-layout');
-      }
+      if (currentSettings.layout && currentSettings.layout !== 'default') html.setAttribute('data-layout', currentSettings.layout);
+      else html.removeAttribute('data-layout');
 
       updateThemeColor(theme);
     },
     [engagement.focusScore]
   );
 
-  // ------------------------------------
   // Settings update
-  // ------------------------------------
   const updateSettings = useCallback(
     (updates) => {
       const updated = { ...settings, ...updates };
@@ -585,16 +532,11 @@ export default function App() {
         emitAnalyticsEvent('audio', updated.muted ? 'muted' : 'unmuted');
       }
 
-      if ('volume' in updates) {
-        audioEngine.setVolume(Number(updated.volume));
-      }
+      if ('volume' in updates) audioEngine.setVolume(Number(updated.volume));
 
       if ('droneActive' in updates || 'droneString' in updates) {
-        if (updated.droneActive) {
-          audioEngine.playOpenStringDrone(updated.droneString || 'G');
-        } else {
-          audioEngine.stopAll();
-        }
+        if (updated.droneActive) audioEngine.playOpenStringDrone(updated.droneString || 'G');
+        else audioEngine.stopAll();
       }
 
       if ('zenMode' in updates || 'reducedMotion' in updates) {
@@ -607,9 +549,7 @@ export default function App() {
     [settings, applyTheme, emitAnalyticsEvent]
   );
 
-  // ------------------------------------
-  // Stats refresh (ML-enhanced)
-  // ------------------------------------
+  // Stats refresh
   const refreshStats = useCallback(async () => {
     try {
       const currentXp = loadXP();
@@ -630,14 +570,13 @@ export default function App() {
       const predictedTime = predictTimeToNextLevel(currentXp, xpToNext);
       setLevel((prev) => ({ ...prev, predictedTime }));
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error('[VMQ] Stats refresh failed:', err);
       emitAnalyticsEvent('error', 'stats-refresh-failed', { error: err?.message || String(err) });
     }
   }, [emitAnalyticsEvent]);
 
-  // ------------------------------------
   // Initialization (single-run guarded)
-  // ------------------------------------
   const initRanRef = useRef(false);
 
   useEffect(() => {
@@ -647,14 +586,17 @@ export default function App() {
     let cancelled = false;
 
     async function initVMQ() {
+      // eslint-disable-next-line no-console
       console.log(`[VMQ v${VMQ_VERSION}] initVMQ start`);
       initAttempts.current += 1;
       const initStart = performance.now();
 
       try {
         const isHealthy = await checkHealth();
-        if (!isHealthy) console.warn('[VMQ] Some critical engines failed health check');
-
+        if (!isHealthy) {
+          // eslint-disable-next-line no-console
+          console.warn('[VMQ] Some critical engines failed health check');
+        }
         if (cancelled) return;
 
         const saved = loadJSON(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
@@ -671,7 +613,6 @@ export default function App() {
         audioEngine.setVolume(Number(saved.volume));
 
         await refreshStats();
-
         if (cancelled) return;
 
         emitAnalyticsEvent('app', 'initialized', {
@@ -703,18 +644,16 @@ export default function App() {
           mlWarmupTime: mlContext?.isWarmingUp ? 0 : PERFORMANCE_BUDGETS.mlWarmupTime,
         });
 
+        // eslint-disable-next-line no-console
         console.log(`[VMQ v${VMQ_VERSION}] ✓ Ready`);
       } catch (err) {
         if (cancelled) return;
 
+        // eslint-disable-next-line no-console
         console.error('[VMQ] initVMQ failed:', err);
-        emitAnalyticsEvent('error', 'init-failed', {
-          error: err?.message || String(err),
-          attempt: initAttempts.current,
-        });
+        emitAnalyticsEvent('error', 'init-failed', { error: err?.message || String(err), attempt: initAttempts.current });
 
         if (initAttempts.current < 3) {
-          console.log(`[VMQ] Retrying init... (${initAttempts.current}/3)`);
           setTimeout(() => initVMQ(), 1000);
         } else {
           setError(err);
@@ -733,56 +672,26 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkHealth, applyTheme, refreshStats, router, emitAnalyticsEvent, checkBudget]);
 
-  // ------------------------------------
-  // Engagement monitoring (analytics only)
-  // ------------------------------------
-  useEffect(() => {
-    if (!initialized) return;
-
-    let breakEmitted = false;
-
-    const tracker = setInterval(() => {
-      const idleMs = Date.now() - engagement.lastInteraction;
-
-      if (idleMs > 60000) {
-        emitAnalyticsEvent('engagement', 'idle-detected', { duration: idleMs });
-      }
-
-      if (engagement.breakSuggested && !breakEmitted) {
-        breakEmitted = true;
-        emitAnalyticsEvent('engagement', 'break-suggested');
-      }
-    }, 5000);
-
-    return () => clearInterval(tracker);
-  }, [initialized, engagement.lastInteraction, engagement.breakSuggested, emitAnalyticsEvent]);
-
-  // ------------------------------------
   // PWA update handler
-  // ------------------------------------
   useEffect(() => {
     const handleUpdate = (e) => {
       emitAnalyticsEvent('pwa', 'update-available', { version: e?.detail?.version || 'unknown' });
 
-      window.dispatchEvent(
-        new CustomEvent('vmq-show-toast', {
-          detail: {
-            message: 'VMQ update available! Refresh for new features.',
-            type: 'info',
-            action: 'Refresh',
-            onAction: () => window.location.reload(),
-          },
-        })
-      );
+      window.dispatchEvent(new CustomEvent('vmq-show-toast', {
+        detail: {
+          message: 'VMQ update available! Refresh for new features.',
+          type: 'info',
+          action: 'Refresh',
+          onAction: () => window.location.reload(),
+        },
+      }));
     };
 
     window.addEventListener('vmq-update-available', handleUpdate);
     return () => window.removeEventListener('vmq-update-available', handleUpdate);
   }, [emitAnalyticsEvent]);
 
-  // ------------------------------------
   // SW messaging / periodicSync (NO registration here)
-  // ------------------------------------
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
@@ -793,6 +702,7 @@ export default function App() {
       const { type, data } = payload;
 
       if (type === 'SYNC_ANALYTICS') {
+        // eslint-disable-next-line no-console
         console.log('Syncing analytics:', data?.events?.length || 0);
       }
 
@@ -804,11 +714,9 @@ export default function App() {
             if (!mounted) return;
 
             if (dueCount > 0) {
-              window.dispatchEvent(
-                new CustomEvent('vmq-show-toast', {
-                  detail: { message: `${dueCount} flashcards are due for review!`, type: 'info' },
-                })
-              );
+              window.dispatchEvent(new CustomEvent('vmq-show-toast', {
+                detail: { message: `${dueCount} flashcards are due for review!`, type: 'info' },
+              }));
             }
           } catch {}
         })();
@@ -824,6 +732,7 @@ export default function App() {
     window.addEventListener('hashchange', onHashChange);
     onHashChange();
 
+    // Respect notifications setting
     navigator.serviceWorker.ready
       .then(async (registration) => {
         if (!mounted) return;
@@ -831,10 +740,7 @@ export default function App() {
         if ('periodicSync' in registration) {
           try {
             await registration.periodicSync.register('check-due-items', { minInterval: 30 * 60 * 1000 });
-            console.log('✓ Periodic sync registered');
-          } catch (e) {
-            console.warn('Periodic sync failed:', e);
-          }
+          } catch {}
         }
 
         if (settings.notifications && 'Notification' in window && Notification.permission === 'default') {
@@ -844,14 +750,13 @@ export default function App() {
             setTimeout(async () => {
               try {
                 saveJSON(askedKey, true);
-                const permission = await Notification.requestPermission();
-                if (permission === 'granted') console.log('✓ Notifications enabled');
+                await Notification.requestPermission();
               } catch {}
             }, 60000);
           }
         }
       })
-      .catch((err) => console.warn('SW ready failed:', err));
+      .catch(() => {});
 
     return () => {
       mounted = false;
@@ -860,18 +765,13 @@ export default function App() {
     };
   }, [settings.notifications]);
 
-  // ------------------------------------
   // A/B testing integration
-  // ------------------------------------
   useEffect(() => {
     const experiments = loadJSON('vmq-experiments', {});
     const userSegment = getUserSegment();
 
     if (!experiments.dashboardLayout) {
-      experiments.dashboardLayout = {
-        variant: Math.random() > 0.5 ? 'A' : 'B',
-        assigned: Date.now(),
-      };
+      experiments.dashboardLayout = { variant: Math.random() > 0.5 ? 'A' : 'B', assigned: Date.now() };
       saveJSON('vmq-experiments', experiments);
     }
 
@@ -882,9 +782,6 @@ export default function App() {
     });
   }, [emitAnalyticsEvent]);
 
-  // ------------------------------------
-  // 404
-  // ------------------------------------
   function NotFound({ onBack }) {
     return h(
       'div',
@@ -894,26 +791,14 @@ export default function App() {
         { className: 'card card-error', style: { textAlign: 'center', padding: 'var(--space-2xl)' } },
         h('div', { className: 'error-icon', style: { fontSize: 'clamp(3rem, 10vw, 5rem)' } }, '🚫'),
         h('h2', { style: { marginBottom: 'var(--space-md)' } }, 'Route Not Found'),
-        h(
-          'p',
-          { className: 'text-muted', style: { marginBottom: 'var(--space-xl)' } },
-          `"${router.route}" doesn't exist in VMQ`
-        ),
-        h(
-          'button',
-          { className: 'btn btn-primary btn-lg', onClick: () => onBack() },
-          '🏠 Back to Menu'
-        )
+        h('p', { className: 'text-muted', style: { marginBottom: 'var(--space-xl)' } }, `"${router.route}" doesn't exist in VMQ`),
+        h('button', { className: 'btn btn-primary btn-lg', onClick: () => onBack() }, '🏠 Back to Menu')
       )
     );
   }
 
-  // ------------------------------------
-  // Route renderer (Suspense + ErrorBoundary)
-  // ------------------------------------
   const renderCurrentRoute = useCallback(() => {
-    const slug = normalizeRouteSlug(router.route);
-    const Component = getComponentForRoute(slug) || NotFound;
+    const Component = ROUTES[router.route] || NotFound;
 
     const commonProps = {
       onBack: () => router.navigate(VMQ_ROUTES.MENU),
@@ -930,20 +815,11 @@ export default function App() {
 
     return h(
       ErrorBoundary,
-      {
-        fallback: h('div', { className: 'card card-error' }, '⚠️ Module crashed. Please reload.'),
-      },
-      h(
-        React.Suspense,
-        { fallback: h(Loading, { message: 'Loading module…' }) },
-        h(Component, commonProps)
-      )
+      { fallback: h('div', { className: 'card card-error' }, '⚠️ Module crashed. Please reload.') },
+      h(React.Suspense, { fallback: h(Loading, { message: 'Loading module…' }) }, h(Component, commonProps))
     );
   }, [router, refreshStats, xp, streak, level, settings, updateSettings, mlContext, emitAnalyticsEvent]);
 
-  // ------------------------------------
-  // Error UI
-  // ------------------------------------
   if (error) {
     const diagnosticData = {
       error: error?.message || String(error),
@@ -964,45 +840,30 @@ export default function App() {
         h('div', { style: { fontSize: 'clamp(4rem, 12vw, 6rem)', marginBottom: 'var(--space-lg)' } }, '⚠️'),
         h('h1', { style: { color: 'var(--danger)', marginBottom: 'var(--space-md)' } }, 'Initialization Failed'),
         h('p', { style: { marginBottom: 'var(--space-md)' } }, diagnosticData.error),
-        h(
-          'div',
-          { className: 'diagnostic-info', style: { textAlign: 'left', margin: 'var(--space-lg) 0' } },
+        h('div', { className: 'diagnostic-info', style: { textAlign: 'left', margin: 'var(--space-lg) 0' } },
           h('h3', null, 'Diagnostic Info:'),
           h('pre', { style: { fontSize: 'var(--font-size-xs)', overflow: 'auto' } }, JSON.stringify(diagnosticData, null, 2))
         ),
-        h(
-          'button',
-          { className: 'btn btn-primary btn-lg', onClick: () => window.location.reload(), style: { margin: 'var(--space-sm)' } },
-          '🔄 Reload App'
-        ),
-        h(
-          'button',
-          {
-            className: 'btn btn-secondary btn-lg',
-            onClick: () => {
-              const blob = new Blob([JSON.stringify(diagnosticData, null, 2)], { type: 'application/json' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `vmq-diagnostic-${Date.now()}.json`;
-              a.click();
-            },
-            style: { margin: 'var(--space-sm)' },
+        h('button', { className: 'btn btn-primary btn-lg', onClick: () => window.location.reload(), style: { margin: 'var(--space-sm)' } }, '🔄 Reload App'),
+        h('button', {
+          className: 'btn btn-secondary btn-lg',
+          onClick: () => {
+            const blob = new Blob([JSON.stringify(diagnosticData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `vmq-diagnostic-${Date.now()}.json`;
+            a.click();
           },
-          '📥 Download Diagnostics'
-        ),
-        h(
-          'p',
-          { className: 'text-muted', style: { marginTop: 'var(--space-lg)', fontSize: 'var(--font-size-sm)' } },
+          style: { margin: 'var(--space-sm)' },
+        }, '📥 Download Diagnostics'),
+        h('p', { className: 'text-muted', style: { marginTop: 'var(--space-lg)', fontSize: 'var(--font-size-sm)' } },
           `VMQ v${VMQ_VERSION} • Attempt ${initAttempts.current}/3 • Health: ${health.status}`
         )
       )
     );
   }
 
-  // ------------------------------------
-  // Loading screen
-  // ------------------------------------
   if (!initialized) {
     const progress = mlContext?.isWarmingUp ? 60 : 90;
 
@@ -1012,48 +873,29 @@ export default function App() {
       h(
         'div',
         { className: 'loading-content', style: { textAlign: 'center' } },
-        h('div', {
-          className: 'loading-spinner',
-          style: { width: 'clamp(48px, 12vw, 64px)', height: 'clamp(48px, 12vw, 64px)', margin: '0 auto var(--space-xl)' },
-        }),
+        h('div', { className: 'loading-spinner', style: { width: 'clamp(48px, 12vw, 64px)', height: 'clamp(48px, 12vw, 64px)', margin: '0 auto var(--space-xl)' } }),
         h('h2', { style: { marginBottom: 'var(--space-md)' } }, 'Violin Mastery Quest'),
         h('p', { className: 'text-muted' }, `Loading v${VMQ_VERSION} with ML...`),
-
-        h(
-          'div',
-          { className: 'loading-details', style: { margin: 'var(--space-lg) 0' } },
-          h(
-            'div',
-            { className: 'engine-status-grid' },
+        h('div', { className: 'loading-details', style: { margin: 'var(--space-lg) 0' } },
+          h('div', { className: 'engine-status-grid' },
             Object.entries(health.engines || {}).map(([name, status]) =>
-              h(
-                'div',
-                { key: name, className: `engine-status ${status.status}` },
+              h('div', { key: name, className: `engine-status ${status.status}` },
                 h('span', { className: 'engine-icon' }, status.status === 'healthy' ? '✅' : '❌'),
                 h('span', { className: 'engine-name' }, name)
               )
             )
           )
         ),
-
-        h(
-          'div',
-          { className: 'progress-bar', style: { width: '200px', margin: 'var(--space-xl) auto 0' } },
+        h('div', { className: 'progress-bar', style: { width: '200px', margin: 'var(--space-xl) auto 0' } },
           h('div', { className: 'progress-fill', style: { width: `${progress}%` } })
         ),
-
-        h(
-          'p',
-          { className: 'text-muted', style: { fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-md)' } },
+        h('p', { className: 'text-muted', style: { fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-md)' } },
           mlContext?.isWarmingUp ? 'Warming up ML models...' : 'Finalizing...'
         )
       )
     );
   }
 
-  // ------------------------------------
-  // Main layout
-  // ------------------------------------
   return h(
     'div',
     {
@@ -1065,60 +907,26 @@ export default function App() {
     },
 
     !settings.zenMode &&
-      h(
-        'header',
-        { className: 'app-header', role: 'banner' },
-        h(
-          'div',
-          { className: 'header-grid' },
-          h(
-            'button',
-            { className: 'logo-btn', onClick: () => router.navigate(VMQ_ROUTES.MENU), 'aria-label': 'Violin Mastery Quest Home' },
-            '🎻 VMQ'
-          ),
+      h('header', { className: 'app-header', role: 'banner' },
+        h('div', { className: 'header-grid' },
+          h('button', { className: 'logo-btn', onClick: () => router.navigate(VMQ_ROUTES.MENU), 'aria-label': 'Violin Mastery Quest Home' }, '🎻 VMQ'),
 
           gamificationState.activeBoosts?.length > 0 &&
-            h('div', { className: 'boost-indicator' }, h('span', { className: 'boost-badge' }, `🚀 ${gamificationState.activeBoosts[0].multiplier}x`)),
+            h('div', { className: 'boost-indicator' },
+              h('span', { className: 'boost-badge' }, `🚀 ${gamificationState.activeBoosts[0].multiplier}x`)
+            ),
 
-          h(
-            'div',
-            { className: 'header-stats', 'aria-live': 'polite', 'aria-atomic': 'true' },
+          h('div', { className: 'header-stats', 'aria-live': 'polite', 'aria-atomic': 'true' },
             h('span', { 'aria-label': `Level ${level.level}` }, `${level.badge} Lv${level.level}`),
             h('span', { 'aria-label': `${xp} experience points` }, `${Number(xp || 0).toLocaleString()} XP`),
             h('span', { className: 'streak', 'aria-label': `${streak} day streak` }, `${streak}🔥`),
             (mlContext?.confidence || 0) > 0.7 && h('span', { className: 'ml-indicator', title: 'ML active' }, '🤖')
           ),
 
-          h(
-            'nav',
-            { className: 'header-nav', role: 'navigation', 'aria-label': 'Main navigation' },
-            h(
-              'button',
-              {
-                className: `nav-btn ${normalizeRouteSlug(router.route) === VMQ_ROUTES.DASHBOARD ? 'active' : ''}`,
-                onClick: () => router.navigate(VMQ_ROUTES.DASHBOARD),
-                'aria-label': 'Dashboard',
-              },
-              '📊'
-            ),
-            h(
-              'button',
-              {
-                className: `nav-btn ${normalizeRouteSlug(router.route) === VMQ_ROUTES.COACH ? 'active' : ''}`,
-                onClick: () => router.navigate(VMQ_ROUTES.COACH),
-                'aria-label': 'AI Coach',
-              },
-              '🎯'
-            ),
-            h(
-              'button',
-              {
-                className: `nav-btn ${normalizeRouteSlug(router.route) === VMQ_ROUTES.SETTINGS ? 'active' : ''}`,
-                onClick: () => router.navigate(VMQ_ROUTES.SETTINGS),
-                'aria-label': 'Settings',
-              },
-              '⚙️'
-            )
+          h('nav', { className: 'header-nav', role: 'navigation', 'aria-label': 'Main navigation' },
+            h('button', { className: `nav-btn ${router.route === VMQ_ROUTES.DASHBOARD ? 'active' : ''}`, onClick: () => router.navigate(VMQ_ROUTES.DASHBOARD), 'aria-label': 'Dashboard' }, '📊'),
+            h('button', { className: `nav-btn ${router.route === VMQ_ROUTES.COACH ? 'active' : ''}`, onClick: () => router.navigate(VMQ_ROUTES.COACH), 'aria-label': 'AI Coach' }, '🎯'),
+            h('button', { className: `nav-btn ${router.route === VMQ_ROUTES.SETTINGS ? 'active' : ''}`, onClick: () => router.navigate(VMQ_ROUTES.SETTINGS), 'aria-label': 'Settings' }, '⚙️')
           )
         )
       ),
@@ -1131,32 +939,22 @@ export default function App() {
 
     mlContext?.predictions?.quickAction &&
       !settings.zenMode &&
-      h(
-        'button',
-        {
-          className: 'fab-quick-action',
-          onClick: () => {
-            const action = mlContext.predictions.quickAction;
-            router.navigate(action.route, action.params);
-            emitAnalyticsEvent('ml', 'quick-action-clicked', action);
-          },
-          'aria-label': mlContext.predictions.quickAction.label,
-          title: mlContext.predictions.quickAction.label,
+      h('button', {
+        className: 'fab-quick-action',
+        onClick: () => {
+          const action = mlContext.predictions.quickAction;
+          router.navigate(action.route, action.params);
+          emitAnalyticsEvent('ml', 'quick-action-clicked', action);
         },
-        mlContext.predictions.quickAction.icon
-      ),
+        'aria-label': mlContext.predictions.quickAction.label,
+        title: mlContext.predictions.quickAction.label,
+      }, mlContext.predictions.quickAction.icon),
 
     !settings.zenMode &&
-      h(
-        'footer',
-        { className: 'app-footer', role: 'contentinfo' },
-        h(
-          'div',
-          { style: { display: 'flex', gap: 'var(--space-md)', alignItems: 'center', justifyContent: 'space-between' } },
+      h('footer', { className: 'app-footer', role: 'contentinfo' },
+        h('div', { style: { display: 'flex', gap: 'var(--space-md)', alignItems: 'center', justifyContent: 'space-between' } },
           h('small', { className: 'text-muted' }, `VMQ v${VMQ_VERSION} • Bieler Method`),
-          h(
-            'div',
-            { style: { display: 'flex', gap: 'var(--space-sm)', alignItems: 'center' } },
+          h('div', { style: { display: 'flex', gap: 'var(--space-sm)', alignItems: 'center' } },
             h('kbd', { 'aria-label': 'Press Escape key to go back' }, 'ESC'),
             h('small', { className: 'text-muted' }, 'Back'),
             health.status === 'degraded' && h('span', { className: 'health-warning', title: 'Some features unavailable' }, '⚠️')
@@ -1167,28 +965,30 @@ export default function App() {
 }
 
 // --------------------------------------
-// Production bootstrap
+// Production bootstrap (guarded + signals index.html)
 // --------------------------------------
 function bootstrap() {
-  console.log(`[VMQ v${VMQ_VERSION}] Production bootstrap...`);
+  if (window.__VMQ_APP_BOOTSTRAPPED__) return;
+  window.__VMQ_APP_BOOTSTRAPPED__ = true;
 
-  if (!window.React || !window.ReactDOM) {
-    const root = document.getElementById('root');
-    if (root) {
-      root.innerHTML = `
-        <div class="error-fallback">
-          <h1>⚠️ VMQ Load Failed</h1>
-          <p>React libraries failed to load. Check your internet connection.</p>
-          <button onclick="location.reload()" class="btn btn-primary">🔄 Reload App</button>
-          <p class="text-muted">VMQ v${VMQ_VERSION}</p>
-        </div>`;
-    }
-    return;
-  }
+  // eslint-disable-next-line no-console
+  console.log(`[VMQ v${VMQ_VERSION}] Production bootstrap...`);
 
   const rootEl = document.getElementById('root');
   if (!rootEl) {
+    // eslint-disable-next-line no-console
     console.error('[VMQ] Root element not found');
+    return;
+  }
+
+  if (!window.React || !window.ReactDOM) {
+    rootEl.innerHTML = `
+      <div class="error-fallback">
+        <h1>⚠️ VMQ Load Failed</h1>
+        <p>React libraries failed to load. Check your connection.</p>
+        <button onclick="location.reload()" class="btn btn-primary">🔄 Reload App</button>
+        <p class="text-muted">VMQ v${VMQ_VERSION}</p>
+      </div>`;
     return;
   }
 
@@ -1196,8 +996,13 @@ function bootstrap() {
     const AppWithML = h(MLProvider, null, h(App));
     const container = ReactDOM.createRoot(rootEl);
     container.render(AppWithML);
+
+    // Signal the shell that React is alive (prevents “flash then blank”)
+    window.dispatchEvent(new CustomEvent('vmq-app-mounted', { detail: { version: VMQ_VERSION } }));
+    // eslint-disable-next-line no-console
     console.log(`[VMQ v${VMQ_VERSION}] ✓ Live`);
   } catch (err) {
+    // eslint-disable-next-line no-console
     console.error('[VMQ] Render failed:', err);
     rootEl.innerHTML = `
       <div class="error-fallback">
@@ -1214,5 +1019,4 @@ if (document.readyState === 'loading') {
   bootstrap();
 }
 
-// Optional re-export
 export { MLContext };
