@@ -27,6 +27,10 @@ const CACHE_ML      = `vmq-ml-v${VMQ_VERSION}`;
 const OFFLINE_URL = new URL('./offline.html', BASE_URL).href;
 const INDEX_URL   = new URL('./index.html',   BASE_URL).href;
 
+// Optional fetch endpoint for offline.html to read cache/version info:
+// GET {BASE}__vmq_cache_status__
+const CACHE_STATUS_URL = new URL('./__vmq_cache_status__', BASE_URL).href;
+
 // ------------------------------------------------------------
 // IndexedDB (kept)
 // ------------------------------------------------------------
@@ -142,6 +146,15 @@ function fail503(message) {
     headers: { 'Content-Type': 'text/plain; charset=utf-8' }
   });
 }
+function jsonResponse(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
+  });
+}
+function isVmqCacheName(name) {
+  return typeof name === 'string' && name.startsWith('vmq-');
+}
 
 async function broadcastToClients(payload) {
   try {
@@ -187,6 +200,15 @@ function shouldCacheRuntime(request, response) {
   if (!isSameOrigin(url) && !url.startsWith('https://unpkg.com/')) return false;
 
   return true;
+}
+
+async function getVmqCacheKeys() {
+  try {
+    const keys = await caches.keys();
+    return keys.filter(isVmqCacheName).sort();
+  } catch {
+    return [];
+  }
 }
 
 // ------------------------------------------------------------
@@ -251,7 +273,7 @@ async function manageCacheQuota() {
 }
 
 // ------------------------------------------------------------
-// ML-ish nav history (kept + improved prefetch mapping)
+// ML-ish nav history (kept + improved prefetch safety)
 // ------------------------------------------------------------
 async function loadNavHistoryIfNeeded() {
   if (mlState.navigationHistory.length) return;
@@ -327,7 +349,14 @@ const ROUTE_TO_COMPONENT = Object.freeze({
 function toAbsoluteUrl(spec) {
   try { return new URL(spec, BASE_URL).href; } catch { return null; }
 }
-
+function looksLikeJs(url) {
+  try {
+    const u = new URL(url);
+    return (u.pathname || '').toLowerCase().endsWith('.js');
+  } catch {
+    return String(url).toLowerCase().endsWith('.js');
+  }
+}
 function resolvePrefetchURL(routeOrUrl) {
   if (!routeOrUrl) return null;
   const raw = String(routeOrUrl).trim();
@@ -352,21 +381,40 @@ function resolvePrefetchURL(routeOrUrl) {
 async function prefetchURLs(urls) {
   if (!Array.isArray(urls) || !urls.length) return;
 
-  const cache = await caches.open(CACHE_ML);
-
   for (const u of urls) {
     const url = resolvePrefetchURL(u);
     if (!url) continue;
 
-    const req = new Request(url, { method: 'GET', mode: 'no-cors', credentials: 'omit' });
+    const sameOrigin = isSameOrigin(url);
+    const jsLike = looksLikeJs(url);
+
+    // Prefetched JS should go in MODULES cache for reliability.
+    // Other speculative data can stay in ML cache.
+    const targetCacheName = jsLike ? CACHE_MODULES : CACHE_ML;
+    let cache;
+    try { cache = await caches.open(targetCacheName); } catch { continue; }
+
+    // For same-origin, use a normal request so we can read headers and avoid caching HTML.
+    // For cross-origin, no-cors may produce opaque (fine for known CDNs).
+    const reqInit = sameOrigin
+      ? { method: 'GET', mode: 'same-origin', credentials: 'same-origin', cache: 'no-store' }
+      : { method: 'GET', mode: 'no-cors', credentials: 'omit', cache: 'no-store' };
+
+    const req = new Request(url, reqInit);
 
     try {
       const already = await cache.match(req);
       if (already) continue;
 
       const resp = await fetch(req);
-      // Never cache HTML into ML cache (helps avoid poison if something misroutes)
-      if (isCacheableResponse(resp) && !isHTMLResponse(resp)) {
+
+      // Poison protection:
+      // - If we can see headers (same-origin), never cache HTML as a module/data.
+      // - If opaque, we can't inspect; keep it only for cross-origin (expected).
+      if (sameOrigin && isHTMLResponse(resp)) continue;
+
+      // For JS modules, avoid caching obviously-bad non-cacheable responses.
+      if (isCacheableResponse(resp)) {
         await cache.put(req, resp.clone());
       }
     } catch {}
@@ -413,7 +461,9 @@ async function syncAnalyticsQueue() {
 // INSTALL
 // ------------------------------------------------------------
 self.addEventListener('install', (event) => {
+  // Keep behavior: activate quickly
   self.skipWaiting();
+
   event.waitUntil((async () => {
     try { await openIDB(); } catch {}
 
@@ -429,7 +479,6 @@ self.addEventListener('install', (event) => {
           credentials: 'omit'
         });
         const resp = await fetch(req);
-        // For same-origin: only cache OK; for CDN no-cors: opaque is fine
         if (isCacheableResponse(resp)) await cache.put(req, resp.clone());
       } catch {}
     }));
@@ -445,7 +494,7 @@ self.addEventListener('activate', (event) => {
     const valid = new Set([CACHE_CORE, CACHE_MODULES, CACHE_RUNTIME, CACHE_ML]);
 
     await Promise.all(keys.map((k) => {
-      if (k.startsWith('vmq-') && !valid.has(k)) return caches.delete(k);
+      if (isVmqCacheName(k) && !valid.has(k)) return caches.delete(k);
       return Promise.resolve(false);
     }));
 
@@ -466,6 +515,16 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (!request || request.method !== 'GET') return;
 
+  // Provide a simple JSON endpoint so offline.html can display cache version safely.
+  // This never touches app routes and is safe to call even while offline.
+  if (request.url === CACHE_STATUS_URL) {
+    event.respondWith((async () => {
+      const cachesList = await getVmqCacheKeys();
+      return jsonResponse({ version: VMQ_VERSION, scope: BASE_PATH, caches: cachesList });
+    })());
+    return;
+  }
+
   // NAVIGATION: network-first, offline fallback (documents only)
   if (isNavigationRequest(request)) {
     event.respondWith((async () => {
@@ -477,7 +536,9 @@ self.addEventListener('fetch', (event) => {
         if (net && isCacheableResponse(net) && isHTMLResponse(net)) {
           try {
             const runtime = await caches.open(CACHE_RUNTIME);
+            // Keep a fresh index shell for offline boot
             await runtime.put(INDEX_URL, net.clone());
+            // Also store the specific navigation URL (helps deep links)
             await runtime.put(request, net.clone());
           } catch {}
         }
@@ -501,14 +562,13 @@ self.addEventListener('fetch', (event) => {
 
   // ASSETS: cache-first + SWR, poison-cache protection
   event.respondWith((async () => {
-    // Look up cached response
     const { response: cached, cacheName } = await matchAnyCache(request);
 
     // If cached response is HTML but request is an asset => poison cache: delete + treat as miss
     if (cached && isAssetDestination(request) && isHTMLResponse(cached)) {
       event.waitUntil(deleteFromAllCaches(request));
     } else if (cached) {
-      recordHit(cacheName === CACHE_ML);
+      recordHit(cacheName === CACHE_ML || cacheName === CACHE_MODULES);
 
       // Background SWR update
       event.waitUntil((async () => {
@@ -571,18 +631,21 @@ self.addEventListener('message', (event) => {
   };
 
   if (data.type === 'CACHE_STATUS') {
-    reply({
-      type: 'CACHE_STATUS_REPLY',
-      version: VMQ_VERSION,
-      status: 'active',
-      scope: BASE_PATH,
-      caches: [CACHE_CORE, CACHE_MODULES, CACHE_RUNTIME, CACHE_ML],
-      mlState: {
-        cacheHitRate: mlState.cacheHitRate,
-        isOnline: mlState.isOnline,
-        navigationHistorySize: mlState.navigationHistory.length
-      }
-    });
+    event.waitUntil((async () => {
+      const keys = await getVmqCacheKeys();
+      reply({
+        type: 'CACHE_STATUS_REPLY',
+        version: VMQ_VERSION,
+        status: 'active',
+        scope: BASE_PATH,
+        caches: keys,
+        mlState: {
+          cacheHitRate: mlState.cacheHitRate,
+          isOnline: mlState.isOnline,
+          navigationHistorySize: mlState.navigationHistory.length
+        }
+      });
+    })());
     return;
   }
 
@@ -595,7 +658,7 @@ self.addEventListener('message', (event) => {
   if (data.type === 'VMQ_CLEAR_ALL_CACHES') {
     event.waitUntil((async () => {
       const keys = await caches.keys();
-      await Promise.all(keys.filter(k => k.startsWith('vmq-')).map(k => caches.delete(k)));
+      await Promise.all(keys.filter(isVmqCacheName).map(k => caches.delete(k)));
     })());
     return;
   }
