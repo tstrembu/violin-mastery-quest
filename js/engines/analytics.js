@@ -229,57 +229,69 @@ export function analyzePerformance(timeframe = 'week', options = {}) {
 // Public: generateMLRecommendations()
 // (Safe, lightweight; used by App.js warmup in many VMQ builds)
 // --------------------------------------
-export function generateMLRecommendations() {
+// ------------------------------------------------------
+// ML recommendations (exported) — shadow-proof
+// ------------------------------------------------------
+function _generateMLRecommendations(options = {}) {
+  const timeframe = options?.timeframe || 'week';
+
   try {
-    const analysis = analyzePerformance('week', {
+    // Reuse your existing analysis pipeline (keeps intended features)
+    const analysis = analyzePerformance(timeframe, {
       includePredictions: true,
       includePatterns: true,
-      includeOptimization: false,
+      includeOptimization: true,
       includeBreakthrough: true
     });
 
-    const sm2 = analysis?.sm2Integration;
-    const weaknesses = analysis?.weaknesses || [];
-    const breakthroughs = analysis?.breakthroughs || [];
+    const topRec = Array.isArray(analysis?.recommendations) ? analysis.recommendations[0] : null;
 
+    // Convert "#moduleKey" style actions into an actual route
+    // (routes are in your routeManifest: /coach exists)
     let quickAction = null;
-    let confidence = 0.6;
+    if (topRec?.action && typeof topRec.action === 'string') {
+      const m = topRec.action.startsWith('#') ? topRec.action.slice(1) : null;
+      quickAction = {
+        label: topRec.title || 'Next best step',
+        icon: topRec.icon || '🎯',
+        route: '/coach',
+        params: m ? { focus: m } : {}
+      };
+    }
 
-    // Priority 1: due flashcards
-    if ((sm2?.dueToday || 0) >= 5) {
-      quickAction = { label: 'Review Flashcards', icon: '🔄', route: '#flashcards', params: {} };
-      confidence = 0.95;
-    }
-    // Priority 2: a clear weakness
-    else if (weaknesses[0]?.moduleKey) {
-      quickAction = { label: `Fix ${weaknesses[0].module}`, icon: '🎯', route: `#${weaknesses[0].moduleKey}`, params: {} };
-      confidence = 0.85;
-    }
-    // Priority 3: push a breakthrough
-    else if (breakthroughs?.[0]?.moduleKey) {
-      quickAction = { label: `Push ${breakthroughs[0].module}`, icon: '🚀', route: `#${breakthroughs[0].moduleKey}`, params: {} };
-      confidence = 0.8;
-    }
-    // Fallback
-    else {
-      quickAction = { label: 'Go to Dashboard', icon: '📊', route: '#dashboard', params: {} };
-      confidence = 0.65;
-    }
+    // Confidence: prefer your prediction confidence; fallback to something safe
+    const conf =
+      analysis?.predictions?.confidence?.accuracy ??
+      analysis?.predictions?.confidence?.stability ??
+      analysis?.predictions?.nextWeekAccuracy?.confidence ??
+      0.6;
 
     return {
-      confidence,
+      timeframe,
+      generatedAt: Date.now(),
+      confidence: Number.isFinite(conf) ? conf : 0.6,
       quickAction,
+      // keep extra detail available for future UI (doesn’t break current callers)
       summary: {
         overallAccuracy: analysis?.overallAccuracy ?? 0,
-        consistencyScore: analysis?.consistencyScore ?? 0,
-        currentStreak: analysis?.currentStreak ?? 0
-      },
-      recommendations: analysis?.recommendations || []
+        currentStreak: analysis?.currentStreak ?? 0,
+        strengths: analysis?.strengths ?? [],
+        weaknesses: analysis?.weaknesses ?? []
+      }
     };
   } catch (e) {
-    return { confidence: 0.2, quickAction: { label: 'Go to Menu', icon: '🏠', route: '#menu', params: {} }, error: e?.message || String(e) };
+    return {
+      timeframe,
+      generatedAt: Date.now(),
+      confidence: 0.5,
+      quickAction: null,
+      error: String(e?.message || e)
+    };
   }
 }
+
+// Named export expected by App.js and index.html
+export { _generateMLRecommendations as generateMLRecommendations };
 
 // --------------------------------------
 // Public: getModuleProgress()  ✅ (your missing export)
@@ -1773,10 +1785,10 @@ export function getModuleProgress(moduleKey) {
 // --------------------------------------
 export default {
   analyzePerformance,
-  generateMLRecommendations,
   updateStats,
   getQuickStat,
   exportAnalytics,
+  generateMLRecommendations: _generateMLRecommendations,
   getModuleProgress,
   generateSmartRecommendations,
   generateAdvancedAIInsights
