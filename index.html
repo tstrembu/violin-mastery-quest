@@ -1,3 +1,16 @@
+<!-- index.html
+========================================================
+VMQ index.html (Drop-in replacement) — v3.0.7
+Merged “best-of” (no feature loss):
+- ✅ Deterministic CSS cascade (base → themes → components → animations)
+- ✅ Never blank: shell stays until vmq-app-mounted OR timeout
+- ✅ GH Pages safe: robust base-path from import.meta.url
+- ✅ SW registration guarded + scope correct + forwards SW messages
+- ✅ Diagnostic overlay + global error capture
+- ✅ No-devtools fatal box shows failing import URL on timeout/import fail
+- ✅ Recover button: clears SW + caches (manual) + optional one-time auto-recover
+========================================================
+-->
 <!doctype html>
 <html lang="en" data-theme="auto">
 <head>
@@ -6,22 +19,15 @@
   <meta name="theme-color" content="#3b82f6" />
   <meta name="color-scheme" content="light dark" />
 
-  <!-- PWA / Apple -->
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="Violin Mastery Quest" />
-  <meta name="application-name" content="VMQ" />
-  <meta name="description" content="Violin Mastery Quest — adaptive violin training: intervals, fingerboard, scales, rhythm, SM-2, AI coach." />
-
   <!-- CSP: compatible with inline module bootstrap + React UMD -->
   <meta http-equiv="Content-Security-Policy"
         content="
           default-src 'self';
           script-src 'self' https://unpkg.com 'unsafe-inline';
           style-src 'self' 'unsafe-inline';
+          connect-src 'self' https://unpkg.com;
           img-src 'self' data: blob:;
           font-src 'self' data:;
-          connect-src 'self' https://unpkg.com;
           media-src 'self' blob:;
           worker-src 'self' blob:;
           object-src 'none';
@@ -29,6 +35,13 @@
           frame-ancestors 'none';
         " />
 
+  <!-- PWA / Apple -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Violin Mastery Quest" />
+  <meta name="application-name" content="VMQ" />
+
+  <meta name="description" content="Violin Mastery Quest v3 — adaptive violin training: intervals, fingerboard, scales, rhythm, SM-2, AI coach." />
   <title>Violin Mastery Quest</title>
 
   <meta property="og:title" content="Violin Mastery Quest" />
@@ -47,14 +60,21 @@
   <link rel="preconnect" href="https://unpkg.com" crossorigin />
   <link rel="dns-prefetch" href="https://unpkg.com" />
 
-  <!-- Deterministic CSS order -->
+  <!-- Preload modules -->
+  <link rel="modulepreload" href="./js/App.js" />
+  <link rel="modulepreload" href="./js/config/routeManifest.js" />
+
+  <!-- CSS (deterministic order) -->
   <link rel="stylesheet" href="./css/base.css" />
+
   <link rel="preload" href="./css/themes.css" as="style" />
   <link rel="preload" href="./css/components.css" as="style" />
   <link rel="preload" href="./css/animations.css" as="style" />
+
   <link rel="stylesheet" href="./css/themes.css" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="./css/components.css" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="./css/animations.css" media="print" onload="this.media='all'">
+
   <noscript>
     <link rel="stylesheet" href="./css/themes.css">
     <link rel="stylesheet" href="./css/components.css">
@@ -64,39 +84,40 @@
   <!-- Ensure slash-less rgb var compatibility -->
   <style>:root { --primary-rgb: 59 130 246; }</style>
 
-  <!-- React 18 UMD (App.js uses window.React / window.ReactDOM) -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-
-  <!-- Minimal boot-fallback styling (safe if CSS fails) -->
+  <!-- Minimal boot-fallback styling (safe even if CSS fails) -->
   <style>
-    .vmq-fatal { margin-top:12px; padding:12px; border:1px solid rgba(239,68,68,.65);
+    .vmq-fatal {
+      margin-top:12px; padding:12px; border:1px solid rgba(239,68,68,.65);
       background:rgba(239,68,68,.08); border-radius:12px; text-align:left;
-      max-width:620px; word-break:break-word; font-family:ui-monospace,Menlo,monospace; font-size:12px; }
-    .vmq-fatal b{font-weight:800}
+      max-width:680px; word-break:break-word;
+      font-family:ui-monospace,Menlo,monospace; font-size:12px;
+    }
+    .vmq-fatal b{font-weight:900}
+    .vmq-boot-actions{margin-top:10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
   </style>
 </head>
 
 <body>
-  <!-- Shell stays visible until React dispatches vmq-app-mounted -->
+  <!-- Shell UI (stays until React confirms mount) -->
   <div class="loading-screen active" id="loading-screen" aria-live="polite">
+    <div class="loading-spinner"></div>
     <div class="loading-content" style="text-align:center">
-      <div class="loading-spinner" style="width:clamp(48px, 12vw, 64px);height:clamp(48px, 12vw, 64px);margin:0 auto var(--space-xl)"></div>
       <h1 class="loading-title">Violin Mastery Quest</h1>
       <p class="loading-subtitle">Adaptive modules • Offline-ready</p>
 
-      <div class="loading-progress" style="margin:var(--space-lg) 0 0">
-        <div class="progress-bar" style="width:220px;margin:0 auto">
-          <div class="progress-fill" id="loading-progress-fill" style="width:0%"></div>
+      <div class="loading-progress" style="margin:var(--space-lg,16px) 0 0">
+        <div class="progress-bar" style="width:240px;margin:0 auto">
+          <div class="progress-fill" id="loading-progress-fill" style="width:0%; --width:0%"></div>
         </div>
       </div>
 
       <p class="loading-status" id="loading-status">Initializing…</p>
       <div class="engine-status" id="engine-status" aria-live="polite" style="margin-top:10px"></div>
 
+      <!-- No-devtools fatal box -->
       <div id="vmq-fatal-box" class="vmq-fatal" style="display:none;"></div>
 
-      <div style="margin-top:10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap">
+      <div class="vmq-boot-actions">
         <button class="btn btn-primary" type="button" id="vmq-reload-btn">Reload</button>
         <button class="btn btn-secondary" type="button" id="vmq-recover-btn">Recover (clear SW/cache)</button>
       </div>
@@ -104,19 +125,43 @@
   </div>
 
   <div class="toast-container" id="toast-container"></div>
+
+  <div class="diagnostic-overlay" id="diagnostic-overlay" style="display:none;">
+    <div class="diagnostic-content">
+      <h2>🔧 VMQ Diagnostic Mode</h2>
+      <pre id="diagnostic-log" style="white-space:pre-wrap;"></pre>
+      <button id="diagnostic-reload" class="btn btn-primary" type="button">Reload App</button>
+    </div>
+  </div>
+
   <div id="root"></div>
 
+  <!-- React 18 UMD (App.js uses window.React / window.ReactDOM) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Single owner module: listeners → (optional) probes → app import → bootstrap → wait mount -->
   <script type="module">
-    // --------------------------------------------
-    // VMQ index.html — Drop-in bootstrap v3.0.7
-    // --------------------------------------------
-    const BASE_URL  = new URL('./', import.meta.url);     // GH Pages safe
-    const BASE_PATH = BASE_URL.pathname;                  // "/violin-mastery-quest/" or "/"
+    // ------------------------------------------------------------
+    // Base-path derived from the directory serving THIS index.html
+    // ------------------------------------------------------------
+    const BASE_URL  = new URL('./', import.meta.url);
+    const BASE_PATH = BASE_URL.pathname; // "/violin-mastery-quest/" or "/"
     const APP_URL   = new URL('./js/App.js', BASE_URL).href;
     const SW_URL    = new URL('./sw.js', BASE_URL).href;
 
     window.__VMQ_BASE_PATH__ = BASE_PATH;
     window.__VMQ_APP_URL__   = APP_URL;
+
+    const qs = new URL(location.href).searchParams;
+    const isDiagnosticMode =
+      qs.get('vmq-diagnostics') === '1' ||
+      qs.get('vmq-diagnostics') === 'true' ||
+      qs.get('debug') === 'true' ||
+      location.search.includes('vmq-diagnostics');
+
+    const RECOVERY_KEY = 'vmq-recovery-attempted-v1';
+    const recoveryAttempted = sessionStorage.getItem(RECOVERY_KEY) === '1';
 
     const $status = document.getElementById('loading-status');
     const $bar    = document.getElementById('loading-progress-fill');
@@ -124,15 +169,46 @@
     const $fatal  = document.getElementById('vmq-fatal-box');
     const $shell  = document.getElementById('loading-screen');
 
-    const isDiagnosticMode =
-      new URL(location.href).searchParams.get('vmq-diagnostics') === '1' ||
-      new URL(location.href).searchParams.get('debug') === 'true';
+    const startTime = (performance?.now ? performance.now() : Date.now());
+    window.vmqMetrics = window.vmqMetrics || { loadTime: 0, engineInitTime: 0, mlWarmupTime: 0 };
 
-    const RECOVERY_KEY = 'vmq-recovery-attempted-v1';
-    const recoveryAttempted = sessionStorage.getItem(RECOVERY_KEY) === '1';
+    const diagnosticLog = [];
+    function logDiagnostic(category, message, data = null) {
+      const now = (performance?.now ? performance.now() : Date.now());
+      const ts = (now - startTime).toFixed(2);
+      const line = `[${ts}ms] [${category}] ${message}${data ? ' ' + JSON.stringify(data) : ''}`;
+      diagnosticLog.push(line);
+
+      if (isDiagnosticMode) {
+        console.log(`%cVMQ Diagnostics: ${line}`, 'color:#3b82f6;font-weight:bold;');
+        const logEl = document.getElementById('diagnostic-log');
+        if (logEl) logEl.textContent = diagnosticLog.join('\n');
+      }
+    }
+
+    function showDiagnosticOverlay(extraError = null) {
+      const overlay = document.getElementById('diagnostic-overlay');
+      if (!overlay || !isDiagnosticMode) return;
+
+      overlay.style.display = 'flex';
+      const logEl = document.getElementById('diagnostic-log');
+      if (logEl) {
+        logEl.textContent =
+          diagnosticLog.join('\n') +
+          (extraError ? `\n\n${extraError?.stack || String(extraError)}` : '');
+      }
+    }
+
+    document.getElementById('diagnostic-reload')?.addEventListener('click', () => location.reload());
 
     function setStatus(t) { if ($status) $status.textContent = t; }
-    function setProgress(p) { if ($bar) $bar.style.width = `${Math.max(0, Math.min(100, p))}%`; }
+    function setProgress(p) {
+      const v = Math.max(0, Math.min(100, p));
+      if ($bar) {
+        $bar.style.width = `${v}%`;                 // works with your “best-of” version
+        $bar.style.setProperty('--width', `${v}%`); // works with your “--width” CSS-variable version
+      }
+    }
 
     function extractUrl(text) {
       const s = String(text || '');
@@ -144,10 +220,12 @@
 
     function showBootFatal(title, info = {}) {
       if (!$fatal) return;
-      const sw =
+
+      const swState =
         ('serviceWorker' in navigator)
           ? (navigator.serviceWorker.controller ? 'controlling' : 'not controlling')
           : 'unsupported';
+
       const basePath = window.__VMQ_BASE_PATH__ || '(unknown)';
       const appUrl = window.__VMQ_APP_URL__ || '(unknown)';
       const msg = info.message || '';
@@ -155,6 +233,7 @@
         info.failingUrl ||
         extractUrl(msg) ||
         extractUrl(info.stack) ||
+        extractUrl(info.reason) ||
         '(not found)';
 
       $fatal.style.display = 'block';
@@ -163,11 +242,63 @@
         `<div><b>Failing URL:</b> ${url}</div>` +
         `<div><b>App URL:</b> ${appUrl}</div>` +
         `<div><b>Base path:</b> ${basePath}</div>` +
-        `<div><b>SW:</b> ${sw}</div>` +
+        `<div><b>SW:</b> ${swState}</div>` +
         (msg ? `<div style="margin-top:6px;"><b>Message:</b> ${msg}</div>` : '') +
         (info.stack ? `<div style="margin-top:6px;white-space:pre-wrap;"><b>Stack:</b>\n${info.stack}</div>` : '');
     }
 
+    // ------------------------------------------------------------
+    // Global error capture (Safari-friendly)
+    // ------------------------------------------------------------
+    window.__VMQ_LAST_ERROR__ = null;
+
+    window.addEventListener('error', (event) => {
+      logDiagnostic('ERROR', event.message, { filename: event.filename, lineno: event.lineno, colno: event.colno });
+      window.__VMQ_LAST_ERROR__ = {
+        message: event.message,
+        stack: event?.error?.stack || '',
+        failingUrl: event.filename || extractUrl(event.message) || null
+      };
+      showDiagnosticOverlay(event.error || event);
+    });
+
+    window.addEventListener('unhandledrejection', (event) => {
+      const r = event?.reason;
+      logDiagnostic('PROMISE', r?.message || 'Unhandled rejection', r ? { reason: String(r) } : null);
+      window.__VMQ_LAST_ERROR__ = {
+        message: r?.message || String(r),
+        stack: r?.stack || '',
+        failingUrl: extractUrl(r?.message) || extractUrl(String(r)) || null
+      };
+      if (isDiagnosticMode) showDiagnosticOverlay(r);
+    });
+
+    // App import failure event (from loader below)
+    window.addEventListener('vmq-app-import-failed', (e) => {
+      const detail = e?.detail || {};
+      logDiagnostic('APP', 'App module failed to import', { appUrl: detail.appUrl, failingUrl: detail.failingUrl, message: detail.message });
+      showBootFatal('App module failed to import', {
+        message: detail.message,
+        stack: detail.stack,
+        failingUrl: detail.failingUrl || extractUrl(detail.message) || extractUrl(detail.stack) || null
+      });
+    });
+
+    // ------------------------------------------------------------
+    // Fail-open feature gating (compatible with App.js checkFeature)
+    // ------------------------------------------------------------
+    function checkFeature(featureName) {
+      try {
+        const features = window.VMQ?.FEATURES || window.VMQ?.features || {};
+        return features?.[featureName]?.enabled !== false;
+      } catch {
+        return true;
+      }
+    }
+
+    // ------------------------------------------------------------
+    // Recovery helpers
+    // ------------------------------------------------------------
     async function purgeServiceWorkerAndCaches() {
       const report = { action: 'purge', ok: true, sw: [], caches: [], ts: Date.now() };
       try {
@@ -189,129 +320,423 @@
     }
 
     document.getElementById('vmq-reload-btn')?.addEventListener('click', () => location.reload());
+
     document.getElementById('vmq-recover-btn')?.addEventListener('click', async () => {
       setStatus('Recovering…');
+      logDiagnostic('RECOVER', 'Manual recover triggered');
       await purgeServiceWorkerAndCaches();
       location.href = `${BASE_URL.href}?recovered=1&t=${Date.now()}`;
     });
-
-    // Global error capture (helps when Safari doesn’t surface module errors well)
-    window.__VMQ_LAST_ERROR__ = null;
-    window.addEventListener('error', (event) => {
-      window.__VMQ_LAST_ERROR__ = {
-        message: event.message,
-        stack: event?.error?.stack || '',
-        failingUrl: event.filename || extractUrl(event.message) || null
-      };
-      if (isDiagnosticMode) console.warn('[VMQ] window.error:', window.__VMQ_LAST_ERROR__);
-    });
-
-    window.addEventListener('unhandledrejection', (event) => {
-      const r = event?.reason;
-      window.__VMQ_LAST_ERROR__ = {
-        message: r?.message || String(r),
-        stack: r?.stack || '',
-        failingUrl: extractUrl(r?.message) || extractUrl(String(r)) || null
-      };
-      if (isDiagnosticMode) console.warn('[VMQ] unhandledrejection:', window.__VMQ_LAST_ERROR__);
-    });
-
-    // Do not hide shell until App.js dispatches vmq-app-mounted
-    let mounted = false;
-    window.addEventListener('vmq-app-mounted', (e) => {
-      mounted = true;
-      $shell?.classList.remove('active');
-      setStatus(`Live${e?.detail?.version ? ' • v' + e.detail.version : ''}`);
-    }, { once: true });
-
-    async function registerServiceWorker() {
-      if (!('serviceWorker' in navigator)) return { supported: false };
-
-      // single-owner guard
-      if (window.__VMQ_SW_REG_GUARD__) return { guarded: true };
-      window.__VMQ_SW_REG_GUARD__ = true;
-
-      try {
-        const reg = await navigator.serviceWorker.register(SW_URL, {
-          scope: BASE_PATH,
-          updateViaCache: 'none'
-        });
-        return { supported: true, ok: true, scope: reg.scope, controlling: !!navigator.serviceWorker.controller };
-      } catch (e) {
-        return { supported: true, ok: false, error: e?.message || String(e) };
-      }
-    }
-
-    // Optional: very lightweight engine presence check (non-fatal)
-    async function softEngineProbe() {
-      const names = ['audioEngine','gamification','sessionTracker','analytics','spacedRepetition','difficultyAdapter'];
-      const out = [];
-      for (const n of names) {
-        try {
-          const url = new URL(`./js/engines/${n}.js`, BASE_URL).href;
-          const res = await fetch(url, { cache: 'no-store' });
-          out.push(`${res.ok ? '✅' : '❌'} ${n}`);
-        } catch {
-          out.push(`❌ ${n}`);
-        }
-      }
-      if ($eng) $eng.textContent = out.join('  •  ');
-    }
 
     async function tryRecoverOnce(reason, detail = {}) {
       if (recoveryAttempted) return false;
       sessionStorage.setItem(RECOVERY_KEY, '1');
 
       setStatus('Auto-recovering…');
+      logDiagnostic('RECOVER', 'Auto recover', { reason, detail });
       await purgeServiceWorkerAndCaches();
-      if (isDiagnosticMode) console.warn('[VMQ] Auto-recover reason:', reason, detail);
 
       location.href = `${BASE_URL.href}?autofix=1&t=${Date.now()}`;
       return true;
     }
 
-    // Boot sequence
-    (async () => {
+    // Optional: query flag to hard-reset
+    if (qs.get('vmq-reset') === '1') {
+      setStatus('Resetting offline data…');
+      logDiagnostic('RECOVER', 'vmq-reset=1 requested');
+      purgeServiceWorkerAndCaches().then(() => {
+        const u = new URL(location.href);
+        u.searchParams.delete('vmq-reset');
+        location.href = u.href;
+      });
+    }
+
+    // ------------------------------------------------------------
+    // Forward SW messages into window events (aligns with SW v3.0.7)
+    // ------------------------------------------------------------
+    function hookServiceWorkerMessages() {
+      if (!('serviceWorker' in navigator)) return;
+
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        const msg = event?.data || {};
+        if (!msg?.type) return;
+
+        // SW v3.0.7 sends these:
+        if (msg.type === 'vmq-update-available') {
+          logDiagnostic('SW', 'Message: update available', msg.data || {});
+          window.dispatchEvent(new CustomEvent('vmq-update-available', { detail: msg.data || {} }));
+          return;
+        }
+        if (msg.type === 'VMQ_SW_ACTIVE') {
+          logDiagnostic('SW', 'Message: active', msg.data || {});
+          window.dispatchEvent(new CustomEvent('vmq-sw-active', { detail: msg.data || {} }));
+          return;
+        }
+
+        // Pass-through for dashboards/debug overlays
+        window.dispatchEvent(new CustomEvent('vmq-sw-message', { detail: msg }));
+      });
+    }
+
+    hookServiceWorkerMessages();
+
+    // ------------------------------------------------------------
+    // Optional imports (MUST NOT hard-crash bootstrap)
+    // ------------------------------------------------------------
+    let ROUTE_TO_COMPONENT_FILE = Object.create(null);
+    let normalizeRouteSlug = (s) => (s || '').toString().trim().toLowerCase();
+
+    async function tryLoadRouteManifest() {
+      try {
+        const mod = await import(new URL('./js/config/routeManifest.js', BASE_URL).href);
+        if (mod?.ROUTE_TO_COMPONENT_FILE) ROUTE_TO_COMPONENT_FILE = mod.ROUTE_TO_COMPONENT_FILE;
+        if (typeof mod?.normalizeRouteSlug === 'function') normalizeRouteSlug = mod.normalizeRouteSlug;
+        logDiagnostic('MANIFEST', 'routeManifest loaded');
+      } catch (e) {
+        logDiagnostic('MANIFEST', 'routeManifest missing/unavailable (continuing)', { err: String(e?.message || e) });
+      }
+    }
+
+    // Prefetch (safe)
+    function modulePreload(href) {
+      if (!href) return;
+      if (document.head.querySelector(`link[rel="modulepreload"][href="${href}"]`)) return;
+      const link = document.createElement('link');
+      link.rel = 'modulepreload';
+      link.href = href;
+      document.head.appendChild(link);
+    }
+
+    function resolveComponentHref(routeOrId) {
+      if (!routeOrId) return null;
+      const raw = String(routeOrId).replace(/^#/, '').split('?')[0].trim();
+      if (!raw) return null;
+      const key = normalizeRouteSlug(raw);
+      const file = ROUTE_TO_COMPONENT_FILE?.[key];
+      return file ? new URL(`./js/components/${file}`, BASE_URL).href : null;
+    }
+
+    async function prefetchUserModules() {
+      let level = 'beginner';
+      try {
+        const raw = localStorage.getItem('vmq-profile') || localStorage.getItem('vmq.profile');
+        const profile = raw ? JSON.parse(raw) : null;
+        if (profile?.level) level = profile.level;
+      } catch {}
+
+      const modulesToPrefetch = {
+        beginner:      ['intervals', 'keys', 'rhythm'],
+        intermediate:  ['bieler', 'scales', 'fingerboard'],
+        advanced:      ['bieler', 'scales', 'flashcards']
+      };
+
+      const list = modulesToPrefetch[level] || modulesToPrefetch.beginner;
+      list.forEach((id) => modulePreload(resolveComponentHref(id)));
+      logDiagnostic('PREFETCH', `modulepreload(${level})`, list);
+    }
+
+    // ------------------------------------------------------------
+    // Engine health (degraded supported)
+    // ------------------------------------------------------------
+    const requiredEngines = [
+      { name: 'audioEngine',       critical: true  },
+      { name: 'gamification',      critical: true  },
+      { name: 'sessionTracker',    critical: true  },
+      { name: 'spacedRepetition',  critical: false },
+      { name: 'analytics',         critical: false },
+      { name: 'difficultyAdapter', critical: false }
+    ];
+
+    async function checkEngineHealth() {
+      const status = {};
+      let allCriticalOk = true;
+
+      for (const e of requiredEngines) {
+        try {
+          const modUrl = new URL(`./js/engines/${e.name}.js`, BASE_URL).href;
+          const mod = await import(modUrl);
+          const ok = !!(mod && (mod.default || mod[e.name] || Object.keys(mod).length));
+          status[e.name] = ok ? '✅' : '❌';
+          if (!ok && e.critical) allCriticalOk = false;
+          logDiagnostic('ENGINE', `${e.name}: ${ok ? 'healthy' : 'failed'}`, { critical: e.critical });
+        } catch (err) {
+          status[e.name] = '❌';
+          if (e.critical) allCriticalOk = false;
+          logDiagnostic('ENGINE', `${e.name}: failed to load`, { critical: e.critical, err: String(err?.message || err) });
+        }
+      }
+
+      if ($eng) {
+        $eng.innerHTML = Object.entries(status)
+          .map(([name, icon]) => `<span class="engine-indicator">${icon} ${name}</span>`)
+          .join(' ');
+      }
+
+      return allCriticalOk;
+    }
+
+    // ML warmup (best-effort)
+    async function warmupMLModels() {
+      const wantAnalytics = checkFeature('analytics');
+      const wantDA = checkFeature('difficultyAdapter');
+      if (!wantAnalytics && !wantDA) return;
+
+      const mlStart = (performance?.now ? performance.now() : Date.now());
+      logDiagnostic('ML', 'Warming up…');
+
+      try {
+        const analyticsUrl  = new URL('./js/engines/analytics.js', BASE_URL).href;
+        const difficultyUrl = new URL('./js/engines/difficultyAdapter.js', BASE_URL).href;
+
+        const [analyticsMod, difficultyMod] = await Promise.allSettled([
+          import(analyticsUrl),
+          import(difficultyUrl)
+        ]);
+
+        if (analyticsMod.status === 'fulfilled' && typeof analyticsMod.value?.generateMLRecommendations === 'function') {
+          await analyticsMod.value.generateMLRecommendations().catch(() => {});
+          logDiagnostic('ML', 'Analytics warm');
+        }
+
+        if (difficultyMod.status === 'fulfilled' && typeof difficultyMod.value?.getAdaptiveConfig === 'function') {
+          await difficultyMod.value.getAdaptiveConfig().catch(() => {});
+          logDiagnostic('ML', 'Difficulty warm');
+        }
+      } catch (e) {
+        logDiagnostic('ML', 'Warmup failed', { err: String(e?.message || e) });
+      }
+
+      const now = (performance?.now ? performance.now() : Date.now());
+      window.vmqMetrics.mlWarmupTime = Math.round(now - mlStart);
+      logDiagnostic('ML', `Warmup complete: ${window.vmqMetrics.mlWarmupTime}ms`);
+    }
+
+    // ------------------------------------------------------------
+    // Service Worker registration (single owner, scope-correct)
+    // ------------------------------------------------------------
+    async function registerServiceWorker() {
+      if (window.__VMQ_SW_REGISTERED__) {
+        logDiagnostic('SW', 'Already registered (guard flag set)');
+        return;
+      }
+      if (!checkFeature('pwaOffline') || !('serviceWorker' in navigator)) {
+        logDiagnostic('SW', 'Disabled or unsupported');
+        return;
+      }
+
+      try {
+        // getRegistration() param is a client URL; BASE_URL.href is safest
+        const existing = await navigator.serviceWorker.getRegistration(BASE_URL.href);
+        let registration = existing;
+
+        if (!registration) {
+          window.__VMQ_SW_REGISTERED__ = true;
+          window.__VMQ_SW_OWNER__ = 'index.html';
+
+          registration = await navigator.serviceWorker.register(SW_URL, {
+            scope: BASE_PATH,
+            updateViaCache: 'none'
+          });
+          logDiagnostic('SW', 'Registered', { scope: registration.scope });
+        } else {
+          window.__VMQ_SW_REGISTERED__ = true;
+          window.__VMQ_SW_OWNER__ = window.__VMQ_SW_OWNER__ || 'existing';
+          logDiagnostic('SW', 'Using existing registration', { scope: registration.scope });
+        }
+
+        registration.addEventListener('updatefound', () => {
+          const newWorker = registration.installing;
+          newWorker?.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              logDiagnostic('SW', 'Update available (updatefound)');
+              window.dispatchEvent(new CustomEvent('vmq-update-available', {
+                detail: { version: '3.0.7', cacheBust: Date.now() }
+              }));
+            }
+          });
+        });
+
+        // Optional sync hooks (best-effort)
+        navigator.serviceWorker.ready.then(async (reg) => {
+          if (reg.sync) {
+            try { await reg.sync.register('sync-analytics'); logDiagnostic('SYNC', 'sync-analytics registered'); } catch {}
+            try { await reg.sync.register('sync-sm2');       logDiagnostic('SYNC', 'sync-sm2 registered'); } catch {}
+          }
+          if (reg.periodicSync) {
+            try {
+              await reg.periodicSync.register('check-due-items', { minInterval: 30 * 60 * 1000 });
+              logDiagnostic('SYNC', 'periodicSync: check-due-items registered');
+            } catch {}
+          }
+        }).catch(() => {});
+      } catch (err) {
+        window.__VMQ_SW_REGISTERED__ = false;
+        logDiagnostic('SW', 'Registration failed', { err: String(err?.message || err) });
+      }
+    }
+
+    // ------------------------------------------------------------
+    // App import preflight (prevents “HTML served for JS” poison)
+    // ------------------------------------------------------------
+    function extractStaticImports(jsText) {
+      const out = new Set();
+      const re1 = /import\s+[^'"]*?\s+from\s+['"]([^'"]+)['"]/g;
+      const re2 = /import\s+['"]([^'"]+)['"]/g;
+      let m;
+      while ((m = re1.exec(jsText))) out.add(m[1]);
+      while ((m = re2.exec(jsText))) out.add(m[1]);
+      return [...out];
+    }
+
+    async function probeJs(url) {
+      const res = await fetch(url, { cache: 'no-store' });
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (!res.ok) return { ok: false, why: `HTTP ${res.status}`, ct };
+      if (ct.includes('text/html')) return { ok: false, why: `Served as HTML (${ct})`, ct };
+      if (!ct.includes('javascript') && !ct.includes('ecmascript') && !ct.includes('text/plain')) {
+        // Some hosts serve modules as text/plain; allow it.
+        return { ok: false, why: `Bad MIME: ${ct || '(none)'}`, ct };
+      }
+      return { ok: true, why: 'ok', ct };
+    }
+
+    async function preflightApp(appUrl) {
+      const appRes = await fetch(appUrl, { cache: 'no-store' });
+      const appCt = (appRes.headers.get('content-type') || '').toLowerCase();
+      if (!appRes.ok) return { failingUrl: appUrl, detail: `App.js HTTP ${appRes.status}` };
+      if (appCt.includes('text/html')) return { failingUrl: appUrl, detail: `App.js served as HTML (${appCt})` };
+
+      const appText = await appRes.text();
+      const specs = extractStaticImports(appText)
+        .filter(s => s.startsWith('./') || s.startsWith('../') || s.startsWith('/'));
+
+      // Limit probing to avoid huge scans if App.js is large
+      for (const spec of specs.slice(0, 80)) {
+        const url = new URL(spec, appUrl).href;
+        const r = await probeJs(url);
+        if (!r.ok) return { failingUrl: url, detail: r.why, contentType: r.ct, spec };
+      }
+      return null;
+    }
+
+    function dispatchImportFailed(err, failingUrl, extra = {}) {
+      const detail = {
+        appUrl: APP_URL,
+        failingUrl: failingUrl || null,
+        message: err?.message || String(err),
+        stack: err?.stack || '',
+        when: new Date().toISOString(),
+        ...extra
+      };
+      window.__VMQ_APP_IMPORT_ERROR__ = detail;
+      window.dispatchEvent(new CustomEvent('vmq-app-import-failed', { detail }));
+    }
+
+    // ------------------------------------------------------------
+    // Mount wait (shell stays until vmq-app-mounted)
+    // ------------------------------------------------------------
+    function waitForReactMount({ timeoutMs = 12000 } = {}) {
+      return new Promise((resolve) => {
+        let done = false;
+
+        const finish = (why) => {
+          if (done) return;
+          done = true;
+          resolve(why);
+        };
+
+        window.addEventListener('vmq-app-mounted', () => finish('vmq-app-mounted'), { once: true });
+        setTimeout(() => finish('timeout'), timeoutMs);
+      });
+    }
+
+    // ------------------------------------------------------------
+    // Bootstrap sequence (best-effort, fail-open)
+    // ------------------------------------------------------------
+    async function bootstrap() {
       setProgress(10);
       setStatus('Checking environment…');
 
+      // React must exist before App.js tries to use globals
       if (!window.React || !window.ReactDOM) {
         showBootFatal('React failed to load', { message: 'React UMD globals missing.' });
         return;
       }
 
       setProgress(20);
-      await softEngineProbe();
+      setStatus('Preparing…');
+      await tryLoadRouteManifest();
+      logDiagnostic('BOOT', 'Base', { BASE_PATH, APP_URL, SW_URL });
 
       setProgress(35);
-      setStatus('Registering offline support…');
+      setStatus('Warming up…');
+      await warmupMLModels();
+
+      setProgress(50);
+      setStatus('Checking engines…');
+      const criticalOk = await checkEngineHealth();
+      if (!criticalOk) setStatus('Some features unavailable, continuing…');
+
+      setProgress(65);
+      setStatus('Prefetching…');
+      await prefetchUserModules();
+
+      setProgress(78);
+      setStatus('Enabling offline…');
       await registerServiceWorker();
 
-      // Mount timeout: keep shell + show fatal + attempt one-time recovery
-      const MOUNT_TIMEOUT_MS = 12000;
-      setTimeout(async () => {
-        if (mounted) return;
-        setStatus('Mount timeout (React never mounted)');
-        showBootFatal('Mount timeout (React never mounted)', window.__VMQ_LAST_ERROR__ || {});
-        await tryRecoverOnce('mount-timeout', window.__VMQ_LAST_ERROR__ || {});
-      }, MOUNT_TIMEOUT_MS);
-
-      setProgress(55);
+      setProgress(90);
       setStatus('Loading app module…');
 
+      // Preflight first (prevents “module import failed” mystery)
+      const fail = await preflightApp(APP_URL);
+      if (fail) {
+        dispatchImportFailed(new Error(`Preflight failed: ${fail.detail}`), fail.failingUrl, fail);
+        await tryRecoverOnce('preflight-failed', fail);
+        return;
+      }
+
       try {
-        await import(APP_URL);  // App.js runs its own bootstrap + dispatches vmq-app-mounted
-        setProgress(90);
+        await import(APP_URL);
+        setProgress(100);
         setStatus('Finalizing…');
-      } catch (e) {
-        const payload = {
-          message: e?.message || String(e),
-          stack: e?.stack || '',
-          failingUrl: extractUrl(e?.message) || extractUrl(e?.stack) || null
-        };
-        setStatus('Importing a module script failed.');
-        showBootFatal('Importing a module script failed.', payload);
-        await tryRecoverOnce('module-import-failed', payload);
+      } catch (err) {
+        dispatchImportFailed(err, null);
+        await tryRecoverOnce('module-import-failed', { message: err?.message || String(err), stack: err?.stack || '' });
+      }
+    }
+
+    // ------------------------------------------------------------
+    // Run: bootstrap then wait for mount; never blank the screen
+    // ------------------------------------------------------------
+    (async () => {
+      try {
+        await bootstrap();
+
+        const why = await waitForReactMount({ timeoutMs: 12000 });
+        if (why === 'timeout') {
+          logDiagnostic('BOOT', 'React mount timeout (shell retained)');
+          setStatus('Still loading… If stuck, enable ?vmq-diagnostics=1');
+          showBootFatal('Mount timeout (React never mounted)', window.__VMQ_APP_IMPORT_ERROR__ || window.__VMQ_LAST_ERROR__ || {});
+          showDiagnosticOverlay(null);
+          await tryRecoverOnce('mount-timeout', window.__VMQ_APP_IMPORT_ERROR__ || window.__VMQ_LAST_ERROR__ || {});
+          return;
+        }
+
+        // React confirmed mount
+        $shell?.classList.remove('active');
+        const now = (performance?.now ? performance.now() : Date.now());
+        window.vmqMetrics.loadTime = Math.round(now - startTime);
+
+        window.dispatchEvent(new CustomEvent('vmq-ready', {
+          detail: { metrics: window.vmqMetrics, diagnosticLog }
+        }));
+      } catch (err) {
+        logDiagnostic('BOOT', 'Fatal bootstrap error', { err: String(err?.message || err) });
+        setStatus('Error loading VMQ. Enable diagnostics for details.');
+        showBootFatal('Fatal bootstrap error', { message: err?.message || String(err), stack: err?.stack || '' });
+        showDiagnosticOverlay(err);
+        await tryRecoverOnce('fatal-bootstrap', { message: err?.message || String(err), stack: err?.stack || '' });
       }
     })();
   </script>
