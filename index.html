@@ -1,6 +1,6 @@
 <!-- index.html
 ========================================================
-VMQ index.html (Drop-in replacement) — v3.0.7
+VMQ index.html (Drop-in replacement) — v3.0.7 (routeManifest v2.3.3 aligned)
 Merged “best-of” (no feature loss):
 - ✅ Deterministic CSS cascade (base → themes → components → animations)
 - ✅ Never blank: shell stays until vmq-app-mounted OR timeout
@@ -9,6 +9,7 @@ Merged “best-of” (no feature loss):
 - ✅ Diagnostic overlay + global error capture
 - ✅ No-devtools fatal box shows failing import URL on timeout/import fail
 - ✅ Recover button: clears SW + caches (manual) + optional one-time auto-recover
+- ✅ NEW: routeManifest v2.3.3 perfect integration (normalizeRouteSlug + getComponentFileForRoute)
 ========================================================
 -->
 <!doctype html>
@@ -140,7 +141,7 @@ Merged “best-of” (no feature loss):
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
-  <!-- Single owner module: listeners → (optional) probes → app import → bootstrap → wait mount -->
+  <!-- Single owner module: listeners → probes → app import → bootstrap → wait mount -->
   <script type="module">
     // ------------------------------------------------------------
     // Base-path derived from the directory serving THIS index.html
@@ -205,8 +206,8 @@ Merged “best-of” (no feature loss):
     function setProgress(p) {
       const v = Math.max(0, Math.min(100, p));
       if ($bar) {
-        $bar.style.width = `${v}%`;                 // works with your “best-of” version
-        $bar.style.setProperty('--width', `${v}%`); // works with your “--width” CSS-variable version
+        $bar.style.width = `${v}%`;
+        $bar.style.setProperty('--width', `${v}%`);
       }
     }
 
@@ -361,7 +362,6 @@ Merged “best-of” (no feature loss):
         const msg = event?.data || {};
         if (!msg?.type) return;
 
-        // SW v3.0.7 sends these:
         if (msg.type === 'vmq-update-available') {
           logDiagnostic('SW', 'Message: update available', msg.data || {});
           window.dispatchEvent(new CustomEvent('vmq-update-available', { detail: msg.data || {} }));
@@ -373,25 +373,47 @@ Merged “best-of” (no feature loss):
           return;
         }
 
-        // Pass-through for dashboards/debug overlays
         window.dispatchEvent(new CustomEvent('vmq-sw-message', { detail: msg }));
       });
     }
-
     hookServiceWorkerMessages();
 
     // ------------------------------------------------------------
-    // Optional imports (MUST NOT hard-crash bootstrap)
+    // routeManifest v2.3.3 integration (perfect alignment)
     // ------------------------------------------------------------
     let ROUTE_TO_COMPONENT_FILE = Object.create(null);
     let normalizeRouteSlug = (s) => (s || '').toString().trim().toLowerCase();
+    let getComponentFileForRoute = (route) => {
+      try {
+        const slug = normalizeRouteSlug(route);
+        return ROUTE_TO_COMPONENT_FILE?.[slug] || null;
+      } catch {
+        return null;
+      }
+    };
 
     async function tryLoadRouteManifest() {
       try {
         const mod = await import(new URL('./js/config/routeManifest.js', BASE_URL).href);
+
         if (mod?.ROUTE_TO_COMPONENT_FILE) ROUTE_TO_COMPONENT_FILE = mod.ROUTE_TO_COMPONENT_FILE;
         if (typeof mod?.normalizeRouteSlug === 'function') normalizeRouteSlug = mod.normalizeRouteSlug;
-        logDiagnostic('MANIFEST', 'routeManifest loaded');
+
+        // Prefer the helper provided by v2.3.3 (handles aliases + normalization internally)
+        if (typeof mod?.getComponentFileForRoute === 'function') {
+          getComponentFileForRoute = mod.getComponentFileForRoute;
+        } else {
+          // fallback already defined above
+        }
+
+        // Expose for debugging (read-only use)
+        window.__VMQ_ROUTE_MANIFEST__ = Object.freeze({
+          normalizeRouteSlug,
+          getComponentFileForRoute,
+          ROUTE_TO_COMPONENT_FILE
+        });
+
+        logDiagnostic('MANIFEST', 'routeManifest loaded (v2.3.3 aligned)');
       } catch (e) {
         logDiagnostic('MANIFEST', 'routeManifest missing/unavailable (continuing)', { err: String(e?.message || e) });
       }
@@ -408,11 +430,7 @@ Merged “best-of” (no feature loss):
     }
 
     function resolveComponentHref(routeOrId) {
-      if (!routeOrId) return null;
-      const raw = String(routeOrId).replace(/^#/, '').split('?')[0].trim();
-      if (!raw) return null;
-      const key = normalizeRouteSlug(raw);
-      const file = ROUTE_TO_COMPONENT_FILE?.[key];
+      const file = getComponentFileForRoute(routeOrId); // ✅ v2.3.3 canonical + alias aware
       return file ? new URL(`./js/components/${file}`, BASE_URL).href : null;
     }
 
@@ -427,11 +445,12 @@ Merged “best-of” (no feature loss):
       const modulesToPrefetch = {
         beginner:      ['intervals', 'keys', 'rhythm'],
         intermediate:  ['bieler', 'scales', 'fingerboard'],
-        advanced:      ['bieler', 'scales', 'flashcards']
+        advanced:      ['bielerlab', 'scaleslab', 'flashcards'] // ✅ includes alias forms; manifest will canonicalize
       };
 
       const list = modulesToPrefetch[level] || modulesToPrefetch.beginner;
       list.forEach((id) => modulePreload(resolveComponentHref(id)));
+
       logDiagnostic('PREFETCH', `modulepreload(${level})`, list);
     }
 
@@ -525,7 +544,6 @@ Merged “best-of” (no feature loss):
       }
 
       try {
-        // getRegistration() param is a client URL; BASE_URL.href is safest
         const existing = await navigator.serviceWorker.getRegistration(BASE_URL.href);
         let registration = existing;
 
@@ -556,7 +574,6 @@ Merged “best-of” (no feature loss):
           });
         });
 
-        // Optional sync hooks (best-effort)
         navigator.serviceWorker.ready.then(async (reg) => {
           if (reg.sync) {
             try { await reg.sync.register('sync-analytics'); logDiagnostic('SYNC', 'sync-analytics registered'); } catch {}
@@ -594,7 +611,6 @@ Merged “best-of” (no feature loss):
       if (!res.ok) return { ok: false, why: `HTTP ${res.status}`, ct };
       if (ct.includes('text/html')) return { ok: false, why: `Served as HTML (${ct})`, ct };
       if (!ct.includes('javascript') && !ct.includes('ecmascript') && !ct.includes('text/plain')) {
-        // Some hosts serve modules as text/plain; allow it.
         return { ok: false, why: `Bad MIME: ${ct || '(none)'}`, ct };
       }
       return { ok: true, why: 'ok', ct };
@@ -610,7 +626,6 @@ Merged “best-of” (no feature loss):
       const specs = extractStaticImports(appText)
         .filter(s => s.startsWith('./') || s.startsWith('../') || s.startsWith('/'));
 
-      // Limit probing to avoid huge scans if App.js is large
       for (const spec of specs.slice(0, 80)) {
         const url = new URL(spec, appUrl).href;
         const r = await probeJs(url);
@@ -638,13 +653,7 @@ Merged “best-of” (no feature loss):
     function waitForReactMount({ timeoutMs = 12000 } = {}) {
       return new Promise((resolve) => {
         let done = false;
-
-        const finish = (why) => {
-          if (done) return;
-          done = true;
-          resolve(why);
-        };
-
+        const finish = (why) => { if (!done) { done = true; resolve(why); } };
         window.addEventListener('vmq-app-mounted', () => finish('vmq-app-mounted'), { once: true });
         setTimeout(() => finish('timeout'), timeoutMs);
       });
@@ -657,7 +666,6 @@ Merged “best-of” (no feature loss):
       setProgress(10);
       setStatus('Checking environment…');
 
-      // React must exist before App.js tries to use globals
       if (!window.React || !window.ReactDOM) {
         showBootFatal('React failed to load', { message: 'React UMD globals missing.' });
         return;
@@ -688,7 +696,6 @@ Merged “best-of” (no feature loss):
       setProgress(90);
       setStatus('Loading app module…');
 
-      // Preflight first (prevents “module import failed” mystery)
       const fail = await preflightApp(APP_URL);
       if (fail) {
         dispatchImportFailed(new Error(`Preflight failed: ${fail.detail}`), fail.failingUrl, fail);
@@ -723,7 +730,6 @@ Merged “best-of” (no feature loss):
           return;
         }
 
-        // React confirmed mount
         $shell?.classList.remove('active');
         const now = (performance?.now ? performance.now() : Date.now());
         window.vmqMetrics.loadTime = Math.round(now - startTime);
