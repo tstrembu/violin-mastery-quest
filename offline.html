@@ -6,6 +6,8 @@ Fixes (without removing features):
 - ✅ GH Pages safe: BASE derived from current URL (no hardcoded repo path)
 - ✅ “Retry” verifies connectivity via cache-busting fetch (no SW recursion)
 - ✅ Avoids auto-recursion / runaway retries (guarded auto-retry once)
+- ✅ Cache badge shows VMQ cache version when available:
+     "✅ vmq-core-v3.0.7" (or nearest match), with safe fallbacks
 - ✅ Works on iOS Safari + GitHub Pages + root hosting
 ========================================================
 -->
@@ -289,10 +291,104 @@ Fixes (without removing features):
         retryBtn.textContent = isBusy ? '⏳ Checking…' : '🔄 Retry Connection';
       }
 
+      // ------------------------------------------------------------
+      // Cache badge: show "✅ vmq-core-v3.0.7" (best available)
+      // Strategy:
+      //  1) Try SW-provided JSON endpoint: BASE + "__vmq_cache_status__"
+      //  2) Fallback to caches.keys()
+      // ------------------------------------------------------------
+      function pickBestVmqCacheName(list) {
+        if (!list || !list.length) return null;
+
+        // Prefer core, then modules, then runtime, then any vmq-*
+        var prefer = ['vmq-core-v', 'vmq-modules-v', 'vmq-runtime-v', 'vmq-ml-v'];
+
+        for (var p = 0; p < prefer.length; p++) {
+          for (var i = 0; i < list.length; i++) {
+            if (String(list[i]).indexOf(prefer[p]) === 0) return String(list[i]);
+          }
+        }
+        return String(list[0]);
+      }
+
+      async function fetchCacheStatusFromSW() {
+        // If SW isn't controlling, this might still work (includeUncontrolled), but
+        // treat it as best-effort.
+        var url = BASE + '__vmq_cache_status__?t=' + Date.now();
+        var ctrl = (window.AbortController) ? new AbortController() : null;
+        var timeout = setTimeout(function () { try { ctrl && ctrl.abort(); } catch(e) {} }, 1200);
+
+        try {
+          var res = await fetch(url, {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'same-origin',
+            signal: ctrl ? ctrl.signal : undefined
+          });
+          if (!res || !res.ok) return null;
+
+          var ct = (res.headers.get('content-type') || '').toLowerCase();
+          if (ct.indexOf('application/json') === -1) return null;
+
+          return await res.json();
+        } catch (e) {
+          return null;
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+
+      async function checkCacheVerbose() {
+        try {
+          if (!('caches' in window)) {
+            setBadge(cacheBadge, 'danger', '❌ unsupported');
+            return false;
+          }
+
+          // 1) Try SW endpoint for version/caches list
+          var info = await fetchCacheStatusFromSW();
+          if (info && info.caches && info.caches.length) {
+            var best = pickBestVmqCacheName(info.caches);
+            if (best) {
+              setBadge(cacheBadge, 'ok', '✅ ' + best);
+              return true;
+            }
+          }
+
+          // 2) Fallback to raw caches.keys()
+          var keys = await caches.keys();
+          var vmq = [];
+          for (var i = 0; i < (keys || []).length; i++) {
+            if (String(keys[i]).indexOf('vmq-') === 0) vmq.push(String(keys[i]));
+          }
+          vmq.sort();
+          var best2 = pickBestVmqCacheName(vmq);
+
+          if (best2) {
+            setBadge(cacheBadge, 'ok', '✅ ' + best2);
+            return true;
+          }
+
+          // If any caches exist but none are vmq-*, still report present
+          if (keys && keys.length) {
+            setBadge(cacheBadge, 'ok', '✅ present');
+            return true;
+          }
+
+          setBadge(cacheBadge, 'warn', '⚠️ empty');
+          return false;
+        } catch (e) {
+          setBadge(cacheBadge, 'warn', '⚠️ unknown');
+          return false;
+        }
+      }
+
+      // ------------------------------------------------------------
       // Connectivity check:
       // - Uses GET with cache-buster to a stable, tiny target.
       // - First preference: BASE itself (directory URL).
       // - Falls back to BASE + "index.html" (some hosts prefer explicit file).
+      // ------------------------------------------------------------
       async function pingOnce(url) {
         var ctrl = (window.AbortController) ? new AbortController() : null;
         var timeout = setTimeout(function () { try { ctrl && ctrl.abort(); } catch(e) {} }, 2500);
@@ -304,7 +400,6 @@ Fixes (without removing features):
             credentials: 'same-origin',
             signal: ctrl ? ctrl.signal : undefined
           });
-          // ok for same-origin; opaque can happen with weird intermediates—treat as reachable
           return !!(res && (res.ok || res.type === 'opaque'));
         } catch (e) {
           return false;
@@ -319,7 +414,7 @@ Fixes (without removing features):
         var ok1 = await pingOnce(u1);
         if (ok1) return true;
 
-        var u2 = BASE + 'index.html' + '?'+ bust;
+        var u2 = BASE + 'index.html' + '?' + bust;
         return await pingOnce(u2);
       }
 
@@ -343,32 +438,13 @@ Fixes (without removing features):
         }
       }
 
-      async function checkCacheQuick() {
-        try {
-          if (!('caches' in window)) {
-            setBadge(cacheBadge, 'danger', '❌ unsupported');
-            return false;
-          }
-          var keys = await caches.keys();
-          if (keys && keys.length) {
-            setBadge(cacheBadge, 'ok', '✅ present');
-            return true;
-          }
-          setBadge(cacheBadge, 'warn', '⚠️ empty');
-          return false;
-        } catch (e) {
-          setBadge(cacheBadge, 'warn', '⚠️ unknown');
-          return false;
-        }
-      }
-
       async function retryConnection() {
         retries += 1;
         setBusy(true);
 
         updateNetworkBadge();
         await checkServiceWorker();
-        await checkCacheQuick();
+        await checkCacheVerbose();
 
         var ok = await ping();
 
@@ -425,7 +501,7 @@ Fixes (without removing features):
       // ------------------------------------------------------------
       updateNetworkBadge();
       checkServiceWorker();
-      checkCacheQuick();
+      checkCacheVerbose();
     })();
   </script>
 </body>
