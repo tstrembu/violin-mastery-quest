@@ -7,7 +7,7 @@
 import { AppContext } from '../contexts/AppContext.js';
 import { sessionTracker } from '../engines/sessionTracker.js';
 import { loadJSON, saveJSON, STORAGE_KEYS } from '../config/storage.js';
-import { a11y } from '../utils/accessibility.js';
+import { a11y } from './accessibility.js';
 
 const { useState, useEffect, useCallback, useMemo, useContext, useRef } = React;
 
