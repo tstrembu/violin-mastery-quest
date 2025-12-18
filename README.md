@@ -1,6 +1,6 @@
 # 🎻 Violin Mastery Quest (VMQ) v3.0.6
 
-**Adaptive violin & music theory practice app with coaching, spaced repetition, gamification, analytics, and session tracking — built for serious young violinists.**
+**Adaptive violin & music theory practice app with coaching, spaced repetition, gamification, analytics, and session tracking — built for violinists wanting to take their knowledge to the next level.**
 
 **[🚀 Try Live Demo](https://tstrembu.github.io/violin-mastery-quest/)** ·
 [Report Bug](https://github.com/tstrembu/violin-mastery-quest/issues) ·
@@ -45,10 +45,10 @@
 Optimized for **iPhone/iPad Safari** and works as a **PWA** (Add to Home Screen).
 
 **Who it’s for**
-- 🎻 Serious young violinists building theory + technique literacy
+- 🎻 Violinists who want to understand theory + technique literacy without all of the pain associated with it
 - 👩‍🏫 Teachers who want structured between-lesson drills and inspectable learning data
 - 👨‍👩‍👧‍👦 Parents supporting practice goals with clear feedback and trends
-- 🎼 Self-motivated students who like stats, streaks, and measurable progress
+- 🎼 Anyone who like stats, streaks, and measurable progress so they can see their knowledge grow!
 
 ---
 
@@ -305,10 +305,10 @@ GitHub Pages deployment
 🌐 Browser Support
 
 Browser	Support	Notes
-Safari (iOS 15+)	✅ Recommended	Audio requires a user gesture
-Safari (macOS)	✅	Great for debugging
+Safari (iOS 15+)	✅  Recommended	Audio requires a user gesture
+Safari (macOS)	    ✅	Great for debugging
 Chrome / Edge (90+)	✅	Full ES module support
-Firefox (88+)	✅	Full ES module support
+Firefox (88+)	    ✅	Full ES module support
 
 Known limitations
 	•	iOS Web Audio requires a tap/gesture to start audio
@@ -422,7 +422,8 @@ Vote and discuss in GitHub Discussions.
 
 🎻 Built for Serious Young Violinists
 
-VMQ isn’t a game you “beat.” It’s a practice companion that grows with you.
+VMQ isn’t a game you “beat.”
+It’s a practice companion that grows with you.
 
 Last Updated: December 2025 · Version: 3.0.6 · Status: Production
 
