@@ -1,12 +1,16 @@
 // js/engines/analytics.js
 // ======================================
-// VMQ ANALYTICS v3.0.6 — drop-in replacement
+// VMQ ANALYTICS v3.0.7 — drop-in replacement
 //
-// Fixes / guarantees:
-// ✅ Named exports include: analyzePerformance, updateStats, getQuickStat,
+// HARD FIX:
+// ✅ Exactly ONE top-level binding named `generateMLRecommendations`
+//    (removes "Cannot declare a function that shadows..." crash)
+//
+// Guarantees:
+// ✅ Named exports: analyzePerformance, updateStats, getQuickStat,
 //    exportAnalytics, getModuleProgress, generateMLRecommendations
-// ✅ getModuleProgress uses STORAGE_KEYS.ANALYTICS (not ad-hoc localStorage keys)
-// ✅ Backward-compatible default export includes all public functions
+// ✅ getModuleProgress reads STORAGE_KEYS.ANALYTICS (and legacy fallback)
+// ✅ Default export includes all public functions (backward compatible)
 // ✅ Keeps your hardened timestamp + streak + recent-window logic
 // ======================================
 
@@ -226,90 +230,31 @@ export function analyzePerformance(timeframe = 'week', options = {}) {
 }
 
 // --------------------------------------
-// Public: generateMLRecommendations()
-// (Safe, lightweight; used by App.js warmup in many VMQ builds)
-// --------------------------------------
-// ------------------------------------------------------
-// ML recommendations (exported) — shadow-proof
-// ------------------------------------------------------
-function _generateMLRecommendations(options = {}) {
-  const timeframe = options?.timeframe || 'week';
-
-  try {
-    // Reuse your existing analysis pipeline (keeps intended features)
-    const analysis = analyzePerformance(timeframe, {
-      includePredictions: true,
-      includePatterns: true,
-      includeOptimization: true,
-      includeBreakthrough: true
-    });
-
-    const topRec = Array.isArray(analysis?.recommendations) ? analysis.recommendations[0] : null;
-
-    // Convert "#moduleKey" style actions into an actual route
-    // (routes are in your routeManifest: /coach exists)
-    let quickAction = null;
-    if (topRec?.action && typeof topRec.action === 'string') {
-      const m = topRec.action.startsWith('#') ? topRec.action.slice(1) : null;
-      quickAction = {
-        label: topRec.title || 'Next best step',
-        icon: topRec.icon || '🎯',
-        route: '/coach',
-        params: m ? { focus: m } : {}
-      };
-    }
-
-    // Confidence: prefer your prediction confidence; fallback to something safe
-    const conf =
-      analysis?.predictions?.confidence?.accuracy ??
-      analysis?.predictions?.confidence?.stability ??
-      analysis?.predictions?.nextWeekAccuracy?.confidence ??
-      0.6;
-
-    return {
-      timeframe,
-      generatedAt: Date.now(),
-      confidence: Number.isFinite(conf) ? conf : 0.6,
-      quickAction,
-      // keep extra detail available for future UI (doesn’t break current callers)
-      summary: {
-        overallAccuracy: analysis?.overallAccuracy ?? 0,
-        currentStreak: analysis?.currentStreak ?? 0,
-        strengths: analysis?.strengths ?? [],
-        weaknesses: analysis?.weaknesses ?? []
-      }
-    };
-  } catch (e) {
-    return {
-      timeframe,
-      generatedAt: Date.now(),
-      confidence: 0.5,
-      quickAction: null,
-      error: String(e?.message || e)
-    };
-  }
-}
-
-// Named export expected by App.js and index.html
-export { _generateMLRecommendations as generateMLRecommendations };
-
-// --------------------------------------
-// Public: getModuleProgress()  ✅ (your missing export)
+// Public: getModuleProgress()
 // --------------------------------------
 export function getModuleProgress(moduleKey) {
-  const stats = loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats());
   const key = String(moduleKey || '').trim();
   if (!key) return null;
 
-  // Try exact match first, then case-insensitive match
-  const by = stats?.byModule || {};
-  if (by[key]) return normalizeModuleProgress(key, by[key]);
+  // Preferred store
+  try {
+    const stats = loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats());
+    const by = stats?.byModule || {};
+    if (by[key]) return normalizeModuleProgress(key, by[key]);
 
-  const lower = key.toLowerCase();
-  const found = Object.keys(by).find(k => String(k).toLowerCase() === lower);
-  if (!found) return null;
+    const lower = key.toLowerCase();
+    const found = Object.keys(by).find(k => String(k).toLowerCase() === lower);
+    if (found) return normalizeModuleProgress(found, by[found]);
+  } catch {}
 
-  return normalizeModuleProgress(found, by[found]);
+  // Legacy fallback (older builds)
+  try {
+    const legacy = JSON.parse(localStorage.getItem('vmq-stats') || '{"byModule":{}}');
+    const by = legacy?.byModule || {};
+    if (by[key]) return normalizeModuleProgress(key, by[key]);
+  } catch {}
+
+  return null;
 }
 
 function normalizeModuleProgress(key, data) {
@@ -336,7 +281,79 @@ function normalizeModuleProgress(key, data) {
 }
 
 // --------------------------------------
-// Predictions + patterns (your existing logic, kept compatible)
+// Public: generateMLRecommendations()  ✅ SINGLE DECLARATION
+// (Used by App.js warmup and index.html bootstrap)
+// --------------------------------------
+function actionToRoute(action) {
+  const a = String(action || '').trim();
+  if (!a) return null;
+  return a.startsWith('#') ? a.slice(1) : a;
+}
+
+function pickQuickAction(analysis) {
+  const recs = Array.isArray(analysis?.recommendations) ? analysis.recommendations : [];
+  if (!recs.length) return null;
+
+  const top = recs[0];
+  const route = actionToRoute(top.action);
+  if (!route) return null;
+
+  return {
+    route,          // must match ROUTES keys in App.js (e.g., "flashcards", "bieler", "keys")
+    params: {},     // reserved for future use
+    label: top.title || 'Continue',
+    icon: top.icon || '➡️'
+  };
+}
+
+function computeMlConfidence(analysis) {
+  const sessions = Number(analysis?.totalSessions || 0);
+  const consistency = Number(analysis?.consistencyScore || 0);
+
+  const volumeScore = Math.max(0, Math.min(1, sessions / 20));      // saturates ~20 sessions
+  const consistencyScore = Math.max(0, Math.min(1, consistency / 100));
+
+  const c = 0.25 + 0.45 * volumeScore + 0.30 * consistencyScore;
+  return Math.max(0.1, Math.min(0.95, c));
+}
+
+export function generateMLRecommendations(options = {}) {
+  const timeframe = options?.timeframe || 'week';
+
+  let analysis;
+  try {
+    analysis = analyzePerformance(timeframe, {
+      includePredictions: true,
+      includePatterns: true,
+      includeOptimization: true,
+      includeBreakthrough: true
+    });
+  } catch (e) {
+    // If anything goes wrong, return safe minimal shape (so React can still mount)
+    return {
+      timeframe,
+      timestamp: Date.now(),
+      confidence: 0.5,
+      quickAction: null,
+      recommendations: [],
+      aiInsights: [],
+      error: String(e?.message || e)
+    };
+  }
+
+  const confidence = computeMlConfidence(analysis);
+  const quickAction = pickQuickAction(analysis);
+
+  // App.js expects recommendations?.confidence and optionally quickAction
+  return {
+    ...analysis,
+    confidence,
+    quickAction
+  };
+}
+
+// --------------------------------------
+// Predictions + patterns (kept compatible)
 // --------------------------------------
 function generatePredictions(stats, sessions, modules) {
   if (!Array.isArray(sessions) || sessions.length < 5) return null;
@@ -971,7 +988,6 @@ export function getQuickStat(type) {
     case 'accuracy':
       return H.accuracy(stats.correct, stats.total);
 
-    // backward compat: “questions answered”
     case 'sessions':
       return stats.total || 0;
 
@@ -1020,7 +1036,8 @@ export function exportAnalytics() {
 }
 
 // --------------------------------------
-// The remaining internal helpers you already had (kept)
+// Internal helpers (same as your prior block)
+// NOTE: unchanged from your provided content, kept for compatibility
 // --------------------------------------
 function calculateOverallStats(stats, sessions) {
   const list = Array.isArray(sessions) ? sessions : [];
@@ -1151,16 +1168,32 @@ function calculateVariance(arr) {
   return average(sq);
 }
 
+function buildTimeSeriesData(sessions) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  return list.map((s, i) => ({
+    timestamp: s?.timestamp,
+    accuracy: Number(s?.accuracy) || 0,
+    module: s?.activity || '',
+    index: i
+  }));
+}
+
 function calculateMomentum(moduleKey, timeSeriesData) {
   const key = String(moduleKey || '').toLowerCase();
   const list = Array.isArray(timeSeriesData) ? timeSeriesData : [];
   const moduleData = list.filter(d => String(d.module || '').toLowerCase().includes(key));
-
   if (moduleData.length < 3) return 0;
 
   const trend = calculateLinearTrend(moduleData.map((d, i) => ({ x: i, y: d.accuracy || 0 })));
   const consistency = 100 - calculateVariance(moduleData.map(d => d.accuracy || 0));
   return Math.max(0, (trend * consistency) / 100);
+}
+
+function calculateMomentumScore(sessions) {
+  if (!Array.isArray(sessions) || sessions.length < 3) return 0;
+  const trend = calculateLinearTrend(sessions.map((s, i) => ({ x: i, y: Number(s.accuracy) || 0 })));
+  const consistency = calculateConsistency(sessions);
+  return Math.round(Math.max(0, (trend * 10 + consistency) / 2));
 }
 
 function calculateMastery(acc, attempts, recentAcc) {
@@ -1181,23 +1214,6 @@ function calculateModuleTrend(sessions) {
   if (!Array.isArray(sessions) || sessions.length < 3) return 0;
   const recent = sessions.slice(-10);
   return calculateLinearTrend(recent.map((s, i) => ({ x: i, y: Number(s.accuracy) || 0 })));
-}
-
-function buildTimeSeriesData(sessions) {
-  const list = Array.isArray(sessions) ? sessions : [];
-  return list.map((s, i) => ({
-    timestamp: s?.timestamp,
-    accuracy: Number(s?.accuracy) || 0,
-    module: s?.activity || '',
-    index: i
-  }));
-}
-
-function calculateMomentumScore(sessions) {
-  if (!Array.isArray(sessions) || sessions.length < 3) return 0;
-  const trend = calculateLinearTrend(sessions.map((s, i) => ({ x: i, y: Number(s.accuracy) || 0 })));
-  const consistency = calculateConsistency(sessions);
-  return Math.round(Math.max(0, (trend * 10 + consistency) / 2));
 }
 
 function calculateCurrentStreak(sessions) {
@@ -1243,6 +1259,7 @@ function calculateImprovement(data) {
   return Math.round(recent - overall);
 }
 
+// --- remaining helper implementations from your provided file ---
 function identifyLearningStyle(stats) {
   const byModule = stats?.byModule || {};
   const modulePrefs = Object.entries(byModule)
@@ -1324,6 +1341,49 @@ function calculateRecoveryRate(sessions) {
   };
 }
 
+function assessCognitiveLoad(sessions, stats) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  const recent = list.slice(-10);
+  const avgAcc = H.average(recent.map(s => s.accuracy || 0));
+  const avgFocus = H.average(recent.map(s => s.focusScore || 0.5));
+
+  let level = 'optimal';
+  if (avgAcc < 60 && avgFocus < 0.6) level = 'high';
+  else if (avgAcc > 90 && avgFocus > 0.9) level = 'low';
+
+  return {
+    level,
+    score: Math.round((avgAcc + avgFocus * 100) / 2),
+    recommendation: level === 'high'
+      ? 'Reduce difficulty or shorten sessions; prioritize accuracy first.'
+      : level === 'low'
+      ? 'Increase challenge slightly; add speed or complexity constraints.'
+      : 'Maintain current challenge level—this is a strong learning zone.'
+  };
+}
+
+function assessDeliberatePractice(sessions) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  const deliberate = list.filter(s =>
+    (s.focusScore || 0) > 0.8 &&
+    (s.qualityScore || 0) > 70 &&
+    (s.engagedMs || 0) >= 15 * 60000
+  );
+  return {
+    frequency: list.length > 0 ? Math.round((deliberate.length / list.length) * 100) : 0,
+    quality: H.average(deliberate.map(s => s.qualityScore || 50))
+  };
+}
+
+function measureTransferEfficiency(stats) {
+  const pairs = calculateModuleCorrelationsFromStats(stats);
+  const positive = pairs.filter(c => c.correlation > 0.5);
+  return {
+    efficiency: positive.length > 0 ? Math.round(H.average(positive.map(c => c.correlation)) * 100) : 0,
+    connections: positive.length
+  };
+}
+
 function classifyModuleType(module) {
   const m = String(module || '').toLowerCase();
   if (m.includes('ear') || m.includes('interval')) return 'auditory';
@@ -1340,18 +1400,6 @@ function getStyleRecommendation(style) {
     balanced: 'Continue a multi-sensory mix for best results'
   };
   return map[style] || map.balanced;
-}
-
-function getAlternativePracticeMethod(moduleKey) {
-  const key = String(moduleKey || '').toLowerCase();
-  const alternatives = {
-    intervalear: 'melodic recognition + singing back intervals',
-    rhythm: 'clap + count with metronome subdivisions',
-    fingerboard: 'position mapping drills + guided shifting',
-    bieler: 'slow-motion reps + mirror feedback',
-    keys: 'circle-of-fifths quick recall + tonic/dominant mapping'
-  };
-  return alternatives[key] || 'vary tempo, context, and spacing';
 }
 
 function groupSessionsByDay(sessions) {
@@ -1444,49 +1492,6 @@ function calculateCorrectionRate(stats) {
     H.accuracy(m.recentCorrect || 0, m.recentTotal || 1) > H.accuracy(m.correct || 0, m.total || 0)
   ).length;
   return mods.length > 0 ? Math.round((improving / mods.length) * 100) : 0;
-}
-
-function assessCognitiveLoad(sessions, stats) {
-  const list = Array.isArray(sessions) ? sessions : [];
-  const recent = list.slice(-10);
-  const avgAcc = H.average(recent.map(s => s.accuracy || 0));
-  const avgFocus = H.average(recent.map(s => s.focusScore || 0.5));
-
-  let level = 'optimal';
-  if (avgAcc < 60 && avgFocus < 0.6) level = 'high';
-  else if (avgAcc > 90 && avgFocus > 0.9) level = 'low';
-
-  return {
-    level,
-    score: Math.round((avgAcc + avgFocus * 100) / 2),
-    recommendation: level === 'high'
-      ? 'Reduce difficulty or shorten sessions; prioritize accuracy first.'
-      : level === 'low'
-      ? 'Increase challenge slightly; add speed or complexity constraints.'
-      : 'Maintain current challenge level—this is a strong learning zone.'
-  };
-}
-
-function assessDeliberatePractice(sessions) {
-  const list = Array.isArray(sessions) ? sessions : [];
-  const deliberate = list.filter(s =>
-    (s.focusScore || 0) > 0.8 &&
-    (s.qualityScore || 0) > 70 &&
-    (s.engagedMs || 0) >= 15 * 60000
-  );
-  return {
-    frequency: list.length > 0 ? Math.round((deliberate.length / list.length) * 100) : 0,
-    quality: H.average(deliberate.map(s => s.qualityScore || 50))
-  };
-}
-
-function measureTransferEfficiency(stats) {
-  const pairs = calculateModuleCorrelationsFromStats(stats);
-  const positive = pairs.filter(c => c.correlation > 0.5);
-  return {
-    efficiency: positive.length > 0 ? Math.round(H.average(positive.map(c => c.correlation)) * 100) : 0,
-    connections: positive.length
-  };
 }
 
 function calculateModuleCorrelationsFromStats(stats) {
@@ -1618,24 +1623,16 @@ function identifyTransferOpportunities(modules) {
   return ops;
 }
 
-// safe placeholders
-function calculateShortTermRetention(stats) { return 85; }
-function calculateMediumTermRetention(stats) { return 75; }
-function calculateLongTermRetention(stats) { return 65; }
-function estimateForgettingCurve(stats) {
-  return { day1: 100, day7: 85, day30: 70, day90: 60 };
-}
-
-function identifyConsolidatedSkills(modules) {
-  return (Array.isArray(modules) ? modules : [])
-    .filter(m => (m.mastery || 0) >= 90 && (m.attempts || 0) >= 30)
-    .map(m => m.module);
-}
-
-function identifyVolatileSkills(modules) {
-  return (Array.isArray(modules) ? modules : [])
-    .filter(m => (m.consistency || 0) < 50 && (m.attempts || 0) >= 10)
-    .map(m => m.module);
+function getAlternativePracticeMethod(moduleKey) {
+  const key = String(moduleKey || '').toLowerCase();
+  const alternatives = {
+    intervalear: 'melodic recognition + singing back intervals',
+    rhythm: 'clap + count with metronome subdivisions',
+    fingerboard: 'position mapping drills + guided shifting',
+    bieler: 'slow-motion reps + mirror feedback',
+    keys: 'circle-of-fifths quick recall + tonic/dominant mapping'
+  };
+  return alternatives[key] || 'vary tempo, context, and spacing';
 }
 
 function calculateProjectedRetention(stats, modules, days) {
@@ -1665,6 +1662,23 @@ function identifyStrengthenedConcepts(modules) {
     .slice(0, 3);
 }
 
+function calculateShortTermRetention(stats) { return 85; }
+function calculateMediumTermRetention(stats) { return 75; }
+function calculateLongTermRetention(stats) { return 65; }
+function estimateForgettingCurve(stats) { return { day1: 100, day7: 85, day30: 70, day90: 60 }; }
+
+function identifyConsolidatedSkills(modules) {
+  return (Array.isArray(modules) ? modules : [])
+    .filter(m => (m.mastery || 0) >= 90 && (m.attempts || 0) >= 30)
+    .map(m => m.module);
+}
+
+function identifyVolatileSkills(modules) {
+  return (Array.isArray(modules) ? modules : [])
+    .filter(m => (m.consistency || 0) < 50 && (m.attempts || 0) >= 10)
+    .map(m => m.module);
+}
+
 function calculateSelfAwareness(sessions) { return 75; }
 function calculateAdaptability(sessions, stats) {
   const list = Array.isArray(sessions) ? sessions : [];
@@ -1686,110 +1700,16 @@ function calculateStyleConfidence(categoryScores) {
   return v < 100 ? 'low' : v < 400 ? 'medium' : 'high';
 }
 
-// ======================================
-// ✅ ML Bridge (required by App.js)
-// - App.js imports: generateMLRecommendations()
-// - Must return an object with:
-//   - confidence (number 0..1)
-//   - quickAction (optional { route, params, label, icon })
-// ======================================
-
-function actionToRoute(action) {
-  // Your recommendations use actions like "#flashcards"
-  const a = String(action || '').trim();
-  if (!a) return null;
-  if (a.startsWith('#')) return a.slice(1);
-  return a;
-}
-
-function pickQuickAction(analysis) {
-  const recs = Array.isArray(analysis?.recommendations) ? analysis.recommendations : [];
-  if (!recs.length) return null;
-
-  // Pick the best (already sorted by priority/mlConfidence in your generator)
-  const top = recs[0];
-
-  const route = actionToRoute(top.action);
-  if (!route) return null;
-
-  return {
-    route,                  // must match ROUTES keys in App.js (e.g., "flashcards", "bieler", "keys")
-    params: {},             // reserved for future use
-    label: top.title || 'Continue',
-    icon: top.icon || '➡️'
-  };
-}
-
-function computeMlConfidence(analysis) {
-  // Keep simple + stable: scale by data volume + consistency
-  const sessions = Number(analysis?.totalSessions || 0);
-  const consistency = Number(analysis?.consistencyScore || 0);
-
-  const volumeScore = Math.max(0, Math.min(1, sessions / 20));      // saturates around 20 sessions
-  const consistencyScore = Math.max(0, Math.min(1, consistency / 100));
-
-  // bias toward moderate confidence unless there’s real data
-  const c = 0.25 + 0.45 * volumeScore + 0.30 * consistencyScore;
-  return Math.max(0.1, Math.min(0.95, c));
-}
-
-export function generateMLRecommendations(options = {}) {
-  const timeframe = options?.timeframe || 'week';
-
-  // Reuse your existing analysis pipeline (keeps “intended features”)
-  const analysis = analyzePerformance(timeframe, {
-    includePredictions: true,
-    includePatterns: true,
-    includeOptimization: true,
-    includeBreakthrough: true
-  });
-
-  const confidence = computeMlConfidence(analysis);
-  const quickAction = pickQuickAction(analysis);
-
-  // App.js expects `recommendations?.confidence`
-  return {
-    ...analysis,
-    confidence,
-    quickAction
-  };
-}
-
-// ======================================
-// ✅ Fix getModuleProgress to read from your real store first
-// (keeps backward-compat with legacy localStorage key)
-// ======================================
-
-export function getModuleProgress(moduleKey) {
-  const key = String(moduleKey || '').trim();
-  if (!key) return null;
-
-  // Preferred: use STORAGE_KEYS.ANALYTICS
-  try {
-    const stats = loadJSON(STORAGE_KEYS.ANALYTICS, initializeStats());
-    const by = stats?.byModule || {};
-    return by[key] || by[formatModuleName(key)] || null;
-  } catch {}
-
-  // Legacy fallback (older builds)
-  try {
-    const legacy = JSON.parse(localStorage.getItem('vmq-stats') || '{"byModule":{}}');
-    return legacy?.byModule?.[key] || null;
-  } catch {
-    return null;
-  }
-}
-
 // --------------------------------------
-// Default export (keeps prior API shape + adds missing keys)
+// Default export (backward compatible)
 // --------------------------------------
 export default {
   analyzePerformance,
   updateStats,
   getQuickStat,
   exportAnalytics,
-  generateMLRecommendations: _generateMLRecommendations,
   getModuleProgress,
+  generateMLRecommendations,
   generateSmartRecommendations,
   generateAdvancedAIInsights
 };
