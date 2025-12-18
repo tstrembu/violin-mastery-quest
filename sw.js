@@ -1,19 +1,15 @@
 // sw.js
 // ===================================
-// VMQ SERVICE WORKER v3.0.6 (Drop-in replacement)
-// Offline-first • Stale-While-Revalidate • Safe Prefetching (best-effort)
+// VMQ SERVICE WORKER v3.0.7 (Drop-in replacement)
+// Offline-first for NAV only • Stale-While-Revalidate for assets
+// Poison-cache protection: NEVER return HTML for script/style/worker
 // Base-path derived from registration.scope (no hardcoding)
-//
-// HARD FIXES:
-// ✅ offline.html is ONLY used for NAVIGATION requests
-// ✅ NEVER return HTML for destination: "script" / "style" / "worker"
-//     (prevents "Importing a module script failed" due to HTML cache poisoning)
-// ✅ SPA-safe navigation fallback (index.html) without serving HTML to JS/CSS/worker requests
+// Keeps: IDB queues • nav-history ML-ish predictions • prefetch • metrics • quota mgmt • sync hooks
 // ===================================
 
 /* global self, caches, indexedDB */
 
-const VMQ_VERSION = '3.0.6';
+const VMQ_VERSION = '3.0.7';
 
 const SCOPE_URL = new URL(self.registration.scope); // e.g. https://host/violin-mastery-quest/
 const BASE_URL  = SCOPE_URL.href;                   // must end with "/"
@@ -35,8 +31,8 @@ const IDB_NAME = 'vmq-offline';
 const IDB_VERSION = 1;
 
 const STORE_ANALYTICS = 'analytics-queue';
-const STORE_SYNC = 'sync-queue';
-const STORE_ML = 'ml-predictions';
+const STORE_SYNC      = 'sync-queue';
+const STORE_ML        = 'ml-predictions';
 
 function idbReq(req) {
   return new Promise((resolve, reject) => {
@@ -44,7 +40,6 @@ function idbReq(req) {
     req.onerror = () => reject(req.error);
   });
 }
-
 function idbTxDone(tx) {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
@@ -52,14 +47,11 @@ function idbTxDone(tx) {
     tx.onerror = () => reject(tx.error || new Error('IDB tx error'));
   });
 }
-
 function openIDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(IDB_NAME, IDB_VERSION);
-
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
-
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
 
@@ -68,13 +60,11 @@ function openIDB() {
         s.createIndex('timestamp', 'timestamp', { unique: false });
         s.createIndex('synced', 'synced', { unique: false });
       }
-
       if (!db.objectStoreNames.contains(STORE_SYNC)) {
         const s = db.createObjectStore(STORE_SYNC, { keyPath: 'id', autoIncrement: true });
         s.createIndex('type', 'type', { unique: false });
         s.createIndex('timestamp', 'timestamp', { unique: false });
       }
-
       if (!db.objectStoreNames.contains(STORE_ML)) {
         db.createObjectStore(STORE_ML, { keyPath: 'key' });
       }
@@ -84,11 +74,13 @@ function openIDB() {
 
 // ------------------------------------------------------------
 // Core files (absolute URLs)
+// Add safely (each add is best-effort)
 // ------------------------------------------------------------
 const CORE_FILES = [
   BASE_URL,
   INDEX_URL,
   OFFLINE_URL,
+  new URL('./404.html', BASE_URL).href,
   new URL('./manifest.json', BASE_URL).href,
 
   new URL('./css/base.css', BASE_URL).href,
@@ -101,6 +93,8 @@ const CORE_FILES = [
   new URL('./js/config/constants.js', BASE_URL).href,
   new URL('./js/config/storage.js', BASE_URL).href,
 
+  // If you moved accessibility helpers, this prevents cold/offline 404s
+  new URL('./js/utils/accessibility.js', BASE_URL).href,
   new URL('./js/utils/keyboard.js', BASE_URL).href,
   new URL('./js/utils/router.js', BASE_URL).href,
   new URL('./js/contexts/AppContext.js', BASE_URL).href,
@@ -114,7 +108,74 @@ const CORE_FILES = [
 ];
 
 // ------------------------------------------------------------
-// Lightweight state + metrics
+// Helpers
+// ------------------------------------------------------------
+function isSameOrigin(url) {
+  try { return new URL(url).origin === ORIGIN; } catch { return false; }
+}
+function contentType(resp) {
+  try { return (resp?.headers?.get?.('content-type') || '').toLowerCase(); } catch { return ''; }
+}
+function isHTMLResponse(resp) {
+  return contentType(resp).includes('text/html');
+}
+function isNavigationRequest(request) {
+  if (!request) return false;
+  if (request.mode === 'navigate') return true;
+  if (request.destination === 'document') return true;
+  const accept = (request.headers.get('accept') || '').toLowerCase();
+  return accept.includes('text/html');
+}
+function isAssetDestination(request) {
+  const d = request.destination || '';
+  return d === 'script' || d === 'style' || d === 'worker' || d === 'sharedworker' || d === 'serviceworker';
+}
+function isCacheableResponse(response) {
+  // include opaque so CDN libs can be cached
+  return response && response.ok && (
+    response.type === 'basic' ||
+    response.type === 'default' ||
+    response.type === 'cors' ||
+    response.type === 'opaque'
+  );
+}
+
+async function matchAnyCache(request) {
+  const cacheNames = [CACHE_CORE, CACHE_MODULES, CACHE_ML, CACHE_RUNTIME];
+  for (const name of cacheNames) {
+    const cache = await caches.open(name);
+    const hit = await cache.match(request);
+    if (hit) return { response: hit, cacheName: name };
+  }
+  return { response: null, cacheName: null };
+}
+
+async function deleteFromAllCaches(request) {
+  const cacheNames = [CACHE_CORE, CACHE_MODULES, CACHE_ML, CACHE_RUNTIME];
+  await Promise.all(cacheNames.map(async (name) => {
+    try {
+      const cache = await caches.open(name);
+      await cache.delete(request);
+    } catch {}
+  }));
+}
+
+function shouldCacheRuntime(request, response) {
+  if (request.method !== 'GET') return false;
+  if (!isCacheableResponse(response)) return false;
+  if (!isSameOrigin(request.url)) return false;
+
+  // Poison protection: never cache HTML as an "asset" response
+  if (!isNavigationRequest(request) && isHTMLResponse(response)) return false;
+
+  // Extra: never cache HTML for script/style/worker destinations
+  if (isAssetDestination(request) && isHTMLResponse(response)) return false;
+
+  return true;
+}
+
+// ------------------------------------------------------------
+// Lightweight state + metrics (kept)
 // ------------------------------------------------------------
 let mlState = {
   navigationHistory: [],
@@ -136,7 +197,6 @@ function recordHit(fromPrefetch = false) {
   if (fromPrefetch) perf.prefetchHits++;
   mlState.cacheHitRate = perf.totalRequests ? (perf.cacheHits / perf.totalRequests) : 0;
 }
-
 function recordMiss() {
   perf.cacheMisses++;
   perf.totalRequests++;
@@ -160,14 +220,12 @@ async function manageCacheQuota() {
   try {
     const storage = self.navigator?.storage;
     if (!storage?.estimate) return;
-
     const estimate = await storage.estimate();
     const usage = estimate.usage || 0;
     const quota = estimate.quota || 0;
     if (!quota) return;
 
     const usagePct = (usage / quota) * 100;
-
     if (usagePct > 80) {
       const cache = await caches.open(CACHE_ML);
       const keys = await cache.keys();
@@ -177,66 +235,11 @@ async function manageCacheQuota() {
   } catch {}
 }
 
-function isSameOrigin(url) {
-  try { return new URL(url).origin === ORIGIN; } catch { return false; }
-}
-
-function isCacheableResponse(response) {
-  return response && response.ok && (response.type === 'basic' || response.type === 'default' || response.type === 'cors' || response.type === 'opaque');
-}
-
-function contentType(res) {
-  try { return (res.headers.get('content-type') || '').toLowerCase(); } catch { return ''; }
-}
-
-function isHtmlResponse(res) {
-  const ct = contentType(res);
-  return ct.includes('text/html');
-}
-
-function isBlockedHtmlDestination(request) {
-  // Hard requirement: never return HTML for these
-  const d = request.destination || '';
-  return d === 'script' || d === 'style' || d === 'worker';
-}
-
-function shouldCacheRuntime(request, response) {
-  if (request.method !== 'GET') return false;
-  if (!isCacheableResponse(response)) return false;
-  if (!isSameOrigin(request.url)) return false;
-
-  // Never cache HTML as a "module asset" response to avoid poisoning
-  // (Nav HTML is handled separately via INDEX_URL runtime)
-  if (isHtmlResponse(response) && !isNavigationRequest(request)) return false;
-
-  return true;
-}
-
-function isNavigationRequest(request) {
-  if (!request) return false;
-  if (request.mode === 'navigate') return true;
-
-  // Some browsers: destination === 'document' with HTML accept header
-  const accept = (request.headers.get('accept') || '').toLowerCase();
-  return request.destination === 'document' && accept.includes('text/html');
-}
-
-async function matchAnyCache(request) {
-  const cacheNames = [CACHE_CORE, CACHE_MODULES, CACHE_ML, CACHE_RUNTIME];
-  for (const name of cacheNames) {
-    const cache = await caches.open(name);
-    const hit = await cache.match(request);
-    if (hit) return { response: hit, cacheName: name };
-  }
-  return { response: null, cacheName: null };
-}
-
 // ------------------------------------------------------------
-// ML-ish nav history
+// ML-ish nav history (kept)
 // ------------------------------------------------------------
 async function loadNavHistoryIfNeeded() {
   if (mlState.navigationHistory.length) return;
-
   try {
     const db = await openIDB();
     const tx = db.transaction(STORE_ML, 'readonly');
@@ -259,23 +262,19 @@ async function saveNavHistory() {
 
 async function updateNavigationHistory(route) {
   if (!route) return;
-
   mlState.navigationHistory.push({
     route: String(route),
     timestamp: Date.now(),
     hour: new Date().getHours()
   });
-
   if (mlState.navigationHistory.length > 50) {
     mlState.navigationHistory.splice(0, mlState.navigationHistory.length - 50);
   }
-
   await saveNavHistory();
 }
 
 async function predictNextRoutes(currentRoute) {
   await loadNavHistoryIfNeeded();
-
   const hourNow = new Date().getHours();
   const scores = Object.create(null);
 
@@ -283,7 +282,6 @@ async function predictNextRoutes(currentRoute) {
     const nav = mlState.navigationHistory[i];
     const next = mlState.navigationHistory[i + 1];
     if (!nav || !next) continue;
-
     if (nav.route === currentRoute) {
       const r = next.route;
       scores[r] = (scores[r] || 0) + 1;
@@ -308,18 +306,16 @@ function resolvePrefetchURL(routeOrUrl) {
   if (/^https?:\/\//i.test(raw)) return raw;
   if (raw.startsWith('/')) return `${ORIGIN}${raw}`;
 
-  // Allow explicit JS file prefetch
+  // allow explicit JS file prefetch
   if (raw.endsWith('.js')) {
     const cleaned = raw.replace(/^\.\//, '');
     return new URL(`./${cleaned}`, BASE_URL).href;
   }
-
   return null;
 }
 
 async function prefetchURLs(urls) {
   if (!Array.isArray(urls) || !urls.length) return;
-
   const cache = await caches.open(CACHE_ML);
 
   for (const u of urls) {
@@ -327,27 +323,27 @@ async function prefetchURLs(urls) {
     if (!url) continue;
 
     const req = new Request(url, { method: 'GET', mode: 'cors', credentials: 'omit' });
-
-    // Search across caches to avoid duplicates
     const existing = await caches.match(req);
     if (existing) continue;
 
     try {
       const resp = await fetch(req);
-      if (isCacheableResponse(resp)) await cache.put(req, resp.clone());
+      // Never cache HTML into ML cache for assets
+      if (isCacheableResponse(resp) && !isHTMLResponse(resp)) {
+        await cache.put(req, resp.clone());
+      }
     } catch {}
   }
 }
 
 // ------------------------------------------------------------
-// Offline analytics queue
+// Offline analytics queue (kept)
 // ------------------------------------------------------------
 async function queueAnalyticsEvent(evt) {
   try {
     const db = await openIDB();
     const tx = db.transaction(STORE_ANALYTICS, 'readwrite');
     const store = tx.objectStore(STORE_ANALYTICS);
-
     store.add({ ...(evt || {}), timestamp: Date.now(), synced: false });
     await idbTxDone(tx);
   } catch {}
@@ -382,20 +378,17 @@ async function syncAnalyticsQueue() {
 // ------------------------------------------------------------
 self.addEventListener('install', (event) => {
   self.skipWaiting();
-
   event.waitUntil((async () => {
     try { await openIDB(); } catch {}
 
     const cache = await caches.open(CACHE_CORE);
 
-    // Add individually so one failure doesn't break install
+    // Add individually (best-effort) so one missing file doesn't kill install
     await Promise.all(CORE_FILES.map(async (url) => {
-      try { await cache.add(url); } catch {}
+      try {
+        await cache.add(new Request(url, { cache: 'reload' }));
+      } catch {}
     }));
-
-    // Ensure offline + index are always present
-    try { await cache.add(OFFLINE_URL); } catch {}
-    try { await cache.add(INDEX_URL); } catch {}
   })());
 });
 
@@ -425,26 +418,20 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
 
-  const url = new URL(request.url);
-
-  // Do not interfere outside our scope/origin for runtime logic
-  // (still allows cached UMD externals to be served if requested)
-  const inScope = url.href.startsWith(BASE_URL) || url.origin !== ORIGIN ? true : (url.pathname.startsWith(BASE_PATH));
-
-  // --- NAVIGATION (documents) ---
+  // NAVIGATION: network-first, offline fallback
   if (isNavigationRequest(request)) {
     event.respondWith((async () => {
-      // Network-first for navigations (fresh when online)
       try {
         const net = await fetch(request);
         mlState.isOnline = true;
 
-        // Only accept HTML as a navigation response
-        if (net && net.ok && isHtmlResponse(net)) {
-          // Update cached INDEX_URL (SPA shell) so offline works reliably
+        if (net && net.ok && isHTMLResponse(net)) {
+          // Keep SPA shell fresh for offline navigations
           try {
             const runtime = await caches.open(CACHE_RUNTIME);
             await runtime.put(INDEX_URL, net.clone());
+            // Also cache the actual navigation URL (nice-to-have)
+            await runtime.put(request, net.clone());
           } catch {}
           return net;
         }
@@ -452,47 +439,30 @@ self.addEventListener('fetch', (event) => {
         mlState.isOnline = false;
       }
 
-      // Offline fallback: serve cached INDEX_URL first (SPA shell)
+      // Offline nav fallback: prefer cached navigation URL, then cached INDEX, then offline page
+      const cachedNav = await caches.match(request);
+      if (cachedNav) return cachedNav;
+
       const cachedIndex = await caches.match(INDEX_URL);
       if (cachedIndex) return cachedIndex;
 
-      // Final fallback for nav only
       const offline = await caches.match(OFFLINE_URL);
-      return offline || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
+      return offline || new Response('Offline', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain' }
+      });
     })());
     return;
   }
 
-  // --- NON-NAV (assets / modules) ---
+  // ASSETS: cache-first, SWR, poison-cache protection
   event.respondWith((async () => {
-    // If not in scope and not a known cached external, just pass through
-    if (!inScope && url.origin === ORIGIN) {
-      try { return await fetch(request); } catch {
-        return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
-      }
-    }
-
-    // Cache-first
     const { response: cached, cacheName } = await matchAnyCache(request);
 
-    // HARD GUARANTEE: never return HTML for script/style/worker
-    if (cached && isBlockedHtmlDestination(request) && isHtmlResponse(cached)) {
-      // Treat as poisoned cache: ignore cached HTML and go to network
-      try {
-        const net = await fetch(request);
-        mlState.isOnline = true;
-        if (shouldCacheRuntime(request, net)) {
-          const runtime = await caches.open(CACHE_RUNTIME);
-          runtime.put(request, net.clone()).catch(() => {});
-        }
-        return net;
-      } catch {
-        mlState.isOnline = false;
-        return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
-      }
-    }
-
-    if (cached) {
+    // If cached response is HTML but request is an asset => poison cache: ignore + delete
+    if (cached && isAssetDestination(request) && isHTMLResponse(cached)) {
+      event.waitUntil(deleteFromAllCaches(request));
+    } else if (cached) {
       recordHit(cacheName === CACHE_ML);
 
       // SWR background update for same-origin assets
@@ -502,8 +472,8 @@ self.addEventListener('fetch', (event) => {
             const net = await fetch(request);
             mlState.isOnline = true;
 
-            // Do not poison caches with HTML for JS/CSS/worker
-            if (isBlockedHtmlDestination(request) && isHtmlResponse(net)) return;
+            // Hard: never store/serve HTML for script/style/worker
+            if (isAssetDestination(request) && isHTMLResponse(net)) return;
 
             if (shouldCacheRuntime(request, net)) {
               const runtime = await caches.open(CACHE_RUNTIME);
@@ -518,16 +488,15 @@ self.addEventListener('fetch', (event) => {
       return cached;
     }
 
-    // Cache miss → network
+    // Cache miss (or poisoned) -> network
     recordMiss();
-
     try {
       const net = await fetch(request);
       mlState.isOnline = true;
 
-      // Never accept HTML as response for script/style/worker
-      if (isBlockedHtmlDestination(request) && isHtmlResponse(net)) {
-        return new Response('Module load blocked (HTML returned for asset request)', {
+      // Absolute guarantee: never return HTML to scripts/styles/workers
+      if (isAssetDestination(request) && isHTMLResponse(net)) {
+        return new Response('Blocked: HTML returned for asset request (poison protection)', {
           status: 502,
           headers: { 'Content-Type': 'text/plain' }
         });
@@ -537,19 +506,21 @@ self.addEventListener('fetch', (event) => {
         const runtime = await caches.open(CACHE_RUNTIME);
         runtime.put(request, net.clone()).catch(() => {});
       }
-
       return net;
     } catch {
       mlState.isOnline = false;
 
-      // For non-nav requests, NEVER return offline.html (hard requirement)
-      return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
+      // Non-nav offline: NEVER return offline.html
+      return new Response('Offline', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain' }
+      });
     }
   })());
 });
 
 // ------------------------------------------------------------
-// MESSAGE
+// MESSAGE (kept + adds hard clear-caches escape hatch)
 // ------------------------------------------------------------
 self.addEventListener('message', (event) => {
   const data = event.data || {};
@@ -565,6 +536,7 @@ self.addEventListener('message', (event) => {
       version: VMQ_VERSION,
       status: 'active',
       caches: [CACHE_CORE, CACHE_MODULES, CACHE_RUNTIME, CACHE_ML],
+      scope: BASE_PATH,
       mlState: {
         cacheHitRate: mlState.cacheHitRate,
         isOnline: mlState.isOnline,
@@ -579,12 +551,20 @@ self.addEventListener('message', (event) => {
     return;
   }
 
+  // Hard escape hatch: delete all vmq-* caches
+  if (data.type === 'VMQ_CLEAR_ALL_CACHES') {
+    event.waitUntil((async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter(k => k.startsWith('vmq-')).map(k => caches.delete(k)));
+    })());
+    return;
+  }
+
   if (data.type === 'NAVIGATION') {
     const route = data.route;
     event.waitUntil((async () => {
       await updateNavigationHistory(route);
       const preds = await predictNextRoutes(String(route || ''));
-      // Best-effort (kept intentionally conservative)
       await prefetchURLs(preds.map(p => p.route));
     })());
     return;
@@ -614,16 +594,14 @@ self.addEventListener('message', (event) => {
 });
 
 // ------------------------------------------------------------
-// BACKGROUND SYNC
+// BACKGROUND SYNC (kept)
 // ------------------------------------------------------------
 self.addEventListener('sync', (event) => {
   const tag = event.tag;
-
   if (tag === 'sync-analytics') {
     event.waitUntil(syncAnalyticsQueue());
     return;
   }
-
   if (tag === 'sync-sm2') {
     event.waitUntil((async () => {
       const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
@@ -634,7 +612,7 @@ self.addEventListener('sync', (event) => {
 });
 
 // ------------------------------------------------------------
-// PERIODIC SYNC
+// PERIODIC SYNC (kept)
 // ------------------------------------------------------------
 self.addEventListener('periodicsync', (event) => {
   if (event.tag === 'check-due-items') {
