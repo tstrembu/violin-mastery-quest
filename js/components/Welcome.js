@@ -1,17 +1,62 @@
 // js/components/Welcome.js
 // ======================================
-// VMQ ONBOARDING 3.0.5 - Smart Start (compatible with your STORAGE_KEYS)
+// VMQ ONBOARDING 3.0.5 - Smart Start
+// Compatible with your STORAGE_KEYS
 // Seeds: Coach, Analytics, Difficulty, Gamification
+// Hardened: ESM-safe imports + graceful fallbacks + no undefined refs
 // ======================================
 
-const { createElement: h, useState, useEffect } = React;
+const { createElement: h, useState, useEffect, useMemo, useCallback } = React;
 
-import { saveJSON, loadJSON, STORAGE_KEYS } from '../config/storage.js';
-import { addXP, unlockAchievement } from '../engines/gamification.js';
-import { setDifficulty, DIFFICULTY_SETTINGS } from '../engines/difficultyAdapter.js';
+import * as StorageMod from '../config/storage.js';
+import * as GameMod from '../engines/gamification.js';
+import * as DiffMod from '../engines/difficultyAdapter.js';
 
+// ------------------------------------------------------------
+// SAFE IMPORTS / FALLBACKS
+// ------------------------------------------------------------
+const saveJSON = StorageMod.saveJSON || (StorageMod.default && StorageMod.default.saveJSON) || ((k, v) => {
+  try { localStorage.setItem(k, JSON.stringify(v)); } catch {}
+});
+const loadJSON = StorageMod.loadJSON || (StorageMod.default && StorageMod.default.loadJSON) || ((k, fallback) => {
+  try {
+    const raw = localStorage.getItem(k);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch { return fallback; }
+});
+const STORAGE_KEYS = StorageMod.STORAGE_KEYS || (StorageMod.default && StorageMod.default.STORAGE_KEYS) || {
+  PROFILE: 'vmq_profile',
+  DIFFICULTY: 'vmq_difficulty',
+  COACH_DATA: 'vmq_coach_data',
+  STATS: 'vmq_stats',
+  ANALYTICS: 'vmq_analytics'
+};
+
+const addXP = GameMod.addXP || (GameMod.default && GameMod.default.addXP) || (() => {});
+const unlockAchievement =
+  GameMod.unlockAchievement || (GameMod.default && GameMod.default.unlockAchievement) || (() => {});
+
+const setDifficulty =
+  DiffMod.setDifficulty || (DiffMod.default && DiffMod.default.setDifficulty) || (() => {});
+const DIFFICULTY_SETTINGS =
+  DiffMod.DIFFICULTY_SETTINGS || (DiffMod.default && DiffMod.default.DIFFICULTY_SETTINGS) || {};
+
+// Small helpers
+const now = () => Date.now();
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+
+function safeToast(msg, type = 'info') {
+  // welcome typically doesn't need toast; keep here for optional debugging
+  if (type === 'error') console.error(msg);
+  else console.log(msg);
+}
+
+// ------------------------------------------------------------
+// MAIN COMPONENT
+// ------------------------------------------------------------
 export default function Welcome({ onComplete }) {
   const [step, setStep] = useState(0);
+
   const [profile, setProfile] = useState({
     name: '',
     level: 'beginner', // beginner, intermediate, advanced
@@ -20,9 +65,13 @@ export default function Welcome({ onComplete }) {
     practiceMinutes: 20, // daily target
     repertoire: 'suzuki1' // suzuki1-6, kreutzer, etc.
   });
-  const [smartSuggestions, setSmartSuggestions] = useState([]);
 
-  const STEPS = [
+  const smartSuggestions = useMemo(
+    () => generateGoalRecommendations(profile.level),
+    [profile.level]
+  );
+
+  const STEPS = useMemo(() => ([
     {
       title: 'Welcome to Violin Mastery Quest! 🎻',
       subtitle: 'ML-Powered Practice',
@@ -41,14 +90,14 @@ export default function Welcome({ onComplete }) {
     {
       title: 'Your current level?',
       subtitle: 'Adaptive Difficulty',
-      content: 'This calibrates our ML algorithm to your skill level.',
+      content: 'This calibrates our adaptive difficulty to your current skill level.',
       input: 'level',
       icon: '📊'
     },
     {
       title: 'Practice preferences',
       subtitle: 'Smart Scheduling',
-      content: 'Help our AI coach optimize your practice schedule.',
+      content: 'Help the coach optimize your practice schedule.',
       input: 'preferences',
       icon: '⏰'
     },
@@ -66,28 +115,46 @@ export default function Welcome({ onComplete }) {
       action: 'Start Training →',
       icon: '🚀'
     }
-  ];
+  ]), []);
 
+  const currentStep = STEPS[step];
+
+  // validate current step
+  const canProceed = useMemo(
+    () => validateStep(currentStep, profile),
+    [currentStep, profile]
+  );
+
+  // Allow resume / skip if already complete
   useEffect(() => {
-    setSmartSuggestions(generateGoalRecommendations(profile.level));
-  }, [profile.level]);
+    try {
+      const existing = loadJSON(STORAGE_KEYS.PROFILE, null);
+      if (existing && isObj(existing) && existing.onboardingComplete) {
+        // If already onboarded, complete immediately (non-disruptive)
+        onComplete?.();
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     if (step < STEPS.length - 1) setStep(step + 1);
     else completeOnboarding(false);
-  };
+  }, [step, STEPS.length]);
 
-  const completeOnboarding = (skipped = false) => {
+  const completeOnboarding = useCallback((skipped = false) => {
     const enrichedProfile = {
       ...profile,
       onboardingComplete: true,
       skipped: !!skipped,
-      onboardedAt: Date.now(),
+      onboardedAt: now(),
       version: '3.0.5'
     };
+
+    // 1) PROFILE
     saveJSON(STORAGE_KEYS.PROFILE, enrichedProfile);
 
-    // Seed difficulty: per-mode easy/medium/hard, plus store global tuning hints
+    // 2) DIFFICULTY SEED (per-mode + global reserved key)
     const difficultyMapping = {
       beginner: { label: 'easy', baseDifficulty: 0.7 },
       intermediate: { label: 'medium', baseDifficulty: 1.0 },
@@ -96,38 +163,43 @@ export default function Welcome({ onComplete }) {
     const seed = difficultyMapping[enrichedProfile.level] || difficultyMapping.beginner;
 
     const existing = loadJSON(STORAGE_KEYS.DIFFICULTY, {});
-    const next = (existing && typeof existing === 'object') ? { ...existing } : {};
+    const next = isObj(existing) ? { ...existing } : {};
 
     const modes = Object.keys(DIFFICULTY_SETTINGS || {});
-    modes.forEach((mode) => {
-      next[mode] = next[mode] || seed.label;
-      try { setDifficulty?.(mode, next[mode]); } catch {}
+    // If DIFFICULTY_SETTINGS is empty (common early on), keep a minimal safe set:
+    const fallbackModes = ['rhythm', 'scaleslab', 'intervals', 'sightreading', 'bielerlab', 'practice'];
+    const modeList = modes.length ? modes : fallbackModes;
+
+    modeList.forEach((modeKey) => {
+      if (!next[modeKey]) next[modeKey] = seed.label;
+      try { setDifficulty?.(modeKey, next[modeKey]); } catch {}
     });
 
-    // Store global knobs without polluting the mode list
-    // (kept under a reserved key unlikely to be treated as a "mode")
     next.__global = {
+      ...(isObj(next.__global) ? next.__global : {}),
       baseDifficulty: seed.baseDifficulty,
       adaptiveEnabled: true,
-      updatedAt: Date.now()
+      updatedAt: now(),
+      onboardingVersion: '3.0.5'
     };
 
     saveJSON(STORAGE_KEYS.DIFFICULTY, next);
 
-    // Initialize coach with goals (NOTE: your key is COACH_DATA)
+    // 3) COACH DATA (your key: COACH_DATA)
     saveJSON(STORAGE_KEYS.COACH_DATA, {
       goals: enrichedProfile.goals,
       preferredTime: enrichedProfile.preferredTime,
       targetMinutes: enrichedProfile.practiceMinutes,
+      repertoire: enrichedProfile.repertoire,
       learningStyle: inferLearningStyle(enrichedProfile),
-      initialized: Date.now()
+      initialized: now()
     });
 
-    // Award onboarding XP + achievement
+    // 4) XP + Achievement
     try { addXP?.(50, 'onboarding_complete', { source: 'system' }); } catch {}
     try { unlockAchievement?.('welcome_aboard', { level: enrichedProfile.level }); } catch {}
 
-    // Seed first practice plan in STATS
+    // 5) STATS SEED
     const initialStats = {
       total: 0,
       correct: 0,
@@ -135,92 +207,148 @@ export default function Welcome({ onComplete }) {
       profile: {
         level: enrichedProfile.level,
         goals: enrichedProfile.goals,
-        startDate: Date.now()
+        startDate: now()
       }
     };
     saveJSON(STORAGE_KEYS.STATS, initialStats);
 
-    // Log onboarding analytics event (preserve any existing analytics structure)
+    // 6) ANALYTICS EVENT (preserve structure)
     const analytics = loadJSON(STORAGE_KEYS.ANALYTICS, {});
-    const aObj = (analytics && typeof analytics === 'object') ? analytics : {};
+    const aObj = isObj(analytics) ? { ...analytics } : {};
     if (!Array.isArray(aObj.events)) aObj.events = [];
     aObj.events.unshift({
       type: 'onboarding_complete',
-      timestamp: Date.now(),
+      timestamp: now(),
       profile: enrichedProfile
     });
     saveJSON(STORAGE_KEYS.ANALYTICS, aObj);
 
+    // Done
     onComplete?.();
-  };
+  }, [profile, onComplete]);
 
-  const currentStep = STEPS[step];
-  const canProceed = validateStep(currentStep, profile);
+  const handleSkip = useCallback(() => {
+    // Seed a safe minimal profile and complete
+    setProfile({
+      name: 'Student',
+      level: 'beginner',
+      goals: [],
+      preferredTime: 'flexible',
+      practiceMinutes: 20,
+      repertoire: 'suzuki1'
+    });
+    // complete using next tick so state has updated (avoid race)
+    setTimeout(() => {
+      try {
+        const p = {
+          name: 'Student',
+          level: 'beginner',
+          goals: [],
+          preferredTime: 'flexible',
+          practiceMinutes: 20,
+          repertoire: 'suzuki1'
+        };
+        // complete with the same payload explicitly to avoid reliance on async state
+        const enriched = { ...p, onboardingComplete: true, skipped: true, onboardedAt: now(), version: '3.0.5' };
+        saveJSON(STORAGE_KEYS.PROFILE, enriched);
 
+        const difficultyMapping = {
+          beginner: { label: 'easy', baseDifficulty: 0.7 },
+          intermediate: { label: 'medium', baseDifficulty: 1.0 },
+          advanced: { label: 'hard', baseDifficulty: 1.3 }
+        };
+        const seed = difficultyMapping.beginner;
+
+        const existing = loadJSON(STORAGE_KEYS.DIFFICULTY, {});
+        const next = isObj(existing) ? { ...existing } : {};
+        const modes = Object.keys(DIFFICULTY_SETTINGS || {});
+        const fallbackModes = ['rhythm', 'scaleslab', 'intervals', 'sightreading', 'bielerlab', 'practice'];
+        const modeList = modes.length ? modes : fallbackModes;
+
+        modeList.forEach((modeKey) => {
+          if (!next[modeKey]) next[modeKey] = seed.label;
+          try { setDifficulty?.(modeKey, next[modeKey]); } catch {}
+        });
+
+        next.__global = {
+          ...(isObj(next.__global) ? next.__global : {}),
+          baseDifficulty: seed.baseDifficulty,
+          adaptiveEnabled: true,
+          updatedAt: now(),
+          onboardingVersion: '3.0.5'
+        };
+
+        saveJSON(STORAGE_KEYS.DIFFICULTY, next);
+
+        saveJSON(STORAGE_KEYS.COACH_DATA, {
+          goals: [],
+          preferredTime: 'flexible',
+          targetMinutes: 20,
+          repertoire: 'suzuki1',
+          learningStyle: 'balanced',
+          initialized: now()
+        });
+
+        try { addXP?.(25, 'onboarding_skipped', { source: 'system' }); } catch {}
+
+        const initialStats = { total: 0, correct: 0, byModule: {}, profile: { level: 'beginner', goals: [], startDate: now() } };
+        saveJSON(STORAGE_KEYS.STATS, initialStats);
+
+        const analytics = loadJSON(STORAGE_KEYS.ANALYTICS, {});
+        const aObj = isObj(analytics) ? { ...analytics } : {};
+        if (!Array.isArray(aObj.events)) aObj.events = [];
+        aObj.events.unshift({ type: 'onboarding_skipped', timestamp: now(), profile: enriched });
+        saveJSON(STORAGE_KEYS.ANALYTICS, aObj);
+
+        onComplete?.();
+      } catch (e) {
+        safeToast('Skip onboarding failed', 'error');
+        onComplete?.();
+      }
+    }, 0);
+  }, [onComplete]);
+
+  // ------------------------------------------------------------
+  // RENDER
+  // ------------------------------------------------------------
   return h(
     'div',
     { className: 'module-container welcome-screen' },
     h(
       'div',
-      {
-        className: 'card card-welcome',
-        style: { textAlign: 'center', maxWidth: '600px', margin: '0 auto' }
-      },
+      { className: 'card card-welcome', style: { textAlign: 'center', maxWidth: '600px', margin: '0 auto' } },
 
-      h(
-        'div',
-        {
-          className: 'welcome-icon',
-          style: {
-            fontSize: 'clamp(3rem, 10vw, 5rem)',
-            marginBottom: 'var(--space-lg)',
-            animation: 'fadeInScale 0.5s ease-out'
-          }
-        },
-        currentStep.icon
-      ),
+      h('div', {
+        className: 'welcome-icon',
+        style: {
+          fontSize: 'clamp(3rem, 10vw, 5rem)',
+          marginBottom: 'var(--space-lg)',
+          animation: 'fadeInScale 0.5s ease-out'
+        }
+      }, currentStep.icon),
 
       h('h1', { style: { marginBottom: 'var(--space-xs)' } }, currentStep.title),
-      h(
-        'p',
-        {
-          className: 'text-muted',
-          style: { fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-md)' }
+      h('p', { className: 'text-muted', style: { fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-md)' } }, currentStep.subtitle),
+      h('p', { style: { fontSize: 'var(--font-size-lg)', marginBottom: 'var(--space-xl)', lineHeight: 1.6 } }, currentStep.content),
+
+      currentStep.input === 'name' &&
+        renderNameInput(profile, setProfile, canProceed, handleNext),
+
+      currentStep.input === 'level' &&
+        renderLevelInput(profile, setProfile),
+
+      currentStep.input === 'preferences' &&
+        renderPreferencesInput(profile, setProfile),
+
+      currentStep.input === 'goals' &&
+        renderGoalsInput(profile, setProfile, smartSuggestions),
+
+      // Progress
+      h('div', { style: { margin: 'var(--space-xl) 0 var(--space-lg)' } },
+        h('div', {
+          className: 'progress-dots',
+          style: { display: 'flex', justifyContent: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }
         },
-        currentStep.subtitle
-      ),
-
-      h(
-        'p',
-        {
-          style: {
-            fontSize: 'var(--font-size-lg)',
-            marginBottom: 'var(--space-xl)',
-            lineHeight: 1.6
-          }
-        },
-        currentStep.content
-      ),
-
-      currentStep.input === 'name' && renderNameInput(profile, setProfile, canProceed, handleNext),
-      currentStep.input === 'level' && renderLevelInput(profile, setProfile),
-      currentStep.input === 'preferences' && renderPreferencesInput(profile, setProfile),
-      currentStep.input === 'goals' && renderGoalsInput(profile, setProfile, smartSuggestions),
-
-      h(
-        'div',
-        { style: { margin: 'var(--space-xl) 0 var(--space-lg)' } },
-        h(
-          'div',
-          {
-            className: 'progress-dots',
-            style: {
-              display: 'flex',
-              justifyContent: 'center',
-              gap: 'var(--space-sm)',
-              marginBottom: 'var(--space-md)'
-            }
-          },
           STEPS.map((_, i) =>
             h('div', {
               key: i,
@@ -239,50 +367,39 @@ export default function Welcome({ onComplete }) {
         )
       ),
 
-      h(
-        'div',
-        { className: 'welcome-nav', style: { display: 'flex', gap: 'var(--space-sm)' } },
-        step > 0 && step < STEPS.length - 1 &&
+      // Nav
+      h('div', { className: 'welcome-nav', style: { display: 'flex', gap: 'var(--space-sm)' } },
+        (step > 0 && step < STEPS.length - 1) &&
           h('button', { className: 'btn btn-outline', onClick: () => setStep(step - 1) }, '← Back'),
 
-        h(
-          'button',
-          {
-            className: 'btn btn-primary btn-lg',
-            onClick: handleNext,
-            disabled: !canProceed,
-            style: { flex: 1 }
+        h('button', {
+          className: 'btn btn-primary btn-lg',
+          onClick: () => {
+            if (!canProceed) return;
+            if (step < STEPS.length - 1) handleNext();
+            else completeOnboarding(false);
           },
+          disabled: !canProceed,
+          style: { flex: 1 }
+        },
           step === STEPS.length - 1 ? '🎻 Start Training' : (currentStep.action || 'Next →')
         )
       ),
 
+      // Skip (only on first screen)
       step === 0 &&
-        h(
-          'button',
-          {
-            className: 'btn-text',
-            onClick: () => {
-              setProfile({
-                name: 'Student',
-                level: 'beginner',
-                goals: [],
-                preferredTime: 'flexible',
-                practiceMinutes: 20,
-                repertoire: 'suzuki1'
-              });
-              completeOnboarding(true);
-            },
-            style: { marginTop: 'var(--space-md)', fontSize: 'var(--font-size-sm)' }
-          },
-          'Skip setup →'
-        )
+        h('button', {
+          className: 'btn-text',
+          onClick: handleSkip,
+          style: { marginTop: 'var(--space-md)', fontSize: 'var(--font-size-sm)' }
+        }, 'Skip setup →')
     )
   );
 }
 
+// ------------------------------------------------------------
 // INPUT RENDERERS
-
+// ------------------------------------------------------------
 function renderNameInput(profile, setProfile, canProceed, onNext) {
   return h('div', { style: { marginBottom: 'var(--space-lg)' } },
     h('input', {
@@ -324,7 +441,9 @@ function renderLevelInput(profile, setProfile) {
         key: lvl.id,
         className: `level-card ${profile.level === lvl.id ? 'active' : ''}`,
         onClick: () => setProfile({ ...profile, level: lvl.id }),
+        type: 'button',
         style: {
+          width: '100%',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -358,7 +477,8 @@ function renderPreferencesInput(profile, setProfile) {
         times.map(time =>
           h('button', {
             key: time.id,
-            className: `btn ${profile.preferredTime === time.id ? 'btn-primary' : 'btn-outline'}`,
+            className: `btn ${profile.preferredTime === time.id ? 'btn-primary' : 'btn-outline'} btn-sm`,
+            type: 'button',
             onClick: () => setProfile({ ...profile, preferredTime: time.id }),
             style: { display: 'flex', flexDirection: 'column', gap: '0.25rem', padding: 'var(--space-md)' }
           },
@@ -398,7 +518,7 @@ function renderGoalsInput(profile, setProfile, smartSuggestions) {
 
   return h('div', { style: { marginBottom: 'var(--space-lg)', textAlign: 'left' } },
 
-    smartSuggestions.length > 0 && h('div', {
+    (smartSuggestions?.length > 0) && h('div', {
       style: {
         background: 'rgba(59, 130, 246, 0.1)',
         border: '1px solid var(--primary)',
@@ -409,18 +529,20 @@ function renderGoalsInput(profile, setProfile, smartSuggestions) {
     },
       h('strong', null, '💡 Recommended for your level'),
       h('div', { style: { marginTop: 'var(--space-sm)' } },
-        smartSuggestions.map(goalId =>
-          h('button', {
+        smartSuggestions.map(goalId => {
+          const label = allGoals.find(g => g.id === goalId)?.label || goalId;
+          const already = profile.goals.includes(goalId);
+          return h('button', {
             key: goalId,
-            className: 'btn btn-sm btn-outline',
+            className: `btn btn-sm ${already ? 'btn-primary' : 'btn-outline'}`,
+            type: 'button',
             style: { marginRight: 'var(--space-sm)', marginBottom: 'var(--space-sm)' },
             onClick: () => {
-              if (!profile.goals.includes(goalId)) {
-                setProfile({ ...profile, goals: [...profile.goals, goalId] });
-              }
+              if (already) return;
+              setProfile({ ...profile, goals: [...profile.goals, goalId] });
             }
-          }, `+ ${allGoals.find(g => g.id === goalId)?.label || goalId}`)
-        )
+          }, already ? `✓ ${label}` : `+ ${label}`);
+        })
       )
     ),
 
@@ -456,12 +578,14 @@ function renderGoalsInput(profile, setProfile, smartSuggestions) {
   );
 }
 
+// ------------------------------------------------------------
 // HELPERS
-
+// ------------------------------------------------------------
 function validateStep(step, profile) {
-  if (step.input === 'name') return profile.name.trim().length > 0;
-  if (step.input === 'level') return profile.level !== '';
-  if (step.input === 'goals') return profile.goals.length >= 1;
+  if (!step) return true;
+  if (step.input === 'name') return String(profile.name || '').trim().length > 0;
+  if (step.input === 'level') return !!profile.level;
+  if (step.input === 'goals') return Array.isArray(profile.goals) && profile.goals.length >= 1;
   return true;
 }
 
@@ -475,9 +599,10 @@ function generateGoalRecommendations(level) {
 }
 
 function inferLearningStyle(profile) {
-  const hasAural = profile.goals.includes('eartraining');
-  const hasTechnique = profile.goals.includes('bieler') || profile.goals.includes('intonation');
-  const hasTheory = profile.goals.includes('keys') || profile.goals.includes('sightreading');
+  const goals = Array.isArray(profile.goals) ? profile.goals : [];
+  const hasAural = goals.includes('eartraining');
+  const hasTechnique = goals.includes('bieler') || goals.includes('intonation');
+  const hasTheory = goals.includes('keys') || goals.includes('sightreading');
 
   if (hasAural && hasTechnique) return 'kinesthetic-auditory';
   if (hasTheory && hasAural) return 'visual-auditory';
