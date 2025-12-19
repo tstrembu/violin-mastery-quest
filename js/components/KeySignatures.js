@@ -1,305 +1,479 @@
+// js/components/KeySignatures.js
 // ========================================================
 // VMQ KEY SIGNATURES v3.0 - ML-Enhanced
 // Cooper's Key Signature & Bach Guide + Fingerboard Overlay
+// Drop-in replacement: hardened imports + stable handMap prompts + safe engines
 // ========================================================
 
 const { createElement: h, useState, useEffect, useCallback, useMemo, useRef } = React;
-import { 
-  KEY_SIGNATURES, 
-  SHARP_ORDER, 
-  FLAT_ORDER, 
-  PRAISE_MESSAGES,
-  AUDIO_URLS,
-  XP_VALUES
-} from '../config/constants.js';
-import { 
-  selectNextItem, 
-  updateItem, 
-  getMasteryStats,
-  getConfusionMatrix,
-  getDueItems,
-  predictOptimalInterval
-} from '../engines/spacedRepetition.js';
-import { 
-  getDifficulty, 
-  getItemPool, 
-  getDifficultyInfo,
-  getAdaptiveConfig
-} from '../engines/difficultyAdapter.js';
-import { addXP, recordStreak, getUserLevel } from '../engines/gamification.js';
-import { 
-  analyzeKeySignaturePerformance,
-  predictSkillTransfer
-} from '../engines/analytics.js';
-import { shuffle, getRandom, normalizeText, debounce } from '../utils/helpers.js';
-import { audioEngine } from '../engines/audioEngine.js';
-import { keyboard } from '../utils/keyboard.js';
-import { a11y } from '../utils/a11y.js';
-import sessionTracker from '../engines/sessionTracker.js';
 
+import * as ConstMod from '../config/constants.js';
+import * as SRSMod from '../engines/spacedRepetition.js';
+import * as DiffMod from '../engines/difficultyAdapter.js';
+import * as GameMod from '../engines/gamification.js';
+import * as AnalyticsMod from '../engines/analytics.js';
+import * as HelpersMod from '../utils/helpers.js';
+import * as AudioMod from '../engines/audioEngine.js';
+import * as KeyboardMod from '../utils/keyboard.js';
+import * as A11yMod from '../utils/a11y.js';
+import * as SessionMod from '../engines/sessionTracker.js';
+
+// ---------------------------
+// SAFE IMPORTS / FALLBACKS
+// ---------------------------
+const KEY_SIGNATURES = ConstMod.KEY_SIGNATURES || [];
+const SHARP_ORDER = ConstMod.SHARP_ORDER || ['F', 'C', 'G', 'D', 'A', 'E', 'B'];
+const FLAT_ORDER  = ConstMod.FLAT_ORDER  || ['B', 'E', 'A', 'D', 'G', 'C', 'F'];
+const PRAISE_MESSAGES = ConstMod.PRAISE_MESSAGES || ['Nice!', 'Great job!', 'Excellent!', 'Awesome!'];
+const XP_VALUES = ConstMod.XP_VALUES || ConstMod.XPVALUES || { correct: 20 };
+
+const selectNextItem = SRSMod.selectNextItem || null;
+const updateItem = SRSMod.updateItem || null;
+const getMasteryStats = SRSMod.getMasteryStats || null;
+const getConfusionMatrix = SRSMod.getConfusionMatrix || null;
+const getDueItems = SRSMod.getDueItems || null;
+
+const getDifficulty = DiffMod.getDifficulty || null;
+const getItemPool = DiffMod.getItemPool || null;
+const getDifficultyInfo = DiffMod.getDifficultyInfo || null;
+const getAdaptiveConfig = DiffMod.getAdaptiveConfig || null;
+
+const addXP = GameMod.addXP || (() => {});
+const recordStreak = GameMod.recordStreak || (() => {});
+const getUserLevel = GameMod.getUserLevel || (() => 1);
+
+const analyzeKeySignaturePerformance = AnalyticsMod.analyzeKeySignaturePerformance || null;
+const predictSkillTransfer = AnalyticsMod.predictSkillTransfer || null;
+
+const shuffle = HelpersMod.shuffle || ((arr) => [...arr].sort(() => Math.random() - 0.5));
+const getRandom = HelpersMod.getRandom || ((arr) => arr[Math.floor(Math.random() * arr.length)]);
+const normalizeText =
+  HelpersMod.normalizeText ||
+  ((s) => String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[♯]/g, '#')
+    .replace(/[♭]/g, 'b')
+  );
+const debounce =
+  HelpersMod.debounce ||
+  ((fn, wait = 250) => {
+    let t;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), wait);
+    };
+  });
+
+const audioEngine = AudioMod.audioEngine || AudioMod.default || AudioMod;
+const keyboard = KeyboardMod.keyboard || KeyboardMod.default || KeyboardMod;
+const a11y = A11yMod.a11y || A11yMod.default || A11yMod || { announce: () => {} };
+const sessionTracker = SessionMod.default || SessionMod.sessionTracker || SessionMod;
+
+// ---------------------------
+// SMALL UTILS
+// ---------------------------
+function safeCall(fn, ...args) {
+  try { return fn?.(...args); } catch { return undefined; }
+}
+
+function safeArray(x) {
+  return Array.isArray(x) ? x : [];
+}
+
+function levenshteinDistance(a, b) {
+  a = String(a || '');
+  b = String(b || '');
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+
+  const dp = Array.from({ length: n + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= m; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      dp[i][j] = b[i - 1] === a[j - 1]
+        ? dp[i - 1][j - 1]
+        : Math.min(dp[i - 1][j - 1] + 1, dp[i][j - 1] + 1, dp[i - 1][j] + 1);
+    }
+  }
+  return dp[n][m];
+}
+
+function similarityScore(a, b) {
+  a = normalizeText(a);
+  b = normalizeText(b);
+  if (!a.length || !b.length) return 0;
+  const longer = a.length >= b.length ? a : b;
+  const dist = levenshteinDistance(a, b);
+  return (longer.length - dist) / longer.length;
+}
+
+// ---------------------------
 // Fingerboard visualization component
-function FingerboardMini({ keySignature, string, position, showCorrect = false }) {
+// ---------------------------
+function FingerboardMini({ keySignature, stringName, showCorrect = false }) {
   const strings = ['G', 'D', 'A', 'E'];
-  const positions = [0, 1, 2, 3, 4]; // 0 = open string
-  
-  return h('div', { className: 'fingerboard-mini', role: 'img', 'aria-label': `Violin fingerboard showing ${keySignature} on ${string} string` },
-    h('div', { className: 'fingerboard-strings' },
+  const positions = [0, 1, 2, 3, 4]; // 0=open, 1..4 fingers
+
+  const activeString = stringName || 'A';
+  const map = keySignature?.handMap || {};
+  const finger = String(map?.[activeString] ?? '0'); // e.g., "high2" / "low2"
+  const isHigh = /high/i.test(finger);
+  const isLow = /low/i.test(finger);
+  const positionNum = parseInt(finger.replace(/high|low/gi, ''), 10) || 0;
+
+  return h('div', {
+      className: 'fingerboard-mini',
+      role: 'img',
+      'aria-label': `Violin fingerboard showing ${keySignature?.major || 'key'} on ${activeString} string`
+    },
+    h('div', { className: 'fingerboard-strings', 'aria-hidden': 'true' },
       strings.map(s => {
-        const isActiveString = s === string;
-        const fingerPosition = keySignature.handMap?.[s] || '0';
-        const isHigh = fingerPosition.includes('high');
-        const positionNum = parseInt(fingerPosition.replace(/high|low/, '')) || 0;
-        
-        return h('div', {
-          key: s,
-          className: `string ${isActiveString ? 'active' : ''}`,
-          'aria-hidden': 'true'
-        },
+        const isActive = s === activeString;
+        const sFinger = String(map?.[s] ?? '0');
+        const sHigh = /high/i.test(sFinger);
+        const sLow = /low/i.test(sFinger);
+        const sPos = parseInt(sFinger.replace(/high|low/gi, ''), 10) || 0;
+
+        return h('div', { key: s, className: `string ${isActive ? 'active' : ''}` },
           h('span', { className: 'string-label' }, s),
           positions.map(pos => {
-            const isCorrectPos = isActiveString && pos === positionNum;
-            const shouldShow = showCorrect && isCorrectPos;
-            
+            const shouldShow = showCorrect && isActive && pos === sPos;
             return h('div', {
               key: pos,
-              className: `finger-position ${shouldShow ? 'correct' : ''} ${isHigh ? 'high' : 'low'}`,
+              className:
+                `finger-position ${shouldShow ? 'correct' : ''} ` +
+                `${(sHigh ? 'high' : '')} ${(sLow ? 'low' : '')}`,
               'data-position': pos
             });
           })
         );
       })
     ),
-    showCorrect && h('div', { className: 'finger-hint' }, 
-      `Finger ${positionNum} ${isHigh ? '(high position)' : '(low position)'}`
+    showCorrect && h('div', { className: 'finger-hint' },
+      `Finger ${positionNum} ${isHigh ? '(high position)' : isLow ? '(low position)' : ''}`.trim()
     )
   );
 }
 
+// ========================================================
+// MAIN MODULE
+// ========================================================
+
 export function KeySignatures({ onBack, onAnswer, showToast }) {
-  // State
+  // Core state
   const [currentKey, setCurrentKey] = useState(null);
-  const [questionType, setQuestionType] = useState('major');
+  const [questionType, setQuestionType] = useState('major'); // major | minor | handMap
+  const [handMapString, setHandMapString] = useState('A');   // stable per-question
   const [userAnswer, setUserAnswer] = useState('');
   const [feedback, setFeedback] = useState('');
-  const [feedbackType, setFeedbackType] = useState('');
+  const [feedbackType, setFeedbackType] = useState('');      // success | error | hint
   const [answered, setAnswered] = useState(false);
+
+  // Stats / UX
   const [showMastery, setShowMastery] = useState(false);
-  const [mastery, setMastery] = useState([]);
-  const [responseTime, setResponseTime] = useState(0);
+  const [mastery, setMastery] = useState([]);                // normalized display rows
+  const [responseTimeMs, setResponseTimeMs] = useState(0);
   const [hintsUsed, setHintsUsed] = useState(0);
   const [showFingerboard, setShowFingerboard] = useState(false);
   const [sessionStats, setSessionStats] = useState({ correct: 0, total: 0, accuracy: 0 });
-  
-  // Refs
-  const startTimeRef = useRef(null);
+
+  // ML-ish session context
+  const [difficultyInfo, setDifficultyInfo] = useState({ level: 'medium', label: 'Medium', description: '' });
+  const [pool, setPool] = useState([]);
+  const [adaptiveConfig, setAdaptiveConfig] = useState({});
+
+  const startTimeRef = useRef(0);
   const inputRef = useRef(null);
-  const containerRef = useRef(null);
+  const isMountedRef = useRef(true);
 
-  // Get difficulty and pool
-  const difficultyInfo = useMemo(() => getDifficultyInfo('keySignatures'), []);
-  const pool = useMemo(() => getItemPool('keySignatures', KEY_SIGNATURES), [difficultyInfo]);
-
-  // ML: Get adaptive config for this session
-  const adaptiveConfig = useMemo(() => getAdaptiveConfig('keySignatures'), []);
-
-  // Generate first question
+  // Init: load difficulty/pool/config then generate
   useEffect(() => {
-    generateQuestion();
-    
-    // Focus management
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
-    
-    // Announce to screen reader
-    a11y.announce('Key Signatures module loaded');
-    
-    // Track module start
-    sessionTracker.trackActivity('keySignatures', 'module-start', {
-      difficulty: difficultyInfo.level,
-      poolSize: pool.length
-    });
-    
+    isMountedRef.current = true;
+
+    (async () => {
+      // DifficultyInfo (sync or async)
+      let di = { level: 'medium', label: 'Medium', description: '' };
+      try {
+        const maybe = safeCall(getDifficultyInfo, 'keySignatures');
+        di = (maybe && typeof maybe.then === 'function') ? await maybe : (maybe || di);
+      } catch {}
+      if (!isMountedRef.current) return;
+      setDifficultyInfo(di);
+
+      // Pool (respect difficultyAdapter if present)
+      let p = KEY_SIGNATURES;
+      try {
+        const maybePool = safeCall(getItemPool, 'keySignatures', KEY_SIGNATURES);
+        p = (maybePool && typeof maybePool.then === 'function') ? await maybePool : (maybePool || p);
+      } catch {}
+      p = safeArray(p);
+      if (!isMountedRef.current) return;
+      setPool(p);
+
+      // Adaptive config (optional)
+      let ac = {};
+      try {
+        const maybeAC = safeCall(getAdaptiveConfig, 'keySignatures');
+        ac = (maybeAC && typeof maybeAC.then === 'function') ? await maybeAC : (maybeAC || {});
+      } catch {}
+      if (!isMountedRef.current) return;
+      setAdaptiveConfig(ac);
+
+      a11y.announce?.('Key Signatures module loaded');
+
+      sessionTracker?.trackActivity?.('keySignatures', 'module-start', {
+        difficulty: di?.level || di?.label || 'medium',
+        poolSize: p.length
+      });
+
+      // First question
+      generateQuestion(p, di);
+      // Focus
+      setTimeout(() => inputRef.current?.focus?.(), 0);
+    })();
+
+    return () => { isMountedRef.current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts: H = hint, Esc = close mastery/back
   useEffect(() => {
-    const handleKeyPress = (e) => {
-      if (e.key === 'h' || e.key === 'H') {
+    const onKey = (e) => {
+      if (!isMountedRef.current) return;
+      const k = e.key;
+
+      if (k === 'h' || k === 'H') {
         e.preventDefault();
         showHint();
-      } else if (e.key === 'Escape') {
+        return;
+      }
+      if (k === 'Escape') {
         e.preventDefault();
-        if (showMastery) {
-          setShowMastery(false);
-        } else {
-          onBack();
-        }
+        if (showMastery) setShowMastery(false);
+        else onBack?.();
       }
     };
-    
-    keyboard.onKeydown(handleKeyPress);
-    return () => keyboard.offKeydown(handleKeyPress);
-  }, [showMastery, currentKey, questionType]);
 
-  // ML: Generate adaptive question
-  async function generateQuestion() {
-    if (pool.length === 0) {
+    // Prefer your keyboard utility if present
+    if (keyboard?.onKeydown && keyboard?.offKeydown) {
+      keyboard.onKeydown(onKey);
+      return () => keyboard.offKeydown(onKey);
+    }
+
+    window.addEventListener('keydown', onKey, { passive: false });
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showMastery, onBack]); // showHint is stable via function hoisting below
+
+  // ---------------------------
+  // QUESTION GENERATION
+  // ---------------------------
+  async function generateQuestion(poolOverride, diffOverride) {
+    const p = safeArray(poolOverride || pool);
+    const di = diffOverride || difficultyInfo;
+
+    if (!p.length) {
       setFeedback('No key signatures available.');
+      setFeedbackType('error');
       return;
     }
 
-    // ML: Get due items from spaced repetition
-    const dueKeyIds = getDueItems('keySignatures', 10).map(item => item.id);
-    
-    // ML: Get confusion matrix to find weak keys
-    const confusionMatrix = getConfusionMatrix('keySignatures');
-    const weakKeys = Object.entries(confusionMatrix)
-      .filter(([keyId, data]) => data.accuracy < 70 && data.attempts > 3)
-      .map(([keyId]) => keyId);
-    
-    // ML: Predict optimal question type based on performance
-    const optimalType = predictOptimalQuestionType();
-    
-    // Build weighted pool: 40% due, 30% weak, 30% random
-    const weightedPool = [];
-    
-    // Add due items with high weight
-    dueKeyIds.forEach(id => {
-      const key = pool.find(k => k.id === id);
-      if (key) weightedPool.push({ ...key, weight: 3.0, reason: 'due' });
-    });
-    
-    // Add weak items
-    weakKeys.forEach(id => {
-      const key = pool.find(k => k.id === id);
-      if (key && !weightedPool.find(w => w.id === id)) {
-        weightedPool.push({ ...key, weight: 2.5, reason: 'weak' });
-      }
-    });
-    
-    // Add random items
-    pool.forEach(key => {
-      if (!weightedPool.find(w => w.id === key.id)) {
-        weightedPool.push({ ...key, weight: 1.0, reason: 'random' });
-      }
-    });
-    
-    // ML: Select based on weights
-    const selectedKey = weightedRandomSelect(weightedPool);
+    // Due items
+    let dueIds = [];
+    try {
+      const due = safeCall(getDueItems, 'keySignatures', 10);
+      const dueList = (due && typeof due.then === 'function') ? await due : due;
+      dueIds = safeArray(dueList).map(x => x?.id).filter(Boolean);
+    } catch {}
+
+    // Confusion matrix / weak keys
+    let matrix = {};
+    try {
+      const cm = safeCall(getConfusionMatrix, 'keySignatures');
+      matrix = (cm && typeof cm.then === 'function') ? await cm : (cm || {});
+    } catch {}
+
+    const weakIds = Object.entries(matrix || {})
+      .filter(([_, data]) => (data?.attempts || 0) > 3 && (data?.accuracy ?? 100) < 70)
+      .map(([id]) => id);
+
+    // Decide question type (focus weakest type if possible)
+    const optimalType = predictOptimalQuestionType(p);
     const selectedType = optimalType || getRandom(['major', 'minor', 'handMap']);
-    
-    setCurrentKey(selectedKey);
+    const selectedString = getRandom(['G', 'D', 'A', 'E']);
+
+    // Build weighted pool: due (3.0), weak (2.5), else (1.0)
+    const weighted = [];
+    const seen = new Set();
+
+    dueIds.forEach(id => {
+      const item = p.find(k => k.id === id);
+      if (item) {
+        weighted.push({ ...item, __weight: 3.0, __reason: 'due' });
+        seen.add(item.id);
+      }
+    });
+
+    weakIds.forEach(id => {
+      if (seen.has(id)) return;
+      const item = p.find(k => k.id === id);
+      if (item) {
+        weighted.push({ ...item, __weight: 2.5, __reason: 'weak' });
+        seen.add(item.id);
+      }
+    });
+
+    p.forEach(item => {
+      if (seen.has(item.id)) return;
+      weighted.push({ ...item, __weight: 1.0, __reason: 'random' });
+    });
+
+    const chosen = weightedRandomSelect(weighted);
+
+    setCurrentKey(chosen);
     setQuestionType(selectedType);
+    setHandMapString(selectedString);
+
     setUserAnswer('');
     setFeedback('');
     setFeedbackType('');
     setAnswered(false);
     setHintsUsed(0);
     setShowFingerboard(false);
+    setResponseTimeMs(0);
     startTimeRef.current = Date.now();
-    
-    // Update mastery stats
-    const keyIds = pool.map(k => k.id);
-    const stats = getMasteryStats(keyIds);
-    setMastery(stats);
-    
-    // Track question generation
-    sessionTracker.trackActivity('keySignatures', 'question-generated', {
-      keyId: selectedKey.id,
+
+    // Update mastery snapshot for overlay
+    refreshMasterySnapshot(p);
+
+    sessionTracker?.trackActivity?.('keySignatures', 'question-generated', {
+      keyId: chosen?.id,
       questionType: selectedType,
-      reason: selectedKey.reason,
-      difficulty: difficultyInfo.level
+      reason: chosen?.__reason,
+      difficulty: di?.level || di?.label || 'medium'
     });
-    
-    // ML: Predict response time
-    const predictedTime = predictResponseTime(selectedKey.id, selectedType);
-    if (predictedTime > 5000) {
-      // Auto-show hint for challenging questions
+
+    // Auto-hint if historically slow
+    const predicted = predictResponseTime(chosen?.id, selectedType, di, matrix);
+    if (predicted > 5000) {
       setTimeout(() => {
+        if (!isMountedRef.current) return;
         if (!answered) showHint();
       }, 3000);
     }
+
+    // focus input on new question
+    setTimeout(() => inputRef.current?.focus?.(), 0);
   }
 
-  // ML: Predict optimal question type
-  function predictOptimalQuestionType() {
-    const stats = getMasteryStats(pool.map(k => k.id));
-    const typeStats = {
-      major: stats.filter(s => s.lastQuestionType === 'major'),
-      minor: stats.filter(s => s.lastQuestionType === 'minor'),
-      handMap: stats.filter(s => s.lastQuestionType === 'handMap')
-    };
-    
-    // Find weakest type
-    let weakestType = 'major';
-    let lowestAccuracy = 100;
-    
-    Object.entries(typeStats).forEach(([type, typeStats]) => {
-      if (typeStats.length > 0) {
-        const avgAccuracy = typeStats.reduce((sum, s) => sum + s.accuracy, 0) / typeStats.length;
-        if (avgAccuracy < lowestAccuracy) {
-          lowestAccuracy = avgAccuracy;
-          weakestType = type;
-        }
-      }
+  function refreshMasterySnapshot(p) {
+    const ids = safeArray(p).map(k => k.id).filter(Boolean);
+    let stats = [];
+    try {
+      stats = safeCall(getMasteryStats, ids) || [];
+    } catch { stats = []; }
+
+    // Normalize into display rows without assuming engine shape
+    const rows = safeArray(stats).map((s) => {
+      const id = s?.id ?? s?.keyId ?? s?.itemId;
+      const seen = s?.seen ?? s?.attempts ?? 0;
+      const correct = s?.correct ?? s?.right ?? 0;
+      const accuracy = (typeof s?.accuracy === 'number')
+        ? s.accuracy
+        : (seen > 0 ? Math.round((correct / seen) * 100) : 0);
+
+      const avgTime = s?.avgTime ?? s?.avgResponseTime ?? 0;
+      const status =
+        accuracy >= 90 ? 'mastered' :
+        accuracy >= 75 ? 'good' :
+        seen === 0 ? 'new' : 'needs-work';
+
+      return { id, seen, correct, accuracy, avgTime, status, lastQuestionType: s?.lastQuestionType };
     });
-    
-    return weakestType;
+
+    setMastery(rows);
   }
 
-  // ML: Predict response time
-  function predictResponseTime(keyId, questionType) {
-    const matrix = getConfusionMatrix('keySignatures');
-    const history = matrix[keyId] || { avgTime: 3000, attempts: 0 };
-    
-    // Base time adjusted by difficulty
-    const baseTime = history.avgTime || 3000;
-    const difficultyMultiplier = difficultyInfo.level === 'easy' ? 0.8 : 
-                                 difficultyInfo.level === 'hard' ? 1.2 : 1.0;
-    
-    return baseTime * difficultyMultiplier;
-  }
+  function predictOptimalQuestionType(p) {
+    // If mastery rows contain lastQuestionType, infer weakest type by average accuracy
+    try {
+      const ids = safeArray(p).map(k => k.id).filter(Boolean);
+      const stats = safeArray(safeCall(getMasteryStats, ids));
 
-  // Weighted random selection
-  function weightedRandomSelect(items) {
-    const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
-    let random = Math.random() * totalWeight;
-    
-    for (const item of items) {
-      random -= item.weight;
-      if (random <= 0) return item;
+      const buckets = { major: [], minor: [], handMap: [] };
+      stats.forEach(s => {
+        const t = s?.lastQuestionType;
+        if (t && buckets[t]) buckets[t].push(s);
+      });
+
+      let weakest = null;
+      let lowest = 101;
+
+      Object.entries(buckets).forEach(([t, arr]) => {
+        if (!arr.length) return;
+        const avgAcc = arr.reduce((sum, s) => sum + (s?.accuracy ?? 0), 0) / arr.length;
+        if (avgAcc < lowest) {
+          lowest = avgAcc;
+          weakest = t;
+        }
+      });
+
+      return weakest;
+    } catch {
+      return null;
     }
-    
-    return items[0];
   }
 
-  // Get question text
-  function getQuestionText() {
+  function predictResponseTime(keyId, qType, di, matrix) {
+    const hist = (matrix && keyId && matrix[keyId]) ? matrix[keyId] : null;
+    const base = (hist?.avgTime || hist?.avgResponseTime || 3000);
+    const level = di?.level || di?.label || 'medium';
+    const mult = level === 'easy' ? 0.8 : level === 'hard' ? 1.2 : 1.0;
+    // handMap is often slower
+    const typeMult = qType === 'handMap' ? 1.15 : 1.0;
+    return base * mult * typeMult;
+  }
+
+  function weightedRandomSelect(items) {
+    const arr = safeArray(items).filter(x => (x?.__weight ?? x?.weight ?? 1) > 0);
+    const total = arr.reduce((sum, it) => sum + (it.__weight ?? it.weight ?? 1), 0);
+    if (!arr.length || total <= 0) return items?.[0] || null;
+
+    let r = Math.random() * total;
+    for (const it of arr) {
+      r -= (it.__weight ?? it.weight ?? 1);
+      if (r <= 0) return it;
+    }
+    return arr[0];
+  }
+
+  // ---------------------------
+  // QUESTION/ANSWER TEXT
+  // ---------------------------
+  const questionText = useMemo(() => {
     if (!currentKey) return '';
+    const abs = Math.abs(currentKey.accidentals || 0);
+    const typ = currentKey.type === 'sharp' ? 'sharp' : 'flat';
+    const plural = abs === 1 ? '' : 's';
 
     switch (questionType) {
       case 'major':
-        return `What is the major key with ${Math.abs(currentKey.accidentals)} ${currentKey.type === 'sharp' ? 'sharp' : 'flat'}${Math.abs(currentKey.accidentals) !== 1 ? 's' : ''}?`;
+        if (abs === 0) return 'What is the major key with no sharps or flats?';
+        return `What is the major key with ${abs} ${typ}${plural}?`;
       case 'minor':
         return `What is the relative minor of ${currentKey.major}?`;
       case 'handMap':
-        const string = getRandom(['G', 'D', 'A', 'E']);
-        return `In ${currentKey.major}, what is the 2nd finger on the ${string} string? (high2 or low2)`;
+        return `In ${currentKey.major}, what is the 2nd finger on the ${handMapString} string? (high2 or low2)`;
       default:
         return '';
     }
-  }
+  }, [currentKey, questionType, handMapString]);
 
-  // Get current string for handMap
-  function getCurrentString() {
-    if (questionType !== 'handMap') return null;
-    const match = getQuestionText().match(/on the (\w) string/);
-    return match ? match[1] : null;
-  }
-
-  // Check answer
   function checkAnswer(answer) {
+    if (!currentKey) return false;
     const normalized = normalizeText(answer);
 
     switch (questionType) {
@@ -307,286 +481,237 @@ export function KeySignatures({ onBack, onAnswer, showToast }) {
         return normalizeText(currentKey.major) === normalized;
       case 'minor':
         return normalizeText(currentKey.minor) === normalized;
-      case 'handMap':
-        const string = getCurrentString();
-        if (!string) return false;
-        const correctAnswer = currentKey.handMap[string];
-        return normalized === normalizeText(correctAnswer);
+      case 'handMap': {
+        const correct = currentKey?.handMap?.[handMapString];
+        if (!correct) return false;
+        return normalizeText(correct) === normalized;
+      }
       default:
         return false;
     }
   }
 
-  // Get correct answer
   function getCorrectAnswer() {
+    if (!currentKey) return '—';
     switch (questionType) {
-      case 'major':
-        return currentKey.major;
-      case 'minor':
-        return currentKey.minor;
-      case 'handMap':
-        const string = getCurrentString();
-        return string ? currentKey.handMap[string] : '—';
-      default:
-        return '—';
+      case 'major': return currentKey.major;
+      case 'minor': return currentKey.minor;
+      case 'handMap': return currentKey?.handMap?.[handMapString] || '—';
+      default: return '—';
     }
   }
 
-  // Show hint
+  // ---------------------------
+  // HINTS
+  // ---------------------------
   function showHint() {
-    setHintsUsed(prev => prev + 1);
-    
+    if (!currentKey || answered) return;
+
+    const nextHints = hintsUsed + 1;
+    setHintsUsed(nextHints);
+
     let hint = '';
-    switch (questionType) {
-      case 'major':
-        hint = `Remember: ${currentKey.major} has ${currentKey.accidentals > 0 ? 'sharps' : 'flats'} in this order: ${currentKey.type === 'sharp' ? SHARP_ORDER.join(', ') : FLAT_ORDER.join(', ')}`;
-        break;
-      case 'minor':
-        hint = `Relative minor is 3 half steps down from major. ${currentKey.major} → ${currentKey.minor}`;
-        break;
-      case 'handMap':
-        const string = getCurrentString();
-        hint = `On the ${string} string: ${currentKey.handMap[string]}`;
-        setShowFingerboard(true);
-        break;
+    if (questionType === 'major') {
+      const order = currentKey.type === 'sharp' ? SHARP_ORDER : FLAT_ORDER;
+      hint = `Order: ${order.join(', ')}. (${currentKey.major} uses the first ${Math.abs(currentKey.accidentals || 0)}.)`;
+    } else if (questionType === 'minor') {
+      hint = `Relative minor is 3 half steps down: ${currentKey.major} → ${currentKey.minor}`;
+    } else if (questionType === 'handMap') {
+      hint = `On the ${handMapString} string: ${currentKey?.handMap?.[handMapString] || '—'}`;
+      setShowFingerboard(true);
     }
-    
+
     setFeedback(hint);
     setFeedbackType('hint');
-    
-    // Track hint usage
-    sessionTracker.trackActivity('keySignatures', 'hint-used', {
+
+    sessionTracker?.trackActivity?.('keySignatures', 'hint-used', {
       keyId: currentKey.id,
       questionType,
-      hintsUsed: hintsUsed + 1
+      hintsUsed: nextHints
     });
   }
 
-  // Handle answer submission
+  // ---------------------------
+  // ML-ish typing hint
+  // ---------------------------
+  const debouncedLikelihood = useMemo(() => debounce((value) => {
+    if (!inputRef.current || answered) return;
+    const likely = similarityScore(value, getCorrectAnswer()) > 0.7;
+    if (likely) inputRef.current.classList.add('likely-correct');
+    else inputRef.current.classList.remove('likely-correct');
+  }, 250), [answered, currentKey, questionType, handMapString]);
+
+  // ---------------------------
+  // SUBMIT
+  // ---------------------------
   async function handleSubmit(e) {
     e.preventDefault();
-    if (answered || !userAnswer.trim()) return;
+    if (answered || !String(userAnswer || '').trim() || !currentKey) return;
 
-    const endTime = Date.now();
-    const responseTime = endTime - startTimeRef.current;
+    const end = Date.now();
+    const rt = Math.max(0, end - (startTimeRef.current || end));
+    setResponseTimeMs(rt);
+
     const isCorrect = checkAnswer(userAnswer);
+    setAnswered(true);
 
-    // Update spaced repetition
-    updateItem(currentKey.id, isCorrect, responseTime, questionType);
+    // Record SRS: try a few common signatures safely
+    try {
+      if (updateItem) {
+        // signature A: (id, correctBool, responseTime, questionType)
+        if (updateItem.length >= 4) {
+          await updateItem(currentKey.id, isCorrect, rt, questionType);
+        } else {
+          // signature B: (id, quality, responseTime, meta)
+          const quality = isCorrect ? (hintsUsed ? 4 : 5) : 2;
+          await updateItem(currentKey.id, quality, rt, {
+            module: 'keySignatures',
+            questionType,
+            hintsUsed,
+            keyId: currentKey.id
+          });
+        }
+      }
+    } catch {}
 
-    // Update stats
-    const newSessionStats = {
-      correct: sessionStats.correct + (isCorrect ? 1 : 0),
-      total: sessionStats.total + 1,
-      accuracy: Math.round(((sessionStats.correct + (isCorrect ? 1 : 0)) / (sessionStats.total + 1)) * 100)
-    };
-    setSessionStats(newSessionStats);
+    // Parent callback
+    try { onAnswer?.(isCorrect); } catch {}
 
-    // Callback to parent
-    onAnswer(isCorrect);
+    // Stats
+    setSessionStats(prev => {
+      const correct = prev.correct + (isCorrect ? 1 : 0);
+      const total = prev.total + 1;
+      return { correct, total, accuracy: Math.round((correct / total) * 100) };
+    });
 
-    // Show feedback
+    // Feedback + XP + Audio
     if (isCorrect) {
       const praise = getRandom(PRAISE_MESSAGES);
       setFeedback(praise);
       setFeedbackType('success');
-      
-      // ML: XP bonus based on difficulty and speed
-      const baseXP = XP_VALUES.correct;
-      const speedBonus = responseTime < 2000 ? 1.5 : responseTime < 4000 ? 1.2 : 1.0;
-      const difficultyBonus = difficultyInfo.level === 'hard' ? 1.3 : 
-                              difficultyInfo.level === 'medium' ? 1.1 : 1.0;
-      const totalXP = Math.floor(baseXP * speedBonus * difficultyBonus);
-      
-      addXP(totalXP, 'key-signatures-correct');
-      
-      // Show XP popup
-      showToast(`+${totalXP} XP! ${praise}`, 'success');
-      
-      // Play audio feedback
-      if (!settings.muted) {
-        audioEngine.playSuccess();
-        // Play tonic drone for ear training
-        setTimeout(() => {
-          const tonic = currentKey.major;
-          const note = tonic.match(/[A-G]#?/)[0];
-          audioEngine.playDrone(note);
-        }, 300);
-      }
+
+      const baseXP = XP_VALUES.correct ?? 20;
+      const speedBonus = rt < 2000 ? 1.5 : rt < 4000 ? 1.2 : 1.0;
+      const level = (difficultyInfo?.level || difficultyInfo?.label || 'medium');
+      const difficultyBonus = level === 'hard' ? 1.3 : level === 'medium' ? 1.1 : 1.0;
+      const hintPenalty = hintsUsed ? 0.7 : 1.0;
+      const totalXP = Math.max(1, Math.floor(baseXP * speedBonus * difficultyBonus * hintPenalty));
+
+      try { addXP(totalXP, 'key-signatures-correct'); } catch {}
+      try { recordStreak?.('keySignatures', true); } catch {}
+      showToast?.(`+${totalXP} XP! ${praise}`, 'success');
+
+      try { audioEngine?.playSuccess?.(); } catch {}
     } else {
       const correctAnswer = getCorrectAnswer();
       setFeedback(`The correct answer is: ${correctAnswer}`);
       setFeedbackType('error');
-      
-      // Play error sound
-      if (!settings.muted) {
-        audioEngine.playError();
-      }
+      try { recordStreak?.('keySignatures', false); } catch {}
+      showToast?.('Try again!', 'error');
+
+      try { audioEngine?.playError?.(); } catch {}
     }
 
-    setAnswered(true);
-
-    // ML: Analyze performance for skill transfer
+    // Analytics: performance + skill transfer (optional)
     setTimeout(async () => {
-      await analyzePerformanceAndTransfer(isCorrect, responseTime);
-    }, 500);
+      await analyzePerformanceAndTransfer(isCorrect, rt);
+    }, 350);
 
-    // Auto-advance with ML-optimized timing
-    const nextDelay = isCorrect ? 
-      Math.max(1500, 3000 - responseTime) : // Faster for correct, slower for incorrect
-      4000;
-    
+    // Auto-advance with adaptive-ish timing
+    const nextDelay = isCorrect ? Math.max(1400, 2800 - rt) : 3800;
     setTimeout(() => {
+      if (!isMountedRef.current) return;
+      // clear likely-correct style
+      inputRef.current?.classList?.remove?.('likely-correct');
       generateQuestion();
     }, nextDelay);
   }
 
-  // ML: Analyze performance and detect skill transfer
-  async function analyzePerformanceAndTransfer(isCorrect, responseTime) {
-    // Analyze key signature performance
-    const analysis = await analyzeKeySignaturePerformance(currentKey.id, {
-      isCorrect,
-      responseTime,
-      questionType,
-      hintsUsed,
-      difficulty: difficultyInfo.level
-    });
-    
-    // Check for skill transfer to other modules
-    if (analysis.breakthroughDetected) {
-      const transfers = await predictSkillTransfer('keySignatures', currentKey.id);
-      
-      transfers.forEach(transfer => {
-        if (transfer.confidence > 0.7) {
-          showToast(`${transfer.targetModule} will be easier now! +${transfer.bonusXP} XP`, 'success');
-          addXP(transfer.bonusXP, 'skill-transfer');
-          
-          // Track transfer
-          sessionTracker.trackActivity('keySignatures', 'skill-transfer-detected', transfer);
+  async function analyzePerformanceAndTransfer(isCorrect, rt) {
+    if (!currentKey) return;
+
+    try {
+      if (analyzeKeySignaturePerformance) {
+        const analysis = await analyzeKeySignaturePerformance(currentKey.id, {
+          isCorrect,
+          responseTime: rt,
+          questionType,
+          hintsUsed,
+          difficulty: difficultyInfo?.level || difficultyInfo?.label || 'medium'
+        });
+
+        if (analysis?.breakthroughDetected && predictSkillTransfer) {
+          const transfers = await predictSkillTransfer('keySignatures', currentKey.id);
+          safeArray(transfers).forEach((t) => {
+            if ((t?.confidence ?? 0) > 0.7) {
+              const bonus = t?.bonusXP ?? 10;
+              showToast?.(`${t?.targetModule || 'Another module'} may be easier now! +${bonus} XP`, 'success');
+              try { addXP(bonus, 'skill-transfer'); } catch {}
+              sessionTracker?.trackActivity?.('keySignatures', 'skill-transfer-detected', t);
+            }
+          });
         }
-      });
-    }
+      }
+    } catch {}
   }
 
-  // Toggle mastery view
+  // Mastery overlay toggle
   function toggleMastery() {
     const willShow = !showMastery;
     setShowMastery(willShow);
-    
     if (willShow) {
-      // Refresh stats
-      const keyIds = pool.map(k => k.id);
-      const stats = getMasteryStats(keyIds);
-      setMastery(stats);
-      
-      // Track view
-      sessionTracker.trackActivity('keySignatures', 'mastery-viewed');
+      refreshMasterySnapshot(pool);
+      sessionTracker?.trackActivity?.('keySignatures', 'mastery-viewed');
     }
   }
 
-  // Debounced input handler for ML timing
-  const handleInputChange = useCallback(
-    debounce((value) => {
-      if (value.length > 0 && !answered) {
-        // ML: Predict if answer is likely correct
-        const isLikelyCorrect = predictAnswerLikelihood(value);
-        if (isLikelyCorrect) {
-          inputRef.current?.classList.add('likely-correct');
-        } else {
-          inputRef.current?.classList.remove('likely-correct');
-        }
-      }
-    }, 300),
-    [answered, currentKey, questionType]
-  );
+  // Staff accidental display helpers
+  const accidentalCount = Math.abs(currentKey?.accidentals || 0);
+  const accidentalNotes = useMemo(() => {
+    if (!currentKey || accidentalCount === 0) return [];
+    const order = currentKey.type === 'sharp' ? SHARP_ORDER : FLAT_ORDER;
+    return order.slice(0, accidentalCount);
+  }, [currentKey, accidentalCount]);
 
-  // ML: Predict answer likelihood based on partial input
-  function predictAnswerLikelihood(partialAnswer) {
-    const normalized = normalizeText(partialAnswer);
-    const correctAnswer = normalizeText(getCorrectAnswer());
-    
-    // Simple heuristic: measure similarity
-    const similarity = calculateSimilarity(normalized, correctAnswer);
-    return similarity > 0.7;
-  }
-
-  function calculateSimilarity(str1, str2) {
-    if (str1.length === 0 || str2.length === 0) return 0;
-    
-    // Levenshtein distance normalized
-    const longer = str1.length > str2.length ? str1 : str2;
-    const distance = levenshteinDistance(str1, str2);
-    return (longer.length - distance) / longer.length;
-  }
-
-  function levenshteinDistance(str1, str2) {
-    const matrix = [];
-    
-    for (let i = 0; i <= str2.length; i++) {
-      matrix[i] = [i];
-    }
-    
-    for (let j = 0; j <= str1.length; j++) {
-      matrix[0][j] = j;
-    }
-    
-    for (let i = 1; i <= str2.length; i++) {
-      for (let j = 1; j <= str1.length; j++) {
-        if (str2[i - 1] === str1[j - 1]) {
-          matrix[i][j] = matrix[i - 1][j - 1];
-        } else {
-          matrix[i][j] = Math.min(
-            matrix[i - 1][j - 1] + 1,
-            matrix[i][j - 1] + 1,
-            matrix[i - 1][j] + 1
-          );
-        }
-      }
-    }
-    
-    return matrix[str2.length][str1.length];
-  }
-
-  // Get current string for fingerboard
-  const currentString = getCurrentString();
-
-  return h('div', { 
-    className: 'mode-container keysig-mode', 
-    ref: containerRef,
-    'data-question-type': questionType
-  },
+  // ---------------------------
+  // RENDER
+  // ---------------------------
+  return h('div', { className: 'mode-container keysig-mode', 'data-question-type': questionType },
     // Header
     h('header', { className: 'mode-header' },
-      h('button', { className: 'btn-back', onClick: () => {
-        sessionTracker.trackActivity('keySignatures', 'module-exit', {
-          sessionStats,
-          duration: Date.now() - startTimeRef.current
-        });
-        onBack();
-      }}, '← Back'),
+      h('button', {
+        className: 'btn-back',
+        onClick: () => {
+          sessionTracker?.trackActivity?.('keySignatures', 'module-exit', {
+            sessionStats,
+            // best effort duration
+            duration: Date.now() - (startTimeRef.current || Date.now())
+          });
+          onBack?.();
+        }
+      }, '← Back'),
       h('h2', null, '🎼 Key Signatures'),
-      h('div', { className: 'difficulty-badge', 'data-level': difficultyInfo.level },
-        difficultyInfo.label,
-        mlContext.isWarmingUp ? null : h('span', { className: 'ml-indicator', title: 'ML optimized' }, '🤖')
+      h('div', { className: 'difficulty-badge', 'data-level': difficultyInfo?.level || 'medium' },
+        difficultyInfo?.label || difficultyInfo?.level || 'Medium',
+        h('span', { className: 'ml-indicator', title: 'Adaptive selection enabled' }, ' 🤖')
       )
     ),
 
-    // Main content
     h('div', { className: 'mode-content' },
-      currentKey && h('div', { className: 'keysig-area' },
-        // Visual key signature display
+      currentKey ? h('div', { className: 'keysig-area' },
+        // Key signature visual
         h('div', { className: 'keysig-visual' },
           h('div', { className: 'staff' },
             h('div', { className: 'clef' }, '𝄞'),
             h('div', { className: 'accidentals-display' },
-              currentKey.accidentals === 0 
+              accidentalCount === 0
                 ? h('span', { className: 'no-accidentals' }, 'No sharps or flats')
                 : h('div', { className: `accidentals ${currentKey.type}` },
-                    Array.from({ length: Math.abs(currentKey.accidentals) }, (_, i) =>
+                    accidentalNotes.map((note, i) =>
                       h('span', {
                         key: i,
                         className: 'accidental',
-                        'data-note': currentKey.type === 'sharp' ? SHARP_ORDER[i] : FLAT_ORDER[i]
+                        'data-note': note
                       }, currentKey.type === 'sharp' ? '♯' : '♭')
                     )
                   )
@@ -594,29 +719,29 @@ export function KeySignatures({ onBack, onAnswer, showToast }) {
           )
         ),
 
-        // Circle of fifths position indicator
+        // Circle-of-fifths indicator (safe)
         h('div', { className: 'circle-indicator' },
           h('div', { className: 'circle-track' },
-            h('div', { 
+            h('div', {
               className: 'circle-marker',
-              style: { 
-                '--position': currentKey.circlePosition || 0,
+              style: {
+                '--position': (currentKey.circlePosition ?? 0),
                 '--color': currentKey.type === 'sharp' ? '#3b82f6' : '#ef4444'
               }
             })
           ),
-          h('div', { className: 'circle-label' }, 
-            `${currentKey.major} (${currentKey.accidentals > 0 ? '+' : ''}${currentKey.accidentals})`
+          h('div', { className: 'circle-label' },
+            `${currentKey.major} (${(currentKey.accidentals > 0 ? '+' : '') + (currentKey.accidentals || 0)})`
           )
         ),
 
-        // Question instruction
-        h('p', { className: 'instruction', 'aria-live': 'polite' }, getQuestionText()),
+        // Question text
+        h('p', { className: 'instruction', 'aria-live': 'polite' }, questionText),
 
-        // Fingerboard overlay (for handMap questions)
-        questionType === 'handMap' && h(FingerboardMini, {
+        // Fingerboard overlay
+        (questionType === 'handMap') && h(FingerboardMini, {
           keySignature: currentKey,
-          string: currentString,
+          stringName: handMapString,
           showCorrect: showFingerboard
         }),
 
@@ -627,10 +752,11 @@ export function KeySignatures({ onBack, onAnswer, showToast }) {
             className: 'input-key',
             value: userAnswer,
             onChange: (e) => {
-              setUserAnswer(e.target.value);
-              handleInputChange(e.target.value);
+              const v = e.target.value;
+              setUserAnswer(v);
+              debouncedLikelihood(v);
             },
-            placeholder: questionType === 'handMap' ? 'high2 or low2' : 'Key name...',
+            placeholder: questionType === 'handMap' ? 'high2 or low2' : 'Key name…',
             disabled: answered,
             autoComplete: 'off',
             ref: inputRef,
@@ -646,7 +772,7 @@ export function KeySignatures({ onBack, onAnswer, showToast }) {
             h('button', {
               type: 'submit',
               className: 'btn btn-primary',
-              disabled: answered || !userAnswer.trim()
+              disabled: answered || !String(userAnswer || '').trim()
             }, 'Check')
           )
         ),
@@ -662,18 +788,21 @@ export function KeySignatures({ onBack, onAnswer, showToast }) {
             h('span', { className: 'stat-label' }, 'Correct')
           ),
           h('div', { className: 'stat-item' },
-            h('span', { className: 'stat-value' }, `${Math.round(responseTime / 1000)}s`),
+            h('span', { className: 'stat-value' }, `${Math.round((responseTimeMs || 0) / 1000)}s`),
             h('span', { className: 'stat-label' }, 'Time')
           )
         ),
 
-        // Hint text
+        // Tiny reference line
         h('div', { className: 'hint-text' },
-          `${difficultyInfo.description} • Appears in: ${currentKey.appearsIn}`
+          [
+            (difficultyInfo?.description || '').trim(),
+            currentKey?.appearsIn ? `Appears in: ${currentKey.appearsIn}` : ''
+          ].filter(Boolean).join(' • ')
         )
-      ),
+      ) : h('div', { className: 'card' }, 'Loading key signatures…'),
 
-      // Feedback with ARIA live
+      // Feedback
       feedback && h('div', {
         className: `feedback feedback-${feedbackType}`,
         'aria-live': 'assertive'
@@ -687,91 +816,91 @@ export function KeySignatures({ onBack, onAnswer, showToast }) {
       }, showMastery ? 'Hide Circle of Fifths' : 'Show Circle of Fifths')
     ),
 
-    // Mastery overlay with Circle of Fifths
-    showMastery && h('div', { className: 'mastery-overlay', onClick: (e) => {
-      if (e.target.classList.contains('mastery-overlay')) {
-        setShowMastery(false);
-      }
-    } },
+    // Mastery overlay
+    showMastery && h('div', {
+        className: 'mastery-overlay',
+        onClick: (e) => {
+          if (e.target && e.target.classList && e.target.classList.contains('mastery-overlay')) {
+            setShowMastery(false);
+          }
+        }
+      },
       h('div', { className: 'mastery-panel' },
         h('div', { className: 'mastery-header' },
           h('h3', null, 'Circle of Fifths Mastery'),
           h('button', { className: 'btn-close', onClick: toggleMastery, 'aria-label': 'Close mastery view' }, '×')
         ),
-        
-        // Circle of Fifths visualization
+
+        // Simple circle grid (engine-agnostic)
         h('div', { className: 'circle-of-fifths' },
           h('div', { className: 'circle-major' },
             mastery.map(stat => {
-              const key = KEY_SIGNATURES.find(k => k.id === stat.id);
-              if (!key) return null;
-              
+              const keyObj = KEY_SIGNATURES.find(k => k.id === stat.id);
+              if (!keyObj) return null;
               return h('div', {
                 key: `major-${stat.id}`,
-                className: `circle-key ${stat.status}`,
-                'data-key': key.major,
+                className: `circle-key ${stat.status || ''}`,
+                'data-key': keyObj.major,
                 onClick: () => {
-                  // Jump to this key
-                  setCurrentKey(key);
+                  setCurrentKey(keyObj);
                   setQuestionType('major');
                   setUserAnswer('');
+                  setAnswered(false);
+                  setFeedback('');
+                  setFeedbackType('');
+                  setShowFingerboard(false);
+                  setHintsUsed(0);
                   setShowMastery(false);
+                  startTimeRef.current = Date.now();
+                  setTimeout(() => inputRef.current?.focus?.(), 0);
                 }
               },
-                h('span', { className: 'key-name' }, key.major),
-                h('span', { className: 'key-accidentals' }, 
-                  key.accidentals === 0 ? 'C' : `${key.accidentals > 0 ? '+' : ''}${key.accidentals}`
+                h('span', { className: 'key-name' }, keyObj.major),
+                h('span', { className: 'key-accidentals' },
+                  keyObj.accidentals === 0 ? '0' : `${keyObj.accidentals > 0 ? '+' : ''}${keyObj.accidentals}`
                 ),
-                stat.accuracy > 0 && h('span', { className: 'key-mastery' }, `${stat.accuracy}%`)
+                (stat.accuracy > 0) && h('span', { className: 'key-mastery' }, `${stat.accuracy}%`)
               );
             })
           ),
-          
           h('div', { className: 'circle-minor' },
             mastery.map(stat => {
-              const key = KEY_SIGNATURES.find(k => k.id === stat.id);
-              if (!key) return null;
-              
+              const keyObj = KEY_SIGNATURES.find(k => k.id === stat.id);
+              if (!keyObj) return null;
               return h('div', {
                 key: `minor-${stat.id}`,
-                className: `circle-key ${stat.status}`,
-                'data-key': key.minor,
+                className: `circle-key ${stat.status || ''}`,
+                'data-key': keyObj.minor,
                 onClick: () => {
-                  setCurrentKey(key);
+                  setCurrentKey(keyObj);
                   setQuestionType('minor');
                   setUserAnswer('');
+                  setAnswered(false);
+                  setFeedback('');
+                  setFeedbackType('');
+                  setShowFingerboard(false);
+                  setHintsUsed(0);
                   setShowMastery(false);
+                  startTimeRef.current = Date.now();
+                  setTimeout(() => inputRef.current?.focus?.(), 0);
                 }
-              },
-                h('span', { className: 'key-name' }, key.minor)
-              );
+              }, h('span', { className: 'key-name' }, keyObj.minor));
             })
           )
         ),
-        
-        // Mastery details
+
         h('div', { className: 'mastery-details' },
           h('div', { className: 'mastery-list' },
             mastery.map(stat => {
-              const key = KEY_SIGNATURES.find(k => k.id === stat.id);
-              if (!key) return null;
-              
-              return h('div', {
-                key: stat.id,
-                className: `mastery-item ${stat.status}`,
-                'data-status': stat.status
-              },
-                h('div', { className: 'mastery-item-name' }, 
-                  `${key.major} / ${key.minor}`
-                ),
+              const keyObj = KEY_SIGNATURES.find(k => k.id === stat.id);
+              if (!keyObj) return null;
+              return h('div', { key: stat.id, className: `mastery-item ${stat.status || ''}` },
+                h('div', { className: 'mastery-item-name' }, `${keyObj.major} / ${keyObj.minor}`),
                 h('div', { className: 'mastery-item-stats' },
-                  `${stat.accuracy}% (${stat.correct}/${stat.seen}) • avg ${Math.round(stat.avgTime / 1000)}s`
+                  `${stat.accuracy}% (${stat.correct}/${stat.seen}) • avg ${Math.round((stat.avgTime || 0) / 1000)}s`
                 ),
                 h('div', { className: 'mastery-item-bar' },
-                  h('div', {
-                    className: 'mastery-item-fill',
-                    style: { width: `${stat.accuracy}%` }
-                  })
+                  h('div', { className: 'mastery-item-fill', style: { width: `${Math.max(0, Math.min(100, stat.accuracy || 0))}%` } })
                 )
               );
             })
@@ -781,3 +910,6 @@ export function KeySignatures({ onBack, onAnswer, showToast }) {
     )
   );
 }
+
+// Also export default for compatibility with default-import patterns
+export default KeySignatures;
