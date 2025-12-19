@@ -4,8 +4,8 @@
    Layout • Buttons • Cards • Charts • Toasts • Responsive
    Notes:
    - Fixes missing keyframes (toastSlideUp).
-   - Avoids variable collisions with base.css by keeping class behavior consistent.
-   - Keeps all classnames you referenced intact.
+   - Avoids Safari-breaking color-mix() usage.
+   - Keeps classnames you referenced intact.
    ====================================== */
 
 /* -------------------- APP LAYOUT - Music Stand Optimized -------------------- */
@@ -14,9 +14,10 @@
   margin: 0 auto;
   padding: clamp(var(--space-md), 4vw, var(--space-2xl));
   min-height: 100vh;
+  min-height: 100svh;
   display: flex;
   flex-direction: column;
-  isolation: isolate; /* Stacking context for PWA */
+  isolation: isolate; /* Stacking context for PWA overlays/toasts */
 }
 
 .module-container {
@@ -33,6 +34,25 @@
 .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-lg); }
 .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-lg); }
 
+/* -------------------- KEYFRAMES (fallbacks if base.css loads late) -------------------- */
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--primary-rgb) / 0.40); }
+  50%      { box-shadow: 0 0 0 12px rgb(var(--primary-rgb) / 0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ✅ Missing in your original snippet: toast entrance animation */
+@keyframes toastSlideUp {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 /* -------------------- BUTTON SYSTEM v3.0 - Haptic Ready -------------------- */
 .btn {
   --ripple-origin: 50% 50%;
@@ -47,10 +67,11 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: transform var(--motion-duration-base) var(--motion-easing),
-              box-shadow var(--motion-duration-base) var(--motion-easing),
-              background var(--motion-duration-base) var(--motion-easing),
-              filter var(--motion-duration-base) var(--motion-easing);
+  transition:
+    transform var(--motion-duration-base) var(--motion-easing),
+    box-shadow var(--motion-duration-base) var(--motion-easing),
+    background var(--motion-duration-base) var(--motion-easing),
+    filter var(--motion-duration-base) var(--motion-easing);
   text-decoration: none;
   min-height: 48px;
   min-width: 48px;
@@ -80,7 +101,7 @@
   z-index: 1;
 }
 
-.btn > * { position: relative; z-index: 2; } /* keep text/icons above sheen */
+.btn > * { position: relative; z-index: 2; }
 
 .btn:not(:disabled):active::before {
   transform: scale(2);
@@ -99,13 +120,13 @@
 .btn-primary {
   background: linear-gradient(135deg, var(--primary), var(--primary-dark));
   color: #fff;
-  border-color: color-mix(in srgb, var(--primary) 70%, black 30%);
+  border-color: rgba(var(--primary-rgb) / 0.75); /* avoid color-mix() */
   box-shadow: var(--shadow-sm);
 }
 
 .btn-primary[data-mastered="true"] {
   background: linear-gradient(135deg, var(--perfect), #059669);
-  border-color: color-mix(in srgb, var(--perfect) 70%, black 30%);
+  border-color: rgb(5 150 105 / 0.8);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -125,38 +146,65 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* Outline button commonly referenced in JS */
+.btn-outline {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--ink);
+}
+.btn-outline:hover:not(:disabled) {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Text button (used by onboarding "Skip setup →") */
+.btn-text {
+  background: transparent;
+  border: none;
+  padding: 0.5rem 0.75rem;
+  color: var(--primary);
+  font-weight: 700;
+  cursor: pointer;
+}
+.btn-text:hover { text-decoration: underline; }
+.btn-text:disabled { opacity: 0.6; cursor: not-allowed; }
+
 /* 🎯 BUTTON SIZING - Music Touch Targets */
 .btn-xl { 
   padding: clamp(20px, 4vw, 28px) clamp(36px, 7vw, 48px);
   font-size: clamp(var(--font-size-lg), 5vw, var(--font-size-2xl));
   min-height: 64px;
 }
-
 .btn-lg { padding: clamp(16px, 3.5vw, 20px) clamp(28px, 6vw, 36px); min-height: 56px; }
 .btn-sm { padding: clamp(10px, 2vw, 14px) clamp(20px, 4vw, 24px); min-height: 44px; }
 .btn-xs { padding: clamp(8px, 1.5vw, 12px) clamp(16px, 3vw, 20px); min-height: 36px; }
 
 /* 🎯 SPECIALIZED BUTTONS */
 .btn-back {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-md);
   padding: var(--space-md) var(--space-lg);
-  background: color-mix(in srgb, var(--surface) 80%, transparent 20%);
+  background: rgba(0 0 0 / 0.03); /* safe fallback */
   color: var(--ink-light);
   border: 2px solid var(--border);
   font-size: var(--font-size-sm);
   min-height: auto;
   border-radius: var(--radius-md);
+
   position: sticky;
   top: max(env(safe-area-inset-top), 0px);
   z-index: 20;
   backdrop-filter: blur(20px);
 }
 
+@media (prefers-color-scheme: dark) {
+  .btn-back { background: rgba(255 255 255 / 0.06); }
+}
+
 .btn-back:hover {
   border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary-light) 55%, var(--surface) 45%);
+  background: rgba(var(--primary-rgb) / 0.12);
   color: var(--primary-dark);
   box-shadow: var(--shadow-sm);
 }
@@ -186,7 +234,7 @@
 .btn-play.playing {
   background: var(--perfect);
   color: #fff;
-  border-color: color-mix(in srgb, var(--perfect) 70%, black 30%);
+  border-color: rgb(5 150 105 / 0.85);
   animation: pulse 1.5s infinite;
 }
 
@@ -209,9 +257,10 @@
   box-shadow: var(--shadow-md);
   margin-bottom: clamp(var(--space-xl), 6vh, var(--space-2xl));
   border: 1px solid var(--border);
-  transition: transform var(--motion-duration-base) var(--motion-easing),
-              box-shadow var(--motion-duration-base) var(--motion-easing),
-              border-color var(--motion-duration-base) var(--motion-easing);
+  transition:
+    transform var(--motion-duration-base) var(--motion-easing),
+    box-shadow var(--motion-duration-base) var(--motion-easing),
+    border-color var(--motion-duration-base) var(--motion-easing);
   position: relative;
   overflow: hidden;
   backdrop-filter: blur(20px);
@@ -311,9 +360,10 @@
   background: var(--card);
   border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: transform var(--motion-duration-base) var(--motion-easing),
-              box-shadow var(--motion-duration-base) var(--motion-easing),
-              border-color var(--motion-duration-base) var(--motion-easing);
+  transition:
+    transform var(--motion-duration-base) var(--motion-easing),
+    box-shadow var(--motion-duration-base) var(--motion-easing),
+    border-color var(--motion-duration-base) var(--motion-easing);
   border: 1px solid var(--border);
   position: relative;
 }
@@ -384,8 +434,14 @@
   text-transform: uppercase;
 }
 
+/* supports either data-level="easy" OR class names */
+.difficulty-badge[data-level="easy"],
 .difficulty-easy   { background: rgb(16 185 129 / 0.15); color: var(--perfect); }
+
+.difficulty-badge[data-level="medium"],
 .difficulty-medium { background: rgb(245 158 11 / 0.15); color: var(--warning); }
+
+.difficulty-badge[data-level="hard"],
 .difficulty-hard   { background: rgb(239 68 68 / 0.15); color: var(--danger); }
 
 .module-stats {
@@ -449,12 +505,6 @@
 @keyframes pulse-warning {
   0%, 100% { box-shadow: var(--shadow-md), 0 0 10px rgb(245 158 11 / 0.3); }
   50%      { box-shadow: var(--shadow-lg), 0 0 20px rgb(245 158 11 / 0.5); }
-}
-
-/* ✅ Missing in your original snippet: toast entrance animation */
-@keyframes toastSlideUp {
-  from { opacity: 0; transform: translateY(14px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* -------------------- WEEKLY ACTIVITY CHART -------------------- */
@@ -618,10 +668,11 @@
   font-weight: 800;
   font-size: clamp(var(--font-size-sm), 4vw, var(--font-size-base));
   cursor: pointer;
-  transition: transform var(--motion-duration-base) var(--motion-easing),
-              box-shadow var(--motion-duration-base) var(--motion-easing),
-              background var(--motion-duration-base) var(--motion-easing),
-              border-color var(--motion-duration-base) var(--motion-easing);
+  transition:
+    transform var(--motion-duration-base) var(--motion-easing),
+    box-shadow var(--motion-duration-base) var(--motion-easing),
+    background var(--motion-duration-base) var(--motion-easing),
+    border-color var(--motion-duration-base) var(--motion-easing);
   position: relative;
   border: 3px solid var(--border);
   background: var(--card);
@@ -631,7 +682,7 @@
 .circle-key:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-sm);
-  border-color: color-mix(in srgb, var(--primary) 60%, var(--border) 40%);
+  border-color: rgba(var(--primary-rgb) / 0.65); /* avoid color-mix() */
 }
 
 .circle-key.active {
@@ -682,6 +733,7 @@
   position: absolute;
   inset: 0;
   background: linear-gradient(90deg, transparent 0%, rgb(255 255 255 / 0.4) 50%, transparent 100%);
+  background-size: 200% 100%;
   animation: shimmer 2s infinite linear;
 }
 
@@ -746,6 +798,14 @@
 
 .toast.error {
   background: linear-gradient(135deg, rgb(239 68 68 / 0.95), rgb(220 38 38 / 0.95));
+}
+
+/* Optional warning/info variants (safe if used by JS later) */
+.toast.warning {
+  background: linear-gradient(135deg, rgb(245 158 11 / 0.95), rgb(217 119 6 / 0.95));
+}
+.toast.info {
+  background: linear-gradient(135deg, rgb(59 130 246 / 0.95), rgb(29 78 216 / 0.95));
 }
 
 .toast-progress {
