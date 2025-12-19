@@ -1628,15 +1628,43 @@
 }
 
 /* ======================================================================
-   KEY SIGNATURES — Mastery Legend (CSS-only, no DOM changes)
-   Injects a kid-friendly legend into the mastery modal header.
+   KEY SIGNATURES — Circle of Fifths Status Mapping (matches module output)
+   Statuses emitted by KeySignatures.js:
+   new | good | mastered | needs-work
    ====================================================================== */
 
-.mastery-panel { position: relative; }
+/* --- 1) Color + styling for circle keys --- */
+.circle-key.new {
+  background: color-mix(in srgb, var(--primary) 18%, var(--card) 82%);
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border) 45%);
+}
 
-/* If your modal has .mastery-header (as in your KeySignatures component) */
+.circle-key.good {
+  background: color-mix(in srgb, var(--warning) 20%, var(--card) 80%);
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border) 45%);
+}
+
+.circle-key.mastered {
+  /* you already have a mastered style — this just ensures consistency */
+  background: linear-gradient(135deg, var(--perfect), #059669);
+  border-color: var(--perfect);
+  color: #fff;
+}
+
+.circle-key.needs-work {
+  background: color-mix(in srgb, var(--danger) 18%, var(--card) 82%);
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border) 45%);
+}
+
+/* --- 2) Matching styling for mastery list items (optional but nice) --- */
+.mastery-item.new        { border-left: 5px solid var(--primary); }
+.mastery-item.good       { border-left: 5px solid var(--warning); }
+.mastery-item.mastered   { border-left: 5px solid var(--perfect); }
+.mastery-item.needs-work { border-left: 5px solid var(--danger); }
+
+/* --- 3) CSS-only legend injected into the mastery header --- */
 .mastery-panel .mastery-header::after {
-  content: "🟦 New   🟨 Learning   🟪 Review   🟩 Mastered   🟥 Needs work";
+  content: "🟦 New   🟨 Good (75%+)   🟩 Mastered (90%+)   🟥 Needs work";
   display: block;
   margin-top: var(--space-sm);
   padding: var(--space-sm) var(--space-md);
@@ -1645,24 +1673,13 @@
   background: color-mix(in srgb, var(--surface) 85%, transparent 15%);
   color: var(--ink-light);
   font-size: var(--font-size-xs);
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.01em;
   line-height: 1.35;
   text-align: center;
 }
 
-/* Optional: add a tiny helper line under the legend */
-.mastery-panel .mastery-header::before {
-  content: "Tap a key to jump to that key’s question.";
-  display: block;
-  margin-top: var(--space-2xs);
-  color: var(--ink-lighter);
-  font-size: var(--font-size-2xs);
-  font-weight: 600;
-  text-align: center;
-}
-
-/* Make sure the close button stays clickable and the header doesn't get cramped */
+/* Keep header layout stable + close button clickable */
 .mastery-panel .mastery-header {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -1670,10 +1687,6 @@
   align-items: start;
 }
 
-/* Mobile: allow wrapping without squishing */
 @media (max-width: 520px) {
-  .mastery-panel .mastery-header::after {
-    text-align: left;
-  }
+  .mastery-panel .mastery-header::after { text-align: left; }
 }
-
