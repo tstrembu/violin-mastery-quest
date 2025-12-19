@@ -1456,6 +1456,176 @@
   .accidental { width: 30px; height: 30px; }
 }
 
+/* ======================================================================
+   KEY SIGNATURES — Mastery Status Colors (drop-in additive)
+   Works with:
+   - .circle-key ${stat.status}
+   - .mastery-item ${stat.status} + [data-status="..."]
+   Safe defaults if statuses differ (no breakage)
+   ====================================================================== */
+
+/* --- Shared status tokens (local) --- */
+.keysig-mode {
+  --ks-new-bg:        rgb(var(--primary-rgb) / 0.06);
+  --ks-new-border:    rgb(var(--primary-rgb) / 0.28);
+
+  --ks-learning-bg:   rgb(245 158 11 / 0.10);
+  --ks-learning-border: rgb(245 158 11 / 0.40);
+
+  --ks-review-bg:     rgb(59 130 246 / 0.10);
+  --ks-review-border: rgb(59 130 246 / 0.45);
+
+  --ks-mastered-bg:   rgb(16 185 129 / 0.12);
+  --ks-mastered-border: rgb(16 185 129 / 0.55);
+
+  --ks-struggle-bg:   rgb(239 68 68 / 0.10);
+  --ks-struggle-border: rgb(239 68 68 / 0.45);
+}
+
+/* --- Circle of Fifths keys: status-driven look --- */
+.circle-key.new,
+.circle-key[data-status="new"] {
+  background: var(--ks-new-bg);
+  border-color: var(--ks-new-border);
+}
+
+.circle-key.learning,
+.circle-key[data-status="learning"] {
+  background: var(--ks-learning-bg);
+  border-color: var(--ks-learning-border);
+}
+
+.circle-key.review,
+.circle-key[data-status="review"] {
+  background: var(--ks-review-bg);
+  border-color: var(--ks-review-border);
+}
+
+/* Your CSS already has .circle-key.mastered — keep it, but make it richer */
+.circle-key.mastered,
+.circle-key[data-status="mastered"] {
+  background: linear-gradient(135deg, rgb(16 185 129 / 0.95), rgb(5 150 105 / 0.95));
+  border-color: var(--ks-mastered-border);
+  color: #fff;
+}
+
+/* Safety net: if your engine uses “struggling / weak / lapse / incorrect” */
+.circle-key.struggling,
+.circle-key.weak,
+.circle-key.lapse,
+.circle-key.incorrect,
+.circle-key[data-status="struggling"],
+.circle-key[data-status="weak"],
+.circle-key[data-status="lapse"],
+.circle-key[data-status="incorrect"] {
+  background: var(--ks-struggle-bg);
+  border-color: var(--ks-struggle-border);
+}
+
+/* Add a subtle “state glow” on hover (keeps existing hover transform) */
+.circle-key.new:hover       { box-shadow: 0 0 0 4px rgb(var(--primary-rgb) / 0.14), var(--shadow-sm); }
+.circle-key.learning:hover  { box-shadow: 0 0 0 4px rgb(245 158 11 / 0.16), var(--shadow-sm); }
+.circle-key.review:hover    { box-shadow: 0 0 0 4px rgb(59 130 246 / 0.16), var(--shadow-sm); }
+.circle-key.mastered:hover  { box-shadow: 0 0 0 4px rgb(16 185 129 / 0.18), var(--shadow-sm); }
+.circle-key.struggling:hover,
+.circle-key.weak:hover,
+.circle-key.lapse:hover,
+.circle-key.incorrect:hover { box-shadow: 0 0 0 4px rgb(239 68 68 / 0.16), var(--shadow-sm); }
+
+/* Keep your “active” state dominant even when also mastered/learning/etc */
+.circle-key.active {
+  outline: 3px solid rgb(var(--primary-rgb) / 0.35);
+  outline-offset: 2px;
+}
+
+/* --- Mastery list items: left rail + background tint by status --- */
+.mastery-item {
+  position: relative;
+  overflow: hidden;
+}
+
+.mastery-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background: var(--border);
+  opacity: 0.95;
+}
+
+/* NEW */
+.mastery-item.new,
+.mastery-item[data-status="new"] {
+  background: linear-gradient(90deg, rgb(var(--primary-rgb) / 0.05), transparent 40%);
+}
+.mastery-item.new::before,
+.mastery-item[data-status="new"]::before {
+  background: rgb(var(--primary-rgb) / 0.75);
+}
+
+/* LEARNING */
+.mastery-item.learning,
+.mastery-item[data-status="learning"] {
+  background: linear-gradient(90deg, rgb(245 158 11 / 0.08), transparent 40%);
+}
+.mastery-item.learning::before,
+.mastery-item[data-status="learning"]::before {
+  background: rgb(245 158 11 / 0.85);
+}
+
+/* REVIEW */
+.mastery-item.review,
+.mastery-item[data-status="review"] {
+  background: linear-gradient(90deg, rgb(59 130 246 / 0.08), transparent 40%);
+}
+.mastery-item.review::before,
+.mastery-item[data-status="review"]::before {
+  background: rgb(59 130 246 / 0.85);
+}
+
+/* MASTERED */
+.mastery-item.mastered,
+.mastery-item[data-status="mastered"] {
+  background: linear-gradient(90deg, rgb(16 185 129 / 0.10), transparent 40%);
+  border-color: rgb(16 185 129 / 0.35);
+}
+.mastery-item.mastered::before,
+.mastery-item[data-status="mastered"]::before {
+  background: rgb(16 185 129 / 0.92);
+}
+
+/* STRUGGLING / WEAK / LAPSE */
+.mastery-item.struggling,
+.mastery-item.weak,
+.mastery-item.lapse,
+.mastery-item.incorrect,
+.mastery-item[data-status="struggling"],
+.mastery-item[data-status="weak"],
+.mastery-item[data-status="lapse"],
+.mastery-item[data-status="incorrect"] {
+  background: linear-gradient(90deg, rgb(239 68 68 / 0.08), transparent 40%);
+  border-color: rgb(239 68 68 / 0.35);
+}
+.mastery-item.struggling::before,
+.mastery-item.weak::before,
+.mastery-item.lapse::before,
+.mastery-item.incorrect::before,
+.mastery-item[data-status="struggling"]::before,
+.mastery-item[data-status="weak"]::before,
+.mastery-item[data-status="lapse"]::before,
+.mastery-item[data-status="incorrect"]::before {
+  background: rgb(239 68 68 / 0.92);
+}
+
+/* Reduce motion: keep it classy */
+@media (prefers-reduced-motion: reduce) {
+  .circle-key,
+  .mastery-item {
+    transition: none !important;
+  }
+}
 
 
 
