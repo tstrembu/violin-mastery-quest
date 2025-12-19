@@ -15,7 +15,7 @@ import * as AnalyticsMod from '../engines/analytics.js';
 import * as HelpersMod from '../utils/helpers.js';
 import * as AudioMod from '../engines/audioEngine.js';
 import * as KeyboardMod from '../utils/keyboard.js';
-import * as A11yMod from '../utils/a11y.js';
+import * as A11yMod from './accessibility.js';
 import * as SessionMod from '../engines/sessionTracker.js';
 
 // ---------------------------
