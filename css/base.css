@@ -14,7 +14,7 @@
   --primary-dark: #1d4ed8;
   --primary-light: #93c5fd;
 
-  /* Provide HSL + RGB forms so any hsl()/rgb() usage works */
+  /* Provide HSL + RGB forms so any hsl()/rgb() usage works (Safari-safe: space-separated RGB) */
   --primary-hsl: 217 91% 60%;
   --primary-rgb: 59 130 246;
 
@@ -24,7 +24,7 @@
   --minor: #f59e0b;
   --diminished: #ef4444;
 
-  /* General semantic colors (needed by existing CSS snippets) */
+  /* General semantic colors */
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
@@ -97,7 +97,7 @@
   --z-tooltip: 4000;
 }
 
-/* Dark mode tokens (keeps your theming resilient even if themes.css loads late) */
+/* Dark mode tokens (resilient even if themes.css loads late) */
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0b1220;
@@ -126,12 +126,10 @@
 }
 
 html {
-  /* Better text sizing + scroll */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   scroll-behavior: smooth;
 
-  /* Scrollbar styling */
   scrollbar-width: thin;
   scrollbar-color: var(--primary) var(--surface);
 }
@@ -140,6 +138,7 @@ body {
   margin: 0;
   padding: 0; /* safe-area handled below */
   min-height: 100vh;
+  min-height: 100svh; /* iOS browser chrome-safe */
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-family-sans);
@@ -154,7 +153,6 @@ body {
   overscroll-behavior: none;
 }
 
-/* PWA safe areas */
 @supports (padding: max(0px)) {
   body {
     padding-top: max(env(safe-area-inset-top), var(--space-sm));
@@ -180,6 +178,11 @@ select,
 textarea {
   font: inherit;
   color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  touch-action: manipulation;
 }
 
 /* ------------------------------------------------------
@@ -206,8 +209,9 @@ a {
   color: var(--primary);
   text-decoration: none;
   border-bottom: 1px solid transparent;
-  transition: border-color var(--motion-duration-sm) var(--motion-easing),
-              color var(--motion-duration-sm) var(--motion-easing);
+  transition:
+    border-color var(--motion-duration-sm) var(--motion-easing),
+    color var(--motion-duration-sm) var(--motion-easing);
 }
 
 a:hover {
@@ -215,7 +219,7 @@ a:hover {
   border-bottom-color: currentColor;
 }
 
-/* Selection (fixes missing token bug by providing --primary-hsl above) */
+/* Selection */
 ::selection {
   background: hsl(var(--primary-hsl) / 0.28);
   color: var(--ink);
@@ -231,11 +235,11 @@ a:hover {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: var(--surface); }
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--primary) 85%, black 15%);
+  background: rgba(var(--primary-rgb) / 0.85); /* avoid color-mix() */
   border-radius: var(--radius-full);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--primary-dark) 85%, black 15%);
+  background: rgba(var(--primary-rgb) / 1);
 }
 
 /* ------------------------------------------------------
@@ -297,7 +301,7 @@ a:hover {
   .card { box-shadow: none !important; }
 }
 
-/* Slightly larger base type on mobile for readability */
+/* Slightly larger base type on mobile */
 @media (max-width: 768px) {
   :root {
     --font-size-sm: 0.9375rem;
@@ -305,7 +309,7 @@ a:hover {
   }
 }
 
-/* Landscape tablet “music stand mode” helpers */
+/* Landscape “music stand mode” helpers */
 @media (max-height: 500px) and (orientation: landscape) {
   .app-wrapper { padding: var(--space-sm); }
   .module-container { gap: var(--space-sm); }
@@ -318,8 +322,6 @@ a:hover {
 
 /* ------------------------------------------------------
    7) Common VMQ layout primitives
-   (keeps basic pages like share.html/import.html readable
-    even if components.css loads late or is missing)
    ------------------------------------------------------ */
 .module-container {
   width: min(960px, 100%);
@@ -349,9 +351,10 @@ a:hover {
   padding: 0.75rem 1rem;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: transform var(--motion-duration-sm) var(--motion-easing),
-              box-shadow var(--motion-duration-sm) var(--motion-easing),
-              background var(--motion-duration-sm) var(--motion-easing);
+  transition:
+    transform var(--motion-duration-sm) var(--motion-easing),
+    box-shadow var(--motion-duration-sm) var(--motion-easing),
+    background var(--motion-duration-sm) var(--motion-easing);
 }
 
 .btn:hover {
@@ -364,7 +367,7 @@ a:hover {
 .btn-primary {
   background: linear-gradient(135deg, var(--primary), var(--primary-dark));
   border-color: transparent;
-  color: white;
+  color: #fff;
 }
 
 .btn:disabled,
@@ -373,6 +376,27 @@ a:hover {
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
+}
+
+/* Inputs baseline (helps modules that rely on plain <input>) */
+input[type="text"],
+input[type="email"],
+input[type="number"],
+input[type="password"],
+textarea,
+select {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.9rem;
+  box-shadow: 0 0 0 0 transparent;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 /* ------------------------------------------------------
@@ -392,7 +416,6 @@ a:hover {
   transition: opacity var(--motion-duration-base) var(--motion-easing);
 }
 
-/* Your index.html toggles `.active` */
 .loading-screen.active {
   opacity: 1;
   pointer-events: auto;
