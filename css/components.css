@@ -1627,5 +1627,53 @@
   }
 }
 
+/* ======================================================================
+   KEY SIGNATURES — Mastery Legend (CSS-only, no DOM changes)
+   Injects a kid-friendly legend into the mastery modal header.
+   ====================================================================== */
 
+.mastery-panel { position: relative; }
+
+/* If your modal has .mastery-header (as in your KeySignatures component) */
+.mastery-panel .mastery-header::after {
+  content: "🟦 New   🟨 Learning   🟪 Review   🟩 Mastered   🟥 Needs work";
+  display: block;
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 85%, transparent 15%);
+  color: var(--ink-light);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.35;
+  text-align: center;
+}
+
+/* Optional: add a tiny helper line under the legend */
+.mastery-panel .mastery-header::before {
+  content: "Tap a key to jump to that key’s question.";
+  display: block;
+  margin-top: var(--space-2xs);
+  color: var(--ink-lighter);
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* Make sure the close button stays clickable and the header doesn't get cramped */
+.mastery-panel .mastery-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-sm);
+  align-items: start;
+}
+
+/* Mobile: allow wrapping without squishing */
+@media (max-width: 520px) {
+  .mastery-panel .mastery-header::after {
+    text-align: left;
+  }
+}
 
