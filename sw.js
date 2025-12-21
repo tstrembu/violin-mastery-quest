@@ -1,4 +1,4 @@
-/* sw.js — VMQ Safe PWA Worker (drop-in) — v3.0.7
+/* sw.js — VMQ Safe PWA Worker (drop-in) — v3.0.8
    Goals:
    - Never respond with 400s for valid requests (fail with 503 text/plain when needed)
    - Navigation fallback to offline.html (documents ONLY)
@@ -9,7 +9,7 @@
 
 /* global self, caches, indexedDB */
 
-const VMQ_VERSION = '3.0.7';
+const VMQ_VERSION = '3.0.8';
 
 // Derive base-path from registration scope (GH Pages safe; no hardcoding)
 const SCOPE_URL = new URL(self.registration.scope); // e.g. https://host/violin-mastery-quest/
