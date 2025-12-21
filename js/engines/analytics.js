@@ -68,6 +68,27 @@ function safeTrack(category, action, payload) {
   }
 }
 
+// --------------------------------------
+// Public: trackEvent() (backward-compatible named export)
+// Many UI modules import { trackEvent } from '../engines/analytics.js'.
+// This MUST exist as a named export to prevent ESM import failures.
+// --------------------------------------
+export function trackEvent(category, action, payload = {}) {
+  try {
+    safeTrack(category, action, payload);
+    // Optional: record lightweight event breadcrumbs for debugging
+    if (typeof window !== 'undefined') {
+      window.__VMQ_EVENT_LOG__ = window.__VMQ_EVENT_LOG__ || [];
+      const list = window.__VMQ_EVENT_LOG__;
+      list.push({ ts: Date.now(), category, action, payload });
+      if (list.length > 200) list.splice(0, list.length - 200);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function toMs(ts, fallback = Date.now()) {
   const t = new Date(ts).getTime();
   return Number.isFinite(t) ? t : fallback;
@@ -1730,8 +1751,8 @@ export default {
   updateStats,
   getQuickStat,
   exportAnalytics,
+  trackEvent,
   getModuleProgress,
   generateMLRecommendations,
   generateSmartRecommendations,
-  generateAdvancedAIInsights
-};
+  generateAdvancedAIInsights};
