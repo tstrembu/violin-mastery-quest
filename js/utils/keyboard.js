@@ -6,7 +6,7 @@
 // ======================================
 
 import { sessionTracker } from '../engines/sessionTracker.js';
-import { a11y } from './utils/accessibility.js';
+import { a11y } from './accessibility.js';
 
 // ======================================
 // KEYBOARD MANAGER - VMQ Shortcuts
