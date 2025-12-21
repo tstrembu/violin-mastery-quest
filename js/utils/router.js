@@ -21,6 +21,8 @@ export const VMQ_ROUTES = {
   GOALS: 'dailygoals',
   ACHIEVEMENTS: 'achievements',
   ANALYTICS: 'analytics',
+  MENU: 'menu',
+  WELCOME: 'welcome',
 
   INTERVALS: 'intervals',
   INTERVAL_EAR: 'interval-ear',
