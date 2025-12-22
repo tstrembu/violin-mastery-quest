@@ -568,7 +568,7 @@ Merged “best-of” (no feature loss):
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
               logDiagnostic('SW', 'Update available (updatefound)');
               window.dispatchEvent(new CustomEvent('vmq-update-available', {
-                detail: { version: '3.0.7', cacheBust: Date.now() }
+                detail: { version: '3.0.9.0.6', cacheBust: Date.now() }
               }));
             }
           });
