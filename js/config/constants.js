@@ -116,6 +116,27 @@ export const XP_VALUES = devFreeze({
 export const XPVALUES = XP_VALUES;
 
 // --------------------------------------
+// ACHIEVEMENTS (UI metadata)
+// Keep IDs in sync with js/engines/gamification.js checkAchievements().
+// --------------------------------------
+export const ACHIEVEMENTS = Object.freeze([
+  { id: 'first_note',        title: 'First Note!',        description: 'Answer your first question.',                                  icon: '🎵', category: 'Getting started' },
+  { id: 'first_streak',      title: 'Warm Streak',        description: 'Reach a 3-day practice streak.',                               icon: '🔥', category: 'Consistency' },
+  { id: 'intervals_master',  title: 'Intervals Master',   description: 'Intervals module ≥90% accuracy with ≥50 attempts.',            icon: '🎯', category: 'Mastery' },
+  { id: 'keys_master',       title: 'Key Signature Master',description:'Key signatures module ≥90% accuracy with ≥50 attempts.',        icon: '🗝️', category: 'Mastery' },
+  { id: 'rhythm_master',     title: 'Rhythm Master',      description: 'Rhythm module ≥90% accuracy with ≥50 attempts.',               icon: '🥁', category: 'Mastery' },
+  { id: 'bieler_master',     title: 'Bieler Lab Master',  description: 'Bieler Lab module ≥90% accuracy with ≥50 attempts.',           icon: '🧪', category: 'Mastery' },
+  { id: '100_questions',     title: 'Century',            description: 'Answer 100 total questions.',                                  icon: '💯', category: 'Milestones' },
+  { id: '500_questions',     title: 'Five Hundred',       description: 'Answer 500 total questions.',                                  icon: '🏅', category: 'Milestones' },
+  { id: '1000_questions',    title: 'One Thousand',       description: 'Answer 1000 total questions.',                                 icon: '🏆', category: 'Milestones' },
+  { id: 'level_10',          title: 'Level 10',           description: 'Reach XP level 10 (≈3000 XP).',                                icon: '📈', category: 'Progress' },
+  { id: 'week_7',            title: 'One Week Strong',    description: 'Best streak reaches 7 days.',                                  icon: '📅', category: 'Consistency' },
+  { id: 'month_30',          title: 'One Month Strong',   description: 'Best streak reaches 30 days.',                                 icon: '🗓️', category: 'Consistency' },
+  { id: 'year_100',          title: 'Centurion Streak',   description: 'Best streak reaches 100 days.',                                icon: '🛡️', category: 'Consistency' },
+  { id: 'sm2_retention_85',  title: 'Memory Machine',     description: 'Spaced repetition retention ≥85%.',                            icon: '🧠', category: 'Spaced repetition' },
+]);
+
+// --------------------------------------
 // INTERVALS - With Repertoire Mapping & Pedagogical Context
 // --------------------------------------
 
