@@ -271,7 +271,91 @@ export function analyzePerformance(timeframe = 'week', options = {}) {
   };
 }
 
+// --------------------------------------
+// Public UI helpers expected by components
+// - getProgressSummary()
+// - getAllModuleStats()
+// - getStrengthsWeaknesses()
+// These are thin wrappers around analyzePerformance() so UI modules can stay simple.
+// --------------------------------------
+
+export function getProgressSummary(timeframe = 'all') {
+  const a = analyzePerformance(timeframe, {
+    includePredictions: false,
+    includePatterns: false,
+    includeOptimization: false,
+    includeBreakthrough: false
+  });
+
+  const modules = Array.isArray(a?.modules) ? a.modules : [];
+  const mastered = modules.filter(m => (m.mastery || 0) >= 90 && (m.attempts || 0) >= 10).length;
+
+  return {
+    totalQuestions: Number(a?.totalQuestions || 0),
+    overallAccuracy: Number(a?.overallAccuracy || 0),
+    masteredModules: mastered,
+    totalModules: modules.length
+  };
+}
+
+export function getAllModuleStats(timeframe = 'all') {
+  const a = analyzePerformance(timeframe, {
+    includePredictions: false,
+    includePatterns: false,
+    includeOptimization: false,
+    includeBreakthrough: false
+  });
+
+  const modules = Array.isArray(a?.modules) ? a.modules : [];
+
+  // Add lightweight UI fields expected by Analytics.js
+  return modules.map((m) => {
+    const mastery = Number(m.mastery || 0);
+    const accuracy = Number(m.accuracy || 0);
+    const attempts = Number(m.attempts || 0);
+
+    let status = { label: 'Building', color: '#6c757d' };
+    if (mastery >= 90 && attempts >= 10) status = { label: 'Mastered', color: '#28a745' };
+    else if (accuracy >= 85 && attempts >= 10) status = { label: 'Strong', color: '#17a2b8' };
+    else if (accuracy < 70 && attempts >= 5) status = { label: 'Needs focus', color: '#dc3545' };
+
+    return {
+      id: m.moduleKey || m.module || 'module',
+      name: m.module || m.moduleKey || 'Module',
+      icon: m.icon || '📚',
+      status,
+      accuracy,
+      attempts,
+      avgResponseTime: Number(m.avgResponseTime || 0),
+      recentAccuracy: Number(m.recentAccuracy || 0),
+      improvement: Number(m.improvement || 0),
+      trend: Number(m.trend || 0),
+      consistency: Number(m.consistency || 0),
+      lastPracticed: Number(m.lastPracticed || 0),
+      difficulty: m.difficulty || 'medium',
+      mastery
+    };
+  });
+}
+
+export function getStrengthsWeaknesses(timeframe = 'all') {
+  const a = analyzePerformance(timeframe, {
+    includePredictions: false,
+    includePatterns: false,
+    includeOptimization: false,
+    includeBreakthrough: false
+  });
+
+  return {
+    strengths: Array.isArray(a?.strengths) ? a.strengths : [],
+    weaknesses: Array.isArray(a?.weaknesses) ? a.weaknesses : [],
+    masteryZones: Array.isArray(a?.masteryZones) ? a.masteryZones : [],
+    growthOpportunities: Array.isArray(a?.growthOpportunities) ? a.growthOpportunities : []
+  };
+}
+
 // ======================================
+
 // ✅ ML Bridge (required by App.js)
 // App.js expects:
 //   const recommendations = await generateMLRecommendations();
@@ -1747,7 +1831,7 @@ function calculateStyleConfidence(categoryScores) {
 // Default export (keeps prior API shape)
 // --------------------------------------
 export default {
-  analyzePerformance,
+analyzePerformance,
   updateStats,
   getQuickStat,
   exportAnalytics,
@@ -1755,4 +1839,6 @@ export default {
   getModuleProgress,
   generateMLRecommendations,
   generateSmartRecommendations,
-  generateAdvancedAIInsights};
+  generateAdvancedAIInsights,
+  getAllModuleStats,  getProgressSummary,  getStrengthsWeaknesses
+};
