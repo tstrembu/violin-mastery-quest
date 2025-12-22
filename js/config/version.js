@@ -4,7 +4,7 @@
 // ML Feature Gating • Analytics • 50+ Modules Production
 // ======================================
 
-export const VMQ_VERSION = '3.0.6.1.9';
+export const VMQ_VERSION = '3.0.9.0.6';
 export const VMQ_BUILD_DATE = '2025-12-16';
 export const VMQ_RELEASE = 'Bieler Method + ML Adaptive + 8 Engines LIVE';
 export const VMQ_REPO_URL = 'https://github.com/violin-mastery-quest/vmq';
