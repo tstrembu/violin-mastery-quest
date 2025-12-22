@@ -11,8 +11,8 @@
 //
 // NOTE: Keep this file dependency-light (no DOM, no React) so it can be imported anywhere.
 
-import { VMQ_VERSION } from './version.js';
-export { VMQ_VERSION }; // Re-export for convenience
+import { VMQ_VERSION, FEATURES } from './version.js';
+export { VMQ_VERSION, FEATURES }; // Re-export for convenience
 
 // --------------------------------------
 // STORAGE KEYS (single source of truth)
@@ -117,24 +117,213 @@ export const XPVALUES = XP_VALUES;
 
 // --------------------------------------
 // ACHIEVEMENTS (UI metadata)
-// Keep IDs in sync with js/engines/gamification.js checkAchievements().
+//
+// IMPORTANT:
+// - Gamification engine unlocks achievements by `id`.
+// - UI/Analytics expects a stable list of achievement metadata.
+// - Keep these IDs in sync with js/engines/gamification.js checkAchievements().
 // --------------------------------------
-export const ACHIEVEMENTS = Object.freeze([
-  { id: 'first_note',        title: 'First Note!',        description: 'Answer your first question.',                                  icon: '🎵', category: 'Getting started' },
-  { id: 'first_streak',      title: 'Warm Streak',        description: 'Reach a 3-day practice streak.',                               icon: '🔥', category: 'Consistency' },
-  { id: 'intervals_master',  title: 'Intervals Master',   description: 'Intervals module ≥90% accuracy with ≥50 attempts.',            icon: '🎯', category: 'Mastery' },
-  { id: 'keys_master',       title: 'Key Signature Master',description:'Key signatures module ≥90% accuracy with ≥50 attempts.',        icon: '🗝️', category: 'Mastery' },
-  { id: 'rhythm_master',     title: 'Rhythm Master',      description: 'Rhythm module ≥90% accuracy with ≥50 attempts.',               icon: '🥁', category: 'Mastery' },
-  { id: 'bieler_master',     title: 'Bieler Lab Master',  description: 'Bieler Lab module ≥90% accuracy with ≥50 attempts.',           icon: '🧪', category: 'Mastery' },
-  { id: '100_questions',     title: 'Century',            description: 'Answer 100 total questions.',                                  icon: '💯', category: 'Milestones' },
-  { id: '500_questions',     title: 'Five Hundred',       description: 'Answer 500 total questions.',                                  icon: '🏅', category: 'Milestones' },
-  { id: '1000_questions',    title: 'One Thousand',       description: 'Answer 1000 total questions.',                                 icon: '🏆', category: 'Milestones' },
-  { id: 'level_10',          title: 'Level 10',           description: 'Reach XP level 10 (≈3000 XP).',                                icon: '📈', category: 'Progress' },
-  { id: 'week_7',            title: 'One Week Strong',    description: 'Best streak reaches 7 days.',                                  icon: '📅', category: 'Consistency' },
-  { id: 'month_30',          title: 'One Month Strong',   description: 'Best streak reaches 30 days.',                                 icon: '🗓️', category: 'Consistency' },
-  { id: 'year_100',          title: 'Centurion Streak',   description: 'Best streak reaches 100 days.',                                icon: '🛡️', category: 'Consistency' },
-  { id: 'sm2_retention_85',  title: 'Memory Machine',     description: 'Spaced repetition retention ≥85%.',                            icon: '🧠', category: 'Spaced repetition' },
+
+export const ACHIEVEMENTS = devFreeze([
+  {
+    id: 'first_note',
+    title: 'First Note!',
+    description: 'Answer your first question.',
+    icon: '🎵',
+    category: 'Getting started',
+  },
+  {
+    id: 'first_streak',
+    title: 'Warm Streak',
+    description: 'Reach a 3‑day practice streak.',
+    icon: '🔥',
+    category: 'Consistency',
+  },
+  {
+    id: 'intervals_master',
+    title: 'Intervals Master',
+    description: 'Intervals module ≥90% accuracy with ≥50 attempts.',
+    icon: '🎯',
+    category: 'Mastery',
+  },
+  {
+    id: 'keys_master',
+    title: 'Key Signature Master',
+    description: 'Key signatures module ≥90% accuracy with ≥50 attempts.',
+    icon: '🗝️',
+    category: 'Mastery',
+  },
+  {
+    id: 'rhythm_master',
+    title: 'Rhythm Master',
+    description: 'Rhythm module ≥90% accuracy with ≥50 attempts.',
+    icon: '🥁',
+    category: 'Mastery',
+  },
+  {
+    id: 'bieler_master',
+    title: 'Bieler Lab Master',
+    description: 'Bieler Lab module ≥90% accuracy with ≥50 attempts.',
+    icon: '🧪',
+    category: 'Mastery',
+  },
+  {
+    id: '100_questions',
+    title: 'Century',
+    description: 'Answer 100 total questions.',
+    icon: '💯',
+    category: 'Milestones',
+  },
+  {
+    id: '500_questions',
+    title: 'Five Hundred',
+    description: 'Answer 500 total questions.',
+    icon: '🏅',
+    category: 'Milestones',
+  },
+  {
+    id: '1000_questions',
+    title: 'One Thousand',
+    description: 'Answer 1000 total questions.',
+    icon: '🏆',
+    category: 'Milestones',
+  },
+  {
+    id: 'level_10',
+    title: 'Level 10',
+    description: 'Reach XP level 10 (≈3000 XP).',
+    icon: '📈',
+    category: 'Progress',
+  },
+  {
+    id: 'week_7',
+    title: 'One Week Strong',
+    description: 'Best streak reaches 7 days.',
+    icon: '📅',
+    category: 'Consistency',
+  },
+  {
+    id: 'month_30',
+    title: 'One Month Strong',
+    description: 'Best streak reaches 30 days.',
+    icon: '🗓️',
+    category: 'Consistency',
+  },
+  {
+    id: 'year_100',
+    title: 'Centurion Streak',
+    description: 'Best streak reaches 100 days.',
+    icon: '🛡️',
+    category: 'Consistency',
+  },
+  {
+    id: 'sm2_retention_85',
+    title: 'Memory Machine',
+    description: 'Spaced repetition retention ≥85%.',
+    icon: '🧠',
+    category: 'Spaced repetition',
+  },
 ]);
+
+
+// --------------------------------------
+// NOTE-READING SUPPORT DATA (Flashcards)
+// --------------------------------------
+
+// Common accidentals for basic note-name drills.
+export const SHARPS = devFreeze(['C#', 'D#', 'F#', 'G#', 'A#']);
+export const FLATS  = devFreeze(['Db', 'Eb', 'Gb', 'Ab', 'Bb']);
+
+// Ledger-line helpers (kept simple; modules can extend locally).
+// Values are note names (pitch-class only) for UI hinting.
+export const LEGER_LINES = devFreeze({
+  treble: {
+    below: devFreeze(['C', 'D', 'E']),          // C4, D4, E4 below staff (conceptual)
+    above: devFreeze(['A', 'B', 'C', 'D']),     // A5, B5, C6, D6 above staff (conceptual)
+  },
+});
+
+// Basic position metadata (used by note-reading / fingerboard UI).
+export const POSITIONS = devFreeze([
+  { id: '1st', name: '1st Position',  difficulty: 1, label: '1st',  rangeHint: 'Open–E5' },
+  { id: '3rd', name: '3rd Position',  difficulty: 2, label: '3rd',  rangeHint: 'B3–G5' },
+  { id: '5th', name: '5th Position',  difficulty: 3, label: '5th',  rangeHint: 'D4–A5' },
+  { id: '7th', name: '7th Position',  difficulty: 4, label: '7th',  rangeHint: 'F4–C6' },
+]);
+
+// Positive reinforcement (used across modules).
+export const PRAISE_MESSAGES = devFreeze([
+  'Nice!',
+  'Great job!',
+  'Excellent!',
+  'Awesome!',
+  'Beautiful!',
+  'Yes!',
+  'That’s it!',
+  'Well done!',
+  'Strong!',
+  'Perfect!',
+  'Keep going!',
+  'You’re getting it!',
+]);
+
+// --------------------------------------
+// PRACTICE PLANNER - Technique Task Library
+// --------------------------------------
+//
+// These are reusable “building blocks” for the Practice Planner and Bieler Lab.
+// Keep IDs stable once shipped (they can be referenced in saved plans).
+//
+export const TECHNIQUE_TASKS = devFreeze([
+  // Tone / Bow
+  { id: 'open_strings_tone', category: 'Tone', label: 'Open strings (tone + straight bow)', minutes: 3, focus: 'Sound/Contact point', bieler: 'Round tone, full resonance' },
+  { id: 'bow_divisions',     category: 'Bow',  label: 'Bow divisions (whole → 1/2 → 1/4)', minutes: 4, focus: 'Control', bieler: 'Bow distribution and balance' },
+  { id: 'string_crossings',  category: 'Bow',  label: 'String crossings (2-string patterns)', minutes: 4, focus: 'Coordination', bieler: 'Anticipation + clean levels' },
+
+  // Left hand / Intonation
+  { id: 'finger_patterns',   category: 'Left Hand', label: 'Finger patterns (low-2 / high-2)', minutes: 4, focus: 'Hand frame', bieler: 'Stable frame, relaxed fingers' },
+  { id: 'intonation_drones', category: 'Intonation', label: 'Drones (3rds/6ths/tonic)', minutes: 4, focus: 'Pitch center', bieler: 'Listen → adjust micro-moves' },
+  { id: 'shifts_slow',       category: 'Shifting', label: 'Shifts (slow gliss + landing)', minutes: 4, focus: 'Accuracy', bieler: 'Guide finger + arrival prep' },
+
+  // Rhythm / Reading
+  { id: 'rhythm_clap_count', category: 'Rhythm', label: 'Clap + count (subdivision)', minutes: 3, focus: 'Pulse', bieler: 'Internal rhythm, clear hierarchy' },
+  { id: 'sight_read_8bars',  category: 'Reading', label: 'Sight-read 8 bars (easy)', minutes: 4, focus: 'Flow', bieler: 'Keep going, recover quickly' },
+
+  // Scales / Arpeggios
+  { id: 'scale_1oct',        category: 'Scales', label: 'Scale (1 octave, tuned)', minutes: 4, focus: 'Mapping', bieler: 'Fingerboard geometry awareness' },
+  { id: 'arpeggio_1oct',     category: 'Scales', label: 'Arpeggio (1 octave)', minutes: 3, focus: 'Chords', bieler: 'Harmonic hearing + frame' },
+
+  // Repertoire focus
+  { id: 'repertoire_slow',   category: 'Repertoire', label: 'Repertoire (slow, small loops)', minutes: 6, focus: 'Problem solving', bieler: 'Isolate → refine → reintegrate' },
+]);
+
+// --------------------------------------
+// SETTINGS - Profile Types
+// --------------------------------------
+//
+// Used by Settings + goal recommendations. IDs should match Welcome.js (beginner/intermediate/advanced).
+//
+export const PROFILE_TYPES = devFreeze({
+  beginner: {
+    id: 'beginner',
+    label: 'Beginner',
+    description: 'Suzuki Books 1–2 • Fundamentals & confidence',
+    color: '#16a34a',
+  },
+  intermediate: {
+    id: 'intermediate',
+    label: 'Intermediate',
+    description: 'Suzuki Books 3–5 • Solid technique & reading growth',
+    color: '#2563eb',
+  },
+  advanced: {
+    id: 'advanced',
+    label: 'Advanced',
+    description: 'Kreutzer/Concerti • Refinement, speed, artistry',
+    color: '#7c3aed',
+  },
+});
+
 
 // --------------------------------------
 // INTERVALS - With Repertoire Mapping & Pedagogical Context
