@@ -148,7 +148,7 @@ const Bieler        = React.lazy(() => import('./components/Bieler.js'));
 const Fingerboard   = React.lazy(() => import('./components/Fingerboard.js'));
 const ScalesLab     = React.lazy(() => import('./components/ScalesLab.js'));
 const Flashcards    = React.lazy(() => import('./components/Flashcards.js'));
-const Interval-Ear  = React.lazy(() => import('./components/IntervalEarTester.js'));
+const IntervalEar   = React.lazy(() => import('./components/IntervalEarTester.js'));
 
 // Hardened optional modules (these are the ones your screenshots show failing)
 const Settings = SafeLazy('Settings', [
