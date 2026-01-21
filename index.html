@@ -568,7 +568,7 @@ Merged “best-of” (no feature loss):
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
               logDiagnostic('SW', 'Update available (updatefound)');
               window.dispatchEvent(new CustomEvent('vmq-update-available', {
-                detail: { version: '3.0.9.0.6', cacheBust: Date.now() }
+                detail: { version: '3.0.9.0.9', cacheBust: Date.now() }
               }));
             }
           });
@@ -651,6 +651,8 @@ Merged “best-of” (no feature loss):
     // Mount wait (shell stays until vmq-app-mounted)
     // ------------------------------------------------------------
     function waitForReactMount({ timeoutMs = 12000 } = {}) {
+      try { if (window.__VMQ_MOUNTED__) return Promise.resolve('already-mounted'); } catch {}
+
       return new Promise((resolve) => {
         let done = false;
         const finish = (why) => { if (!done) { done = true; resolve(why); } };
@@ -718,9 +720,10 @@ Merged “best-of” (no feature loss):
     // ------------------------------------------------------------
     (async () => {
       try {
+        const mountPromise = waitForReactMount({ timeoutMs: 12000 });
         await bootstrap();
 
-        const why = await waitForReactMount({ timeoutMs: 12000 });
+        const why = await mountPromise;
         if (why === 'timeout') {
           logDiagnostic('BOOT', 'React mount timeout (shell retained)');
           setStatus('Still loading… If stuck, enable ?vmq-diagnostics=1');
