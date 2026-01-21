@@ -1146,6 +1146,7 @@ function bootstrap() {
     container.render(AppWithML);
 
     // Signal the shell that React is alive (prevents “flash then blank”)
+    try { window.__VMQ_MOUNTED__ = true; } catch {}
     window.dispatchEvent(new CustomEvent('vmq-app-mounted', { detail: { version: VMQ_VERSION } }));
     // eslint-disable-next-line no-console
     console.log(`[VMQ v${VMQ_VERSION}] ✓ Live`);
