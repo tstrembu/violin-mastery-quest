@@ -9,7 +9,7 @@
 
 /* global self, caches, indexedDB */
 
-const VMQ_VERSION = '3.0.9.8.9';
+const VMQ_VERSION = '3.0.9.0.9';
 
 // Derive base-path from registration scope (GH Pages safe; no hardcoding)
 const SCOPE_URL = new URL(self.registration.scope); // e.g. https://host/violin-mastery-quest/
