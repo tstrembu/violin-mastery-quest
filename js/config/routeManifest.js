@@ -18,6 +18,12 @@ export const ROUTE_ALIASES = Object.freeze({
   scaleslab: 'scales',
   practicejournal: 'journal',
   practiceplanner: 'practiceplanner',
+  // Legacy / UI route variants
+  'speed-drill': 'speeddrill',
+  speeddrill: 'speeddrill',
+  'tempo-trainer': 'tempotrainer',
+  tempotrainer: 'tempotrainer',
+  intervalear: 'interval-ear',
 });
 
 /**
@@ -92,21 +98,27 @@ export const ROUTE_TO_COMPONENT_FILE = Object.freeze({
 
   intervals: 'Intervals.js',
   'interval-ear': 'IntervalEarTester.js',
-  'interval-sprint': 'IntervalSprint.js',
+  // Not currently a separate module file in this repo; route resolves to Intervals.
+  'interval-sprint': 'Intervals.js',
 
   keys: 'KeySignatures.js',
-  'key-tester': 'KeyTester.js',
+  // Not currently a separate module file in this repo; route resolves to KeySignatures.
+  'key-tester': 'KeySignatures.js',
 
   rhythm: 'Rhythm.js',
-  'rhythm-drills': 'RhythmDrills.js',
+  // Not currently a separate module file in this repo; route resolves to Rhythm.
+  'rhythm-drills': 'Rhythm.js',
 
-  tempotrainer: 'TempoTrainer.js',
-  speeddrill: 'SpeedDrill.js',
+  // Drill routes are served by Testers hub in this repo.
+  tempotrainer: 'Testers.js',
+  speeddrill: 'Testers.js',
 
   bieler: 'Bieler.js',
-  bielerlab: 'BielerLab.js',
+  // Not currently a separate module file in this repo; route resolves to Bieler.
+  bielerlab: 'Bieler.js',
   fingerboard: 'Fingerboard.js',
-  notelocator: 'NoteLocator.js',
+  // Not currently a separate module file in this repo; route resolves to Fingerboard.
+  notelocator: 'Fingerboard.js',
   scales: 'ScalesLab.js',
 
   // ✅ Required routes per your prompt:
@@ -118,7 +130,8 @@ export const ROUTE_TO_COMPONENT_FILE = Object.freeze({
 
   practiceplanner: 'PracticePlanner.js',
   achievements: 'Achievements.js',
-  dailygoals: 'DailyGoals.js',
+  // Not currently a separate module file in this repo; route resolves to PracticePlanner.
+  dailygoals: 'PracticePlanner.js',
   testers: 'Testers.js',
 });
 
