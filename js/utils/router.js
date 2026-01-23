@@ -69,6 +69,10 @@ const ROUTER_STORAGE_KEYS = {
 const ROUTE_ALIASES = {
   scaleslab: 'scales',
   practicejournal: 'journal',
+  // UI / legacy variants
+  'speed-drill': 'speeddrill',
+  'tempo-trainer': 'tempotrainer',
+  intervalear: 'interval-ear',
 };
 
 // ------------------------------------------------------
@@ -84,33 +88,36 @@ export const ROUTE_TO_COMPONENT_FILE = {
 
   intervals: 'Intervals.js',
   'interval-ear': 'IntervalEarTester.js',
-  'interval-sprint': 'IntervalSprint.js',
+  // Not shipped in this repo; resolve to an existing module.
+  'interval-sprint': 'Intervals.js',
   keys: 'KeySignatures.js',
-  'key-tester': 'KeyTester.js',
+  // Not shipped in this repo; resolve to an existing module.
+  'key-tester': 'KeySignatures.js',
   rhythm: 'Rhythm.js',
-  'rhythm-drills': 'RhythmDrills.js',
-  tempotrainer: 'TempoTrainer.js',
-  speeddrill: 'SpeedDrill.js',
+  // Not shipped in this repo; resolve to an existing module.
+  'rhythm-drills': 'Rhythm.js',
+  // Drill routes are served by Testers hub in this repo.
+  tempotrainer: 'Testers.js',
+  speeddrill: 'Testers.js',
 
   bieler: 'Bieler.js',
-  bielerlab: 'BielerLab.js',
+  // Not shipped in this repo; resolve to an existing module.
+  bielerlab: 'Bieler.js',
   fingerboard: 'Fingerboard.js',
-  notelocator: 'NoteLocator.js',
+  // Not shipped in this repo; resolve to an existing module.
+  notelocator: 'Fingerboard.js',
   scales: 'ScalesLab.js',
 
   coach: 'CoachPanel.js',
-  dailygoals: 'DailyGoals.js',
+  // Not shipped in this repo; resolve to an existing module.
+  dailygoals: 'PracticePlanner.js',
   achievements: 'Achievements.js',
   practiceplanner: 'PracticePlanner.js',
   journal: 'PracticeJournal.js',
-  statsvisualizer: 'StatsVisualizer.js',
-  snapshot: 'Snapshot.js',
-  customdrill: 'CustomDrill.js',
   flashcards: 'Flashcards.js',
   datamanager: 'DataManager.js',
-  referencelibrary: 'ReferenceLibrary.js',
   testers: 'Testers.js',
-  positioncharts: 'PositionCharts.js'
+  // Non-shipped pages (keep keys out of the map to prevent 404 prefetches)
 };
 
 function safeDecodeURIComponent(s) {
@@ -118,7 +125,10 @@ function safeDecodeURIComponent(s) {
 }
 
 export function normalizeRouteSlug(route) {
-  const r = (route || '').toString().trim().toLowerCase();
+  let r = (route || '').toString().trim();
+  if (r.startsWith('#')) r = r.slice(1);
+  r = r.replace(/^\/+/, '');
+  r = r.toLowerCase();
   return ROUTE_ALIASES[r] || r;
 }
 
