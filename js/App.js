@@ -174,6 +174,11 @@ const Planner = SafeLazy('Planner', [
   './components/PracticeJournal.js',
 ]);
 
+// Testers hub (includes speed/tempo/key drills). Used as a safe target for legacy routes.
+const Testers = SafeLazy('Testers', [
+  './components/Testers.js',
+]);
+
 // --------------------------------------
 // Defaults
 // --------------------------------------
@@ -312,6 +317,17 @@ const ROUTE_ALIASES = Object.freeze({
 
   // Achievements button:
   achievements: 'achievements',
+
+  // Legacy/experimental drill routes used by MainMenu and older builds
+  'speed-drill': 'testers',
+  speeddrill: 'testers',
+  'intervalear': 'interval-ear',
+  intervalear: 'interval-ear',
+  'ear': 'interval-ear',
+  'tempo-trainer': 'testers',
+  tempotrainer: 'testers',
+  tester: 'testers',
+  tests: 'testers',
 });
 
 const ROUTES = {
@@ -332,14 +348,18 @@ const ROUTES = {
   fingerboard: Fingerboard,
   scales: ScalesLab,
   flashcards: Flashcards,
+  'interval-ear': IntervalEar,
 
   // Additional modules used by your UI
   achievements: Achievements,
   planner: Planner,
+  testers: Testers,
 
   // Explicit route keys (even if aliased) to eliminate “Route Not Found”
   'spaced-rep': Flashcards,
   review: Flashcards,
+  'speed-drill': Testers,
+  intervalear: IntervalEar,
 };
 
 // --------------------------------------
